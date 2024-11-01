@@ -429,6 +429,7 @@ function acUStringToBytes(W: PWideChar; ACount: Integer): RawByteString;
 // The acDecodeUtf8 returns an empty string if UTF8 sequence is malformed
 function acDecodeUtf8(const Source: AnsiString): UnicodeString;
 function acEncodeUtf8(const Source: UnicodeString): AnsiString;
+function acUnicodeToUtf8(Dest: PAnsiChar; MaxDestChars: Integer; Source: PWideChar; SourceLen: Integer): Integer; inline;
 function acUtf8IsWellformed(Source: PAnsiChar; SourceBytes: Integer): Boolean;
 function acUtf8ToUnicode(Dest: PWideChar; MaxDestChars: Integer; Source: PAnsiChar; SourceBytes: Integer): Integer;
 // Delphi: just maps to acDecodeUtf8 / acEncodeUtf8
@@ -1120,6 +1121,11 @@ end;
 //==============================================================================
 // UTF8
 //==============================================================================
+
+function acUnicodeToUtf8(Dest: PAnsiChar; MaxDestChars: Integer; Source: PWideChar; SourceLen: Integer): Integer;
+begin
+  Result := System.UnicodeToUtf8(Dest, MaxDestChars, Source, SourceLen);
+end;
 
 function acUtf8IsWellformed(Source: PAnsiChar; SourceBytes: Integer): Boolean;
 begin

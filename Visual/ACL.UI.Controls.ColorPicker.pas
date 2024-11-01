@@ -106,7 +106,7 @@ type
     property B: Byte read GetB write SetB;
     // Utils
     property GrayScale: Single read GetGrayScale;
-    //
+    // Events
     property OnChanged: TNotifyEvent read FOnChanged write FOnChanged;
   end;
 
@@ -136,7 +136,7 @@ type
     destructor Destroy; override;
     function CalculateAutoSize(var AWidth, AHeight: Integer): Boolean; override;
     procedure SetTargetDPI(AValue: Integer); override;
-    //
+    // Properties
     property Color: TACLColorPickerColorInfo read FColor;
     property Options: TACLColorPickerOptions read FOptions;
     property Painter: TACLColorPickerPainter read FPainter;
@@ -145,7 +145,7 @@ type
     property StyleEditButton: TACLStyleButton read FStyleEditButton;
     property StyleHatch: TACLStyleHatch read FStyleHatch;
     property TargetDPI: Integer read FTargetDPI;
-    //
+    // Events
     property OnColorChanged: TNotifyEvent read FOnColorChanged write FOnColorChanged;
   end;
 
@@ -158,7 +158,7 @@ type
   public
     function BorderSize: Integer; virtual;
     procedure DrawBorder(ACanvas: TCanvas; const R: TRect); virtual;
-    //
+    // Properties
     property Style: TACLStyleContent read GetStyle;
     property StyleHatch: TACLStyleHatch read GetStyleHatch;
   end;
@@ -186,7 +186,7 @@ type
     procedure RecreateSubCells; override;
   public
     procedure Calculate(const R: TRect; AChanges: TIntegerSet); override;
-    //
+    // Properties
     property SubClass: TACLColorPickerSubClass read GetSubClass;
   end;
 
@@ -209,7 +209,7 @@ type
   public
     procedure DragMove(X, Y: Integer); virtual;
     function MeasureSize: TSize; virtual; abstract;
-    //
+    // Properties
     property ColorInfo: TACLColorPickerColorInfo read GetColorInfo;
     property Painter: TACLColorPickerPainter read GetPainter;
     property SubClass: TACLColorPickerSubClass read GetSubClass;
@@ -311,12 +311,8 @@ type
 implementation
 
 uses
-{$IFDEF FPC}
-  ACL.Graphics.Ex.Cairo;
-{$ELSE}
-  ACL.Graphics.Ex.Gdip,
+  ACL.Graphics.Ex,
   ACL.Graphics.SkinImageSet;
-{$ENDIF}
 
 type
   TACLCustomEditAccess = class(TACLCustomEdit);
@@ -1053,17 +1049,17 @@ procedure TACLColorPickerGamutCell.UpdateContentCache(ACanvas: TCanvas; AWidth, 
 var
   I: Integer;
 begin
-  GpPaintCanvas.BeginPaint(ACanvas);
+  ExPainter.BeginPaint(ACanvas);
   try
     for I := 0 to AWidth - 1 do
     begin
-      GpPaintCanvas.FillRectangleByGradient(
+      ExPainter.FillRectangleByGradient(Rect(I, 0, I + 1, AHeight),
         TAlphaColor.FromColor(TACLColors.HSLToRGB(I / AWidth, 1, 0.5)),
         TAlphaColor.FromColor(TACLColors.HSLToRGB(I / AWidth, 0, 0.5)),
-        Rect(I, 0, I + 1, AHeight), True);
+        True);
     end;
   finally
-    GpPaintCanvas.EndPaint;
+    ExPainter.EndPaint;
   end;
 end;
 
@@ -1160,13 +1156,12 @@ end;
 procedure TACLColorPickerAlphaSliderCell.UpdateContentCache(ACanvas: TCanvas; AWidth, AHeight: Integer);
 begin
   Painter.StyleHatch.Draw(ACanvas, Rect(0, 0, AWidth, AHeight), 2);
-  GpPaintCanvas.BeginPaint(ACanvas);
+  ExPainter.BeginPaint(ACanvas);
   try
-    GpPaintCanvas.FillRectangleByGradient(0,
-      TAlphaColor.FromColor(ColorInfo.Color),
-      Rect(0, 0, AWidth, AHeight), True);
+    ExPainter.FillRectangleByGradient(Rect(0, 0, AWidth, AHeight),
+      TAlphaColor.None, TAlphaColor.FromColor(ColorInfo.Color), True);
   finally
-    GpPaintCanvas.EndPaint;
+    ExPainter.EndPaint;
   end;
 end;
 
@@ -1188,13 +1183,15 @@ procedure TACLColorPickerLightnessSliderCell.UpdateContentCache(ACanvas: TCanvas
 var
   AColor: TAlphaColor;
 begin
-  GpPaintCanvas.BeginPaint(ACanvas);
+  ExPainter.BeginPaint(ACanvas);
   try
     AColor := TAlphaColor.FromColor(TACLColors.HSLtoRGB(ColorInfo.H, ColorInfo.S, 0.5));
-    GpPaintCanvas.FillRectangleByGradient($FFFFFFFF, AColor, Rect(0, 0, AWidth, AHeight div 2), True);
-    GpPaintCanvas.FillRectangleByGradient(AColor, $FF000000, Rect(0, AHeight div 2, AWidth, AHeight), True);
+    ExPainter.FillRectangleByGradient(
+      Rect(0, 0, AWidth, AHeight div 2), $FFFFFFFF, AColor, True);
+    ExPainter.FillRectangleByGradient(
+      Rect(0, AHeight div 2, AWidth, AHeight), AColor, $FF000000, True);
   finally
-    GpPaintCanvas.EndPaint;
+    ExPainter.EndPaint;
   end;
 end;
 

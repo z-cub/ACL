@@ -72,6 +72,14 @@ const
   gmVertical         = LinearGradientModeVertical;
 {$ENDREGION}
 
+const
+  InterpolationModeMap: array[TACLBoolean] of TInterpolationMode = (
+    InterpolationModeDefault, InterpolationModeLowQuality, InterpolationModeHighQuality
+  );
+  PixelOffsetModeMap: array[TACLImagePixelOffsetMode] of PixelOffsetMode = (
+    PixelOffsetModeDefault, PixelOffsetModeHalf, PixelOffsetModeNone
+  );
+
 type
 
   { EGdipException }
@@ -120,32 +128,28 @@ type
 
   { TACLGdiplusRender }
 
-  TACLGdiplusRender = class(TACL2DRender,
-    IACL2DRenderGdiCompatible)
+  TACLGdiplusRender = class(TACL2DRender, IACL2DRenderGdiCompatible)
   strict private
     FPixelThickness: Single;
 
     procedure AdjustRectToGdiLikeAppearance(var X2, Y2: Single); inline;
     procedure GdipSetOrigin(ASet: Boolean); inline;
-    function GetInterpolationMode: TInterpolationMode;
-    function GetPixelOffsetMode: TPixelOffsetMode;
-    function GetSmoothingMode: TSmoothingMode;
-    procedure SetInterpolationMode(AValue: TInterpolationMode);
-    procedure SetPixelOffsetMode(AValue: TPixelOffsetMode);
-    procedure SetSmoothingMode(AValue: TSmoothingMode);
     procedure UpdatePixelThickness;
   protected
     FGraphics: GpGraphics;
-
     // IACL2DRenderGdiCompatible
     procedure GdiDraw(Proc: TACL2DRenderGdiDrawProc);
   public
-    constructor Create; overload; virtual;
-    constructor Create(DC: HDC); overload;
-    constructor Create(Graphics: GpGraphics); overload;
+    constructor Create; overload; override;
+    constructor Create(DC: HDC); reintroduce; overload;
+    constructor Create(Graphics: GpGraphics); reintroduce; overload;
     destructor Destroy; override;
     procedure BeginPaint(DC: HDC; const Unused1, Unused2: TRect); override;
     procedure EndPaint; override;
+
+    // General
+    function Name: string; override;
+    function FriendlyName: string; override;
 
     // Clipping
     function Clip(const R: TRect; out Data: TACL2DRenderRawData): Boolean; override;
@@ -184,13 +188,15 @@ type
       StrokeWidth: Single = 1; StrokeStyle: TACL2DRenderStrokeStyle = ssSolid); override;
     procedure FillHatchRectangle(const R: TRect; Color1, Color2: TAlphaColor; Size: Integer); override;
     procedure FillRectangle(X1, Y1, X2, Y2: Single; Color: TAlphaColor); override;
-    procedure FillRectangleByGradient(AColor1, AColor2: TAlphaColor; const R: TRect; AVertical: Boolean);
+    procedure FillRectangleByGradient(const R: TRect;
+      Color1, Color2: TAlphaColor; Vertical: Boolean); override;
 
     // Text
     procedure DrawText(const Text: string; const R: TRect; Color: TAlphaColor; Font: TFont;
       HorzAlign: TAlignment = taLeftJustify; VertAlign: TVerticalAlignment = taVerticalCenter;
       WordWrap: Boolean = False); override;
-    procedure MeasureText(const Text: string; Font: TFont; var Rect: TRect; WordWrap: Boolean);
+    procedure MeasureText(const Text: string; Font: TFont;
+      var Rect: TRect; WordWrap: Boolean); override;
 
     // Path
     function CreatePath: TACL2DRenderPath; override;
@@ -212,10 +218,12 @@ type
     procedure TransformPoints(Points: PPointF; Count: Integer); override;
     procedure TranslateWorldTransform(OffsetX, OffsetY: Single); override;
 
+    // Options
+    procedure SetGeometrySmoothing(AValue: TACLBoolean); override;
+    procedure SetImageSmoothing(AValue: TACLBoolean); override;
+    procedure SetPixelOffsetMode(AMode: TACLImagePixelOffsetMode); override;
+
     property NativeHandle: GpGraphics read FGraphics;
-    property InterpolationMode: TInterpolationMode read GetInterpolationMode write SetInterpolationMode;
-    property PixelOffsetMode: TPixelOffsetMode read GetPixelOffsetMode write SetPixelOffsetMode;
-    property SmoothingMode: TSmoothingMode read GetSmoothingMode write SetSmoothingMode;
   end;
 
 {$ENDREGION}
@@ -232,8 +240,7 @@ type
   public
     constructor Create; override;
     destructor Destroy; override;
-    procedure BeginPaint(Canvas: TCanvas); reintroduce; overload;
-    procedure BeginPaint(DC: HDC); reintroduce; overload;
+    procedure BeginPaint(DC: HDC); override;
     procedure BeginPaint(DC: HDC; const Unused1, Unused2: TRect); override;
     procedure EndPaint; override;
   end;
@@ -267,7 +274,6 @@ var
     (0.0, 0.0, 0.0, 1.0, 0.0),
     (0.0, 0.0, 0.0, 0.0, 1.0)
   );
-  GpPaintCanvas: TACLGdiplusPaintCanvas;
 
 procedure GdipCheck(AStatus: GpStatus);
 procedure GdipFree;
@@ -276,9 +282,6 @@ procedure GdipInit;
 function GpCreateBitmap(AWidth, AHeight: Integer;
   ABits: PByte = nil; APixelFormat: Integer = PixelFormat32bppPARGB): GpImage;
 function GpGetCodecByMimeType(const AMimeType: UnicodeString; out ACodecID: TGUID): Boolean;
-procedure GpFillRect(DC: HDC; const R: TRect; AColor: TAlphaColor);
-procedure GpFocusRect(DC: HDC; const R: TRect; AColor: TAlphaColor);
-procedure GpFrameRect(DC: HDC; const R: TRect; AColor: TAlphaColor; AFrameSize: Integer);
 procedure GpDrawImage(AGraphics: GpGraphics; AImage: GpImage; AImageAttributes: GpImageAttributes;
   const ADestRect, ASourceRect: TRect; ATileDrawingMode: Boolean); overload;
 procedure GpDrawImage(AGraphics: GpGraphics; AImage: GpImage;
@@ -287,10 +290,6 @@ implementation
 
 uses
   System.Math;
-
-const
-  sErrorInvalidGdipOperation = 'Invalid operation in GDI+ (Code: %d)';
-  sErrorPaintCanvasAlreadyBusy = 'PaintCanvas is already busy!';
 
 type
   TACLImageAccess = class(TACLImage);
@@ -345,7 +344,7 @@ var
 
 procedure GdipFree;
 begin
-  FreeAndNil(GpPaintCanvas);
+  FreeAndNil(ExPainter);
   TACLGdiplusAlphaBlendAttributes.Finalize;
   TACLGdiplusResourcesCache.Flush;
   if gdiplusTokenOwned then
@@ -381,57 +380,6 @@ function GpCreateBitmap(AWidth, AHeight: Integer; ABits: PByte = nil;
 begin
   if GdipCreateBitmapFromScan0(AWidth, AHeight, AWidth * 4, APixelFormat, ABits, Result) <> Ok then
     Result := nil;
-end;
-
-//------------------------------------------------------------------------------
-// Fill Rect
-//------------------------------------------------------------------------------
-
-procedure GpFillRect(DC: HDC; const R: TRect; AColor: TAlphaColor);
-begin
-  if AColor.IsValid then
-  begin
-    GpPaintCanvas.BeginPaint(DC);
-    try
-      GpPaintCanvas.FillRectangle(R, AColor);
-    finally
-      GpPaintCanvas.EndPaint;
-    end;
-  end;
-end;
-
-procedure GpFrameRect(DC: HDC; const R: TRect; AColor: TAlphaColor; AFrameSize: Integer);
-begin
-  if AColor <> TAlphaColor.None then
-  begin
-    GpPaintCanvas.BeginPaint(DC);
-    try
-      GpPaintCanvas.DrawRectangle(R, AColor, AFrameSize);
-    finally
-      GpPaintCanvas.EndPaint;
-    end;
-  end;
-end;
-
-procedure GpFocusRect(DC: HDC; const R: TRect; AColor: TAlphaColor);
-var
-  APrevOrg, AOrg: TPoint;
-begin
-  if AColor <> TAlphaColor.None then
-  begin
-    GetWindowOrgEx(DC, AOrg);
-    SetBrushOrgEx(DC, AOrg.X, AOrg.Y, @APrevOrg);
-    try
-      GpPaintCanvas.BeginPaint(DC);
-      try
-        GpPaintCanvas.DrawRectangle(R, AColor, 1, ssDot);
-      finally
-        GpPaintCanvas.EndPaint;
-      end;
-    finally
-      SetBrushOrgEx(DC, APrevOrg.X, APrevOrg.Y, nil);
-    end;
-  end;
 end;
 
 //------------------------------------------------------------------------------
@@ -629,7 +577,7 @@ end;
 
 constructor EGdipException.Create(AStatus: GpStatus);
 begin
-  CreateFmt(sErrorInvalidGdipOperation, [Ord(AStatus)]);
+  CreateFmt('Invalid operation in GDI+ (Code: %d)', [Ord(AStatus)]);
   FStatus := AStatus;
 end;
 
@@ -888,6 +836,7 @@ end;
 
 constructor TACLGdiplusRender.Create;
 begin
+  inherited;
   FPixelThickness := 1.0;
 end;
 
@@ -979,6 +928,11 @@ begin
   GdipCheck(GdipMultiplyWorldTransform(NativeHandle, AMatrix, MatrixOrderPrepend));
   GdipCheck(GdipDeleteMatrix(AMatrix));
   UpdatePixelThickness;
+end;
+
+function TACLGdiplusRender.Name: string;
+begin
+  Result := 'GDI+';
 end;
 
 procedure TACLGdiplusRender.RestoreWorldTransform(State: TACL2DRenderRawData);
@@ -1336,7 +1290,7 @@ begin
 end;
 
 procedure TACLGdiplusRender.FillRectangleByGradient(
-  AColor1, AColor2: TAlphaColor; const R: TRect; AVertical: Boolean);
+  const R: TRect; Color1, Color2: TAlphaColor; Vertical: Boolean);
 var
   ABrush: GpBrush;
   ABrushRect: TGpRect;
@@ -1347,8 +1301,8 @@ begin
   ABrushRect.Height := R.Height + 2;
   if (ABrushRect.Width > 0) and (ABrushRect.Height > 0) then
   try
-    if GdipCreateLineBrushFromRectI(@ABrushRect, AColor1, AColor2,
-      TACLMath.IfThen(AVertical, gmVertical, gmHorizontal),
+    if GdipCreateLineBrushFromRectI(@ABrushRect, Color1, Color2,
+      TACLMath.IfThen(Vertical, gmVertical, gmHorizontal),
       WrapModeTile, ABrush) = Ok then
     try
       GdipFillRectangleI(NativeHandle, ABrush,
@@ -1361,7 +1315,12 @@ begin
   end;
 end;
 
-procedure TACLGdiplusRender.Line(X1, Y1, X2, Y2: Single; 
+function TACLGdiplusRender.FriendlyName: string;
+begin
+  Result := Name;
+end;
+
+procedure TACLGdiplusRender.Line(X1, Y1, X2, Y2: Single;
   Color: TAlphaColor; Width: Single; Style: TACL2DRenderStrokeStyle);
 begin
   if Color.IsValid and (Width > 0) then
@@ -1406,34 +1365,26 @@ begin
   end;
 end;
 
-function TACLGdiplusRender.GetInterpolationMode: TInterpolationMode;
+procedure TACLGdiplusRender.SetGeometrySmoothing(AValue: TACLBoolean);
 begin
-  GdipCheck(GdipGetInterpolationMode(NativeHandle, Result));
+  case AValue of
+    TACLBoolean.True:
+      GdipSetSmoothingMode(NativeHandle, SmoothingModeHighQuality);
+    TACLBoolean.False:
+      GdipSetSmoothingMode(NativeHandle, SmoothingModeNone);
+  else
+    GdipSetSmoothingMode(NativeHandle, SmoothingModeDefault);
+  end;
 end;
 
-function TACLGdiplusRender.GetPixelOffsetMode: TPixelOffsetMode;
+procedure TACLGdiplusRender.SetImageSmoothing(AValue: TACLBoolean);
 begin
-  GdipCheck(GdipGetPixelOffsetMode(NativeHandle, Result));
+  GdipSetInterpolationMode(NativeHandle, InterpolationModeMap[AValue]);
 end;
 
-function TACLGdiplusRender.GetSmoothingMode: TSmoothingMode;
+procedure TACLGdiplusRender.SetPixelOffsetMode(AMode: TACLImagePixelOffsetMode);
 begin
-  GdipCheck(GdipGetSmoothingMode(NativeHandle, Result));
-end;
-
-procedure TACLGdiplusRender.SetInterpolationMode(AValue: TInterpolationMode);
-begin
-  GdipSetInterpolationMode(NativeHandle, AValue)
-end;
-
-procedure TACLGdiplusRender.SetPixelOffsetMode(AValue: TPixelOffsetMode);
-begin
-  GdipSetPixelOffsetMode(NativeHandle, AValue);
-end;
-
-procedure TACLGdiplusRender.SetSmoothingMode(AValue: TSmoothingMode);
-begin
-  GdipSetSmoothingMode(NativeHandle, AValue);
+  GdipSetPixelOffsetMode(NativeHandle, PixelOffsetModeMap[AMode]);
 end;
 
 {$ENDREGION}
@@ -1464,11 +1415,6 @@ begin
   inherited Destroy;
 end;
 
-procedure TACLGdiplusPaintCanvas.BeginPaint(Canvas: TCanvas);
-begin
-  BeginPaint(Canvas.Handle);
-end;
-
 procedure TACLGdiplusPaintCanvas.BeginPaint(DC: HDC);
 begin
   if NativeHandle <> nil then
@@ -1494,7 +1440,7 @@ begin
 end;
 
 initialization
-  GpPaintCanvas := TACLGdiplusPaintCanvas.Create;
+
 finalization
   if IsLibrary then // shutdown must not be called from DLL finalization
     GdiplusTokenOwned := False;

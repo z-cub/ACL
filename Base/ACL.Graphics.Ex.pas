@@ -42,6 +42,8 @@ uses
   ACL.Graphics,
   ACL.Graphics.Images,
   ACL.Graphics.SkinImage,
+  ACL.Math,
+  ACL.Threading,
   ACL.Utils.Common,
   ACL.Utils.DPIAware;
 
@@ -144,6 +146,7 @@ type
   TACL2DRenderResource = class
   protected
     FOwner: TACL2DRender;
+    FOwnerSerial: Integer;
   public
     constructor Create(AOwner: TACL2DRender);
     procedure Release; virtual;
@@ -195,14 +198,23 @@ type
 
   TACL2DRenderRawData = type Pointer;
 
+  TACL2DRenderClass = class of TACL2DRender;
   TACL2DRender = class(TACLUnknownObject)
+  strict private
+    FSerial: Integer;
   protected
     FOrigin: TPoint;
   public
+    constructor Create; virtual;
+    procedure BeginPaint(DC: HDC); overload; virtual;
     procedure BeginPaint(DC: HDC; const BoxRect: TRect); overload;
     procedure BeginPaint(DC: HDC; const BoxRect, UpdateRect: TRect); overload; virtual; abstract;
+    procedure BeginPaint(ACanvas: TCanvas); overload; virtual;
     procedure EndPaint; virtual; abstract;
 
+    // General
+    function FriendlyName: string; virtual; abstract;
+    function Name: string; virtual; abstract;
     // Resources
     function IsValid(const AResource: TACL2DRenderResource): Boolean; inline;
 
@@ -262,10 +274,16 @@ type
     procedure FillHatchRectangle(const R: TRect; Color1, Color2: TAlphaColor; Size: Integer); virtual; abstract;
     procedure FillRectangle(const R: TRect; Color: TAlphaColor); overload;
     procedure FillRectangle(X1, Y1, X2, Y2: Single; Color: TAlphaColor); overload; virtual; abstract;
+    procedure FillRectangleByGradient(const R: TRect;
+      Color1, Color2: TAlphaColor; Vertical: Boolean); virtual; abstract;
 
     // Text
-    procedure DrawText(const Text: string; const R: TRect; Color: TAlphaColor; Font: TFont;
-      HorzAlign: TAlignment = taLeftJustify; VertAlign: TVerticalAlignment = taVerticalCenter;
+    procedure MeasureText(const Text: string; Font: TFont;
+      var Rect: TRect; WordWrap: Boolean); virtual; abstract;
+    procedure DrawText(const Text: string; const R: TRect;
+      Color: TAlphaColor; Font: TFont;
+      HorzAlign: TAlignment = taLeftJustify;
+      VertAlign: TVerticalAlignment = taVerticalCenter;
       WordWrap: Boolean = False); virtual; abstract;
 
     // Paths
@@ -294,25 +312,32 @@ type
     // WindowOrg
     function ModifyOrigin(DeltaX, DeltaY: Integer): TPoint{Previous}; virtual;
     procedure SetOrigin(const Origin: TPoint); virtual;
+
+    // Options
+    procedure SetGeometrySmoothing(AValue: TACLBoolean); virtual;
+    procedure SetImageSmoothing(AValue: TACLBoolean); virtual;
+    procedure SetPixelOffsetMode(AMode: TACLImagePixelOffsetMode); virtual;
   protected
     property Origin: TPoint read FOrigin write SetOrigin;
+    property Serial: Integer read FSerial;
   end;
 
 {$ENDREGION}
 
   // BackgroundLayer is a target layer
-  TACLBlendFunction = procedure (BackgroundLayer, ForegroundLayer: TACLDib; Alpha: Byte) of object;
+  TACLBlendFunction = procedure (Background, Foreground: TACLDib; Alpha: Byte) of object;
+//  TACLBlendDrawFunction = procedure (Canvas: TCanvas; Foreground: TACLDib;
+//    const Origin: TPoint; Mode: TACLBlendMode; Alpha: Byte);
 
 var
-  FBlendFunctions: array[TACLBlendMode] of TACLBlendFunction;
-  FBlendFunctionsThreadingThreshold: Integer = 800 * 800; // px
+  BlendFunctions: array[TACLBlendMode] of TACLBlendFunction;
+  BlendFunctionsThreadingThreshold: Integer = 800 * 800; // px
+  ExPainter: TACL2DRender = nil;
 
 implementation
 
 uses
-  ACL.FastCode,
-  ACL.Math,
-  ACL.Threading;
+  ACL.FastCode;
 
 type
   TACLImageAccess = class(TACLImage);
@@ -367,25 +392,25 @@ type
     class function CalculateSubstractMatrix(const ASource, ATarget: Integer): Integer; static;
   protected
     // General
-    class procedure Run(ABackgroundLayer, AForegroundLayer: TACLDib;
+    class procedure Run(ABackground, AForeground: TACLDib;
       AProc: TACLMultithreadedOperation.TFilterProc; AOpacity: Byte); overload;
-    class procedure Run(ABackgroundLayer, AForegroundLayer: TACLDib;
+    class procedure Run(ABackground, AForeground: TACLDib;
       var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc; AOpacity: Byte); overload;
   public
     class procedure Register;
     class procedure Unregister;
     // Blend Functions
-    class procedure DoAddition(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoDarken(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoDifference(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoDivide(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoGrayScale(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoLighten(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoMultiply(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoNormal(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoOverlay(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoScreen(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
-    class procedure DoSubstract(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+    class procedure DoAddition(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoDarken(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoDifference(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoDivide(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoGrayScale(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoLighten(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoMultiply(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoNormal(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoOverlay(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoScreen(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoSubstract(ABackground, AForeground: TACLDib; AAlpha: Byte);
   end;
 
   { TACLSoftwareImplGaussianBlur }
@@ -461,17 +486,17 @@ type
 class procedure TACLSoftwareImplBlendMode.Register;
 begin
   FLock := TACLCriticalSection.Create;
-  FBlendFunctions[bmAddition] := DoAddition;
-  FBlendFunctions[bmDarken] := DoDarken;
-  FBlendFunctions[bmDifference] := DoDifference;
-  FBlendFunctions[bmDivide] := DoDivide;
-  FBlendFunctions[bmGrayscale] := DoGrayScale;
-  FBlendFunctions[bmLighten] := DoLighten;
-  FBlendFunctions[bmMultiply] := DoMultiply;
-  FBlendFunctions[bmNormal] := DoNormal;
-  FBlendFunctions[bmOverlay] := DoOverlay;
-  FBlendFunctions[bmScreen] := DoScreen;
-  FBlendFunctions[bmSubstract] := DoSubstract;
+  BlendFunctions[bmAddition] := DoAddition;
+  BlendFunctions[bmDarken] := DoDarken;
+  BlendFunctions[bmDifference] := DoDifference;
+  BlendFunctions[bmDivide] := DoDivide;
+  BlendFunctions[bmGrayscale] := DoGrayScale;
+  BlendFunctions[bmLighten] := DoLighten;
+  BlendFunctions[bmMultiply] := DoMultiply;
+  BlendFunctions[bmNormal] := DoNormal;
+  BlendFunctions[bmOverlay] := DoOverlay;
+  BlendFunctions[bmScreen] := DoScreen;
+  BlendFunctions[bmSubstract] := DoSubstract;
 end;
 
 class procedure TACLSoftwareImplBlendMode.Unregister;
@@ -488,63 +513,63 @@ begin
   FreeAndNil(FLock);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoAddition(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoAddition(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FAdditionMatrix, CalculateAdditionMatrix, AAlpha);
+  Run(ABackground, AForeground, FAdditionMatrix, CalculateAdditionMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDarken(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDarken(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FDarkenMatrix, CalculateDarkenMatrix, AAlpha);
+  Run(ABackground, AForeground, FDarkenMatrix, CalculateDarkenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDifference(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDifference(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FDifferenceMatrix, CalculateDifferenceMatrix, AAlpha);
+  Run(ABackground, AForeground, FDifferenceMatrix, CalculateDifferenceMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDivide(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDivide(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FDivideMatrix, CalculateDivideMatrix, AAlpha);
+  Run(ABackground, AForeground, FDivideMatrix, CalculateDivideMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoGrayScale(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoGrayScale(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, @ProcessGrayScale, AAlpha);
+  Run(ABackground, AForeground, @ProcessGrayScale, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoLighten(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoLighten(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FLightenMatrix, CalculateLightenMatrix, AAlpha);
+  Run(ABackground, AForeground, FLightenMatrix, CalculateLightenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoMultiply(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoMultiply(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FMultiplyMatrix, CalculateMultiplyMatrix, AAlpha);
+  Run(ABackground, AForeground, FMultiplyMatrix, CalculateMultiplyMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoNormal(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoNormal(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  AForegroundLayer.DrawBlend(ABackgroundLayer.Canvas, NullPoint, AAlpha);
+  AForeground.DrawBlend(ABackground.Canvas, NullPoint, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoOverlay(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoOverlay(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FOverlayMatrix, CalculateOverlayMatrix, AAlpha);
+  Run(ABackground, AForeground, FOverlayMatrix, CalculateOverlayMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoScreen(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoScreen(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FScreenMatrix, CalculateScreenMatrix, AAlpha);
+  Run(ABackground, AForeground, FScreenMatrix, CalculateScreenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoSubstract(ABackgroundLayer, AForegroundLayer: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoSubstract(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackgroundLayer, AForegroundLayer, FSubstractMatrix, CalculateSubstractMatrix, AAlpha);
+  Run(ABackground, AForeground, FSubstractMatrix, CalculateSubstractMatrix, AAlpha);
 end;
 
 class procedure TACLSoftwareImplBlendMode.Run(
-  ABackgroundLayer, AForegroundLayer: TACLDib;
+  ABackground, AForeground: TACLDib;
   AProc: TACLMultithreadedOperation.TFilterProc; AOpacity: Byte);
 var
   AChunks: TChunks;
@@ -552,7 +577,7 @@ begin
   FLock.Enter;
   try
     FWorkOpacity := AOpacity;
-    AChunks := BuildChunks(ABackgroundLayer, AForegroundLayer);
+    AChunks := BuildChunks(ABackground, AForeground);
     try
       TACLMultithreadedOperation.Run(@AChunks.List[0], AChunks.Count, AProc);
     finally
@@ -564,14 +589,14 @@ begin
 end;
 
 class procedure TACLSoftwareImplBlendMode.Run(
-  ABackgroundLayer, AForegroundLayer: TACLDib; var AMatrix: PACLPixelMap;
+  ABackground, AForeground: TACLDib; var AMatrix: PACLPixelMap;
   AProc: TCalculateMatrixProc; AOpacity: Byte);
 begin
   FLock.Enter;
   try
     InitializeMatrix(AMatrix, AProc);
     FWorkMatrix := AMatrix;
-    Run(ABackgroundLayer, AForegroundLayer, @ProcessByMatrix, AOpacity);
+    Run(ABackground, AForeground, @ProcessByMatrix, AOpacity);
   finally
     FLock.Leave;
   end;
@@ -589,7 +614,7 @@ begin
   if (ATarget.Width <> ASource.Width) or (ATarget.Height <> ASource.Height) then
     raise EInvalidOperation.Create('Cannot blend DIBs with different sizes');
 
-  if ASource.ColorCount >= FBlendFunctionsThreadingThreshold then
+  if ASource.ColorCount >= BlendFunctionsThreadingThreshold then
     AChunkCount := CPUCount
   else
     AChunkCount := 1;
@@ -1494,10 +1519,12 @@ end;
 constructor TACL2DRenderResource.Create(AOwner: TACL2DRender);
 begin
   FOwner := AOwner;
+  FOwnerSerial := AOwner.Serial;
 end;
 
 procedure TACL2DRenderResource.Release;
 begin
+  FOwnerSerial := 0;
   FOwner := nil;
 end;
 
@@ -1534,14 +1561,28 @@ end;
 
 { TACL2DRender }
 
-function TACL2DRender.IsValid(const AResource: TACL2DRenderResource): Boolean;
+constructor TACL2DRender.Create;
 begin
-  Result := (AResource <> nil) and (AResource.FOwner = Self);
+  FSerial := Random(MaxInt) + 1;
+end;
+
+procedure TACL2DRender.BeginPaint(DC: HDC);
+var
+  LRect: TRect;
+begin
+  LRect := NullRect;
+  GetClipBox(DC, {$IFDEF FPC}@{$ENDIF}LRect);
+  BeginPaint(DC, LRect);
 end;
 
 procedure TACL2DRender.BeginPaint(DC: HDC; const BoxRect: TRect);
 begin
   BeginPaint(DC, BoxRect, BoxRect)
+end;
+
+procedure TACL2DRender.BeginPaint(ACanvas: TCanvas);
+begin
+  BeginPaint(ACanvas.Handle);
 end;
 
 function TACL2DRender.CreateImage(Image: TACLImage): TACL2DRenderImage;
@@ -1614,6 +1655,13 @@ begin
       AImage.Free;
     end;
   end;
+end;
+
+function TACL2DRender.IsValid(const AResource: TACL2DRenderResource): Boolean;
+begin
+  Result := (AResource <> nil) and
+    (AResource.FOwner = Self) and
+    (AResource.FOwnerSerial = Serial);
 end;
 
 procedure TACL2DRender.DrawImage(
@@ -1748,6 +1796,21 @@ begin
   FOrigin := Origin;
 end;
 
+procedure TACL2DRender.SetPixelOffsetMode(AMode: TACLImagePixelOffsetMode);
+begin
+  // unsupported
+end;
+
+procedure TACL2DRender.SetGeometrySmoothing(AValue: TACLBoolean);
+begin
+  // unsupported
+end;
+
+procedure TACL2DRender.SetImageSmoothing(AValue: TACLBoolean);
+begin
+  // unsupported
+end;
+
 { TACL2DRenderPath }
 
 procedure TACL2DRenderPath.AddRect(const R: TRectF);
@@ -1792,6 +1855,8 @@ end;
 initialization
   TACLSoftwareImplBlendMode.Register;
   TACLSoftwareImplStackBlur.Register;
+
 finalization
   TACLSoftwareImplBlendMode.Unregister;
+  FreeAndNil(ExPainter);
 end.

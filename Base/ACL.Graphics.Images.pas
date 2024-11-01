@@ -49,18 +49,7 @@ type
   TACLImageFormatClass = class of TACLImageFormat;
   TACLImageFormat = class;
 
-  TACLImageCompositingMode = (cmOver, cmReplace);
   TACLImagePixelOffsetMode = (ipomDefault, ipomHalf, ipomNone);
-  TACLImageStretchQuality = (
-    sqDefault             = 0,
-    sqLowQuality          = 1,
-    sqHighQuality         = 2,
-    sqBilinear            = 3,
-    sqBicubic             = 4,
-    sqNearestNeighbor     = 5,
-    sqHighQualityBilinear = 6,
-    sqHighQualityBicubic  = 7
-  );
 
   { EACLImageFormatError }
 
@@ -82,9 +71,8 @@ type
   {$IFNDEF FPC}
     FBits: TACLPixel32DynArray;
   {$ENDIF}
-    FComposingMode: TACLImageCompositingMode;
     FPixelOffsetMode: TACLImagePixelOffsetMode;
-    FStretchQuality: TACLImageStretchQuality;
+    FSmoothStretching: TACLBoolean;
     FHandle: TACLImageHandle;
 
     function GetClientRect: TRect;
@@ -109,7 +97,6 @@ type
   {$ENDIF}
     property Handle: TACLImageHandle read FHandle;
   public
-    constructor Create; overload;
     constructor Create(ABitmap: HBITMAP); overload;
     constructor Create(ABitmap: TBitmap; AAlphaFormat: TAlphaFormat = afPremultiplied); overload;
     constructor Create(AInstance: HINST; const AResName: string; AResType: PChar); overload;
@@ -174,9 +161,8 @@ type
     property Height: Integer read GetHeight;
     property Width: Integer read GetWidth;
     //# Draw Settings
-    property ComposingMode: TACLImageCompositingMode read FComposingMode write FComposingMode;
     property PixelOffsetMode: TACLImagePixelOffsetMode read FPixelOffsetMode write FPixelOffsetMode;
-    property StretchQuality: TACLImageStretchQuality read FStretchQuality write FStretchQuality;
+    property SmoothStretching: TACLBoolean read FSmoothStretching write FSmoothStretching;
   end;
 
   { TACLImageFormat }
@@ -355,9 +341,10 @@ type
 implementation
 
 uses
-{$IFDEF MSWINDOWS}
+  ACL.Math,
   ACL.FastCode,
-  ACL.Math, // inlining
+  ACL.Graphics.Ex,
+{$IFDEF MSWINDOWS}
   ACL.Graphics.Ex.Gdip,
 {$ELSE}
   ACL.Graphics.Ex.Cairo,
@@ -374,27 +361,18 @@ end;
 
 { TACLImage }
 
-constructor TACLImage.Create;
-begin
-  StretchQuality := sqDefault;
-  PixelOffsetMode := ipomDefault;
-end;
-
 constructor TACLImage.Create(ABitmap: HBITMAP);
 begin
-  Create;
   LoadFromBitmap(ABitmap);
 end;
 
 constructor TACLImage.Create(ABitmap: TBitmap; AAlphaFormat: TAlphaFormat = afPremultiplied);
 begin
-  Create;
   LoadFromBitmap(ABitmap, AAlphaFormat);
 end;
 
 constructor TACLImage.Create(AInstance: HINST; const AResName: string; AResType: PChar);
 begin
-  Create;
   LoadFromResource(AInstance, AResName, AResType);
 end;
 
@@ -650,19 +628,21 @@ begin
   LAlpha := AAlpha / 255;
   LSource := cairo_create_surface(Handle.Colors, Handle.Width, Handle.Height);
   try
-    GpPaintCanvas.BeginPaint(ACanvas);
+    CairoPainter.BeginPaint(ACanvas);
     try
+      CairoPainter.SetImageSmoothing(SmoothStretching);
+      CairoPainter.SetPixelOffsetMode(PixelOffsetMode);
       if AMargins.IsZero then
-        GpPaintCanvas.FillSurface(ATarget, ASource, LSource, LAlpha, ATile)
+        CairoPainter.FillSurface(ATarget, ASource, LSource, LAlpha, ATile)
       else
       begin
         acCalcPartBounds(LSourceParts, AMargins, ASource, ASource);
         acCalcPartBounds(LTargetParts, AMargins, ATarget, ASource);
         for LPart := Low(LPart) to High(LPart) do
-          GpPaintCanvas.FillSurface(LTargetParts[LPart], LSourceParts[LPart], LSource, LAlpha, ATile);
+          CairoPainter.FillSurface(LTargetParts[LPart], LSourceParts[LPart], LSource, LAlpha, ATile);
       end;
     finally
-      GpPaintCanvas.EndPaint;
+      CairoPainter.EndPaint;
     end;
   finally
     cairo_surface_destroy(LSource);
@@ -731,45 +711,23 @@ end;
 
 procedure TACLImage.Draw(Graphics: GpGraphics;
   const R, ASource: TRect; AAlpha: Byte; ATile: Boolean);
-const
-  PixelOffsetModeMap: array[TACLImagePixelOffsetMode] of TPixelOffsetMode = (
-    PixelOffsetModeDefault, PixelOffsetModeHalf, PixelOffsetModeNone
-  );
-  ComposingModeMap: array[TACLImageCompositingMode] of TCompositingMode = (
-    CompositingModeSourceOver,
-    CompositingModeSourceCopy
-  );
-  StretchQualityMap: array[TACLImageStretchQuality] of TInterpolationMode = (
-    InterpolationModeDefault,
-    InterpolationModeLowQuality,
-    InterpolationModeHighQuality,
-    InterpolationModeBilinear,
-    InterpolationModeBicubic,
-    InterpolationModeNearestNeighbor,
-    InterpolationModeHighQualityBilinear,
-    InterpolationModeHighQualityBicubic
-  );
 var
-  APrevComposingMode: TCompositingMode;
-  APrevInterpolationMode: TInterpolationMode;
-  APrevPixelOffsetMode: TPixelOffsetMode;
+  LPrevInterpolationMode: TInterpolationMode;
+  LPrevPixelOffsetMode: TPixelOffsetMode;
 begin
-  if (PixelOffsetMode <> ipomDefault) or (StretchQuality <> sqDefault) or (ComposingMode <> cmOver) then
+  if (PixelOffsetMode <> ipomDefault) or (SmoothStretching <> TACLBoolean.Default) then
   begin
-    GdipCheck(GdipGetCompositingMode(Graphics, APrevComposingMode));
-    GdipCheck(GdipGetPixelOffsetMode(Graphics, APrevPixelOffsetMode));
-    GdipCheck(GdipGetInterpolationMode(Graphics, APrevInterpolationMode));
+    GdipCheck(GdipGetPixelOffsetMode(Graphics, LPrevPixelOffsetMode));
+    GdipCheck(GdipGetInterpolationMode(Graphics, LPrevInterpolationMode));
     try
       if PixelOffsetMode <> ipomDefault then
         GdipSetPixelOffsetMode(Graphics, PixelOffsetModeMap[PixelOffsetMode]);
-      if StretchQuality <> sqDefault then
-        GdipSetInterpolationMode(Graphics, StretchQualityMap[StretchQuality]);
-      GdipSetCompositingMode(Graphics, ComposingModeMap[ComposingMode]);
+      if SmoothStretching <> TACLBoolean.Default then
+        GdipSetInterpolationMode(Graphics, InterpolationModeMap[SmoothStretching]);
       GpDrawImage(Graphics, FHandle, R, ASource, ATile, AAlpha);
     finally
-      GdipCheck(GdipSetInterpolationMode(Graphics, APrevInterpolationMode));
-      GdipCheck(GdipSetPixelOffsetMode(Graphics, APrevPixelOffsetMode));
-      GdipCheck(GdipSetCompositingMode(Graphics, APrevComposingMode));
+      GdipCheck(GdipSetInterpolationMode(Graphics, LPrevInterpolationMode));
+      GdipCheck(GdipSetPixelOffsetMode(Graphics, LPrevPixelOffsetMode));
     end;
   end
   else
@@ -1118,8 +1076,7 @@ var
 begin
   if Self = AImage then Exit;
 
-  FComposingMode := AImage.FComposingMode;
-  FStretchQuality := AImage.FStretchQuality;
+  FSmoothStretching := AImage.FSmoothStretching;
   FPixelOffsetMode := AImage.FPixelOffsetMode;
 
 {$IFDEF FPC}

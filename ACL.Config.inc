@@ -20,28 +20,26 @@
     {$MESSAGE FATAL 'ACL is not yet ready for other platforms via FPC/LCL'}
   {$ENDIF}
 
-  {$IFDEF LCLGtk2}
-    {$DEFINE ACL_CAIRO_TEXTOUT}
-  {$ENDIF}
-
   {$DEFINE DEBUG}
 {$ENDIF}
 
+{$IFDEF LCLGtk2}
+  {$DEFINE ACL_CAIRO}
+  {$DEFINE ACL_CAIRO_RENDER}
+  {$DEFINE ACL_CAIRO_TEXTOUT}
+{$ENDIF}
 
 {$IF DEFINED(CPUX64) OR DEFINED(CPU64)}
   {$DEFINE CPUX64}
 {$IFEND}
 
-
 {$IF DEFINED(CPUX64) OR DEFINED(FPC)}
   {$DEFINE ACL_PUREPASCAL}
 {$IFEND}
 
-
 {$IF NOT DEFINED(FPC)}
   {$WARN DUPLICATE_CTOR_DTOR OFF} // We does not support for C++Builder
 {$IFEND}
-
 
 // ---------------------------------------------------------------------------------------------------------------------
 // RTTI

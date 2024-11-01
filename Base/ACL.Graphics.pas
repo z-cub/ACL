@@ -184,6 +184,7 @@ type
   //  https://en.wikipedia.org/wiki/Alpha_compositing
   TACLBlendMode = (bmNormal, bmMultiply, bmScreen, bmOverlay, bmAddition,
     bmSubstract, bmDifference, bmDivide, bmLighten, bmDarken, bmGrayscale);
+  TACLBlendModes = set of TACLBlendMode;
 
   { TACLDib }
 
@@ -330,6 +331,7 @@ type
     CombineFuncMap: array[TACLRegionCombineFunc] of Integer = (
       RGN_OR, RGN_AND, RGN_XOR, RGN_DIFF, RGN_COPY
     );
+    MaxRegionSize = 30000;
   strict private
     FHandle: TRegionHandle;
 
@@ -368,16 +370,18 @@ type
     FData: Pointer;
     FDataSize: Integer;
     FRects: PRectArray;
-
-    procedure DataAllocate(ACount: Integer);
-    procedure DataFree;
     procedure SetCount(AValue: Integer);
+  strict protected
+    procedure DataAllocate(ACount: Integer);
+    procedure DataAllocateFromNativeHandle(APtr: Pointer);
+    procedure DataFree;
   public
     constructor Create(ACount: Integer);
+    constructor CreateFromDC(DC: HDC);
     constructor CreateFromHandle(ARgn: TRegionHandle);
     destructor Destroy; override;
-    function CreateHandle: TRegionHandle; overload;
-    function CreateHandle(const ARegionBounds: TRect): TRegionHandle; overload;
+    function BoundingBox: TRect;
+    function CreateHandle(const ABoundingBox: TRect): TRegionHandle;
     //# Properties
     property Rects: PRectArray read FRects;
     property Count: Integer read FCount write SetCount;
@@ -627,8 +631,7 @@ function acTextSize(AFont: TFont; const AText: PChar; ALength: Integer): TSize; 
 function acTextSizeMultiline(ACanvas: TCanvas;
   const AText: string; AMaxWidth: Integer = 0): TSize;
 
-procedure acSysDrawText(ACanvas: TCanvas;
-  var R: TRect; const AText: string; AFlags: Cardinal);
+procedure acSysDrawText(ACanvas: TCanvas; var R: TRect; const AText: string; AFlags: Cardinal);
 
 // Screen
 function MeasureCanvas: TACLMeasureCanvas;
@@ -637,22 +640,23 @@ implementation
 
 uses
 {$IFDEF LCLGtk2}
-  cairo,
-  gdk2,
-  gdk2pixbuf,
-  gtk2Def,
-  glib2,
+  Gdk2,
+  Gdk2pixbuf,
+  Glib2,
+  Gtk2Def,
+{$ENDIF}
+{$IFDEF ACL_CAIRO}
+  Cairo,
 {$ENDIF}
   ACL.Math,
   ACL.Graphics.Ex,
 {$IFDEF MSWINDOWS}
   ACL.Graphics.Ex.Gdip,
-{$ELSE}
+{$ENDIF}
+{$IFDEF ACL_CAIRO_TEXTOUT}
   ACL.Graphics.Ex.Cairo,
 {$ENDIF}
-{$IFNDEF ACL_CAIRO_TEXTOUT}
   ACL.Graphics.TextLayout,
-{$ENDIF}
   ACL.Utils.DPIAware,
   ACL.Utils.Strings;
 
@@ -1602,15 +1606,29 @@ begin
 end;
 
 procedure acDrawFocusRect(ACanvas: TCanvas; const R: TRect; AColor: TColor);
+{$IFDEF MSWINDOWS}
+var
+  AOrg, APrevOrg: TPoint;
+{$ENDIF}
 begin
   if AColor = clDefault then
     AColor := ACanvas.Font.Color;
   if AColor <> clNone then
+  begin
   {$IFDEF MSWINDOWS}
-    GpFocusRect(ACanvas.Handle, R, TAlphaColor.FromColor(AColor));
+    GetWindowOrgEx(ACanvas.Handle, AOrg);
+    SetBrushOrgEx(ACanvas.Handle, AOrg.X, AOrg.Y, @APrevOrg);
+    try
+      ExPainter.BeginPaint(ACanvas);
+      ExPainter.DrawRectangle(R, AColor, 1, ssDot);
+      ExPainter.EndPaint;
+    finally
+      SetBrushOrgEx(ACanvas.Handle, APrevOrg.X, APrevOrg.Y, nil);
+    end;
   {$ELSE}
     ACanvas.DrawFocusRect(R);
   {$ENDIF}
+  end;
 end;
 
 procedure acDrawHatch(DC: HDC; const R: TRect);
@@ -1853,9 +1871,9 @@ procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor);
 begin
   if AColor.IsValid then
   begin
-    GpPaintCanvas.BeginPaint(ACanvas);
-    GpPaintCanvas.FillRectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, AColor);
-    GpPaintCanvas.EndPaint;
+    ExPainter.BeginPaint(ACanvas);
+    ExPainter.FillRectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, AColor);
+    ExPainter.EndPaint;
   end;
 end;
 
@@ -1865,25 +1883,23 @@ var
 begin
   if AColor.IsValid then
   begin
-    GpPaintCanvas.BeginPaint(ACanvas);
+    ExPainter.BeginPaint(ACanvas);
     try
       if ARadius > 0 then
       begin
-        LPath := GpPaintCanvas.CreatePath;
+        LPath := ExPainter.CreatePath;
         try
           LPath.AddRoundRect(ARect, ARadius, ARadius);
-        {$IFDEF MSWINDOWS}
-          GpPaintCanvas.SmoothingMode := smHighQuality;
-        {$ENDIF}
-          GpPaintCanvas.FillPath(LPath, AColor);
+          ExPainter.SetGeometrySmoothing(TACLBoolean.True);
+          ExPainter.FillPath(LPath, AColor);
         finally
           LPath.Free;
         end;
       end
       else
-        GpPaintCanvas.FillRectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, AColor);
+        ExPainter.FillRectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, AColor);
     finally
-      GpPaintCanvas.EndPaint;
+      ExPainter.EndPaint;
     end;
   end;
 end;
@@ -1927,9 +1943,9 @@ begin
   else
     if ATo.IsValid then
     begin
-      GpPaintCanvas.BeginPaint(ACanvas);
-      GpPaintCanvas.FillRectangleByGradient(AFrom, ATo, ARect, AVertical);
-      GpPaintCanvas.EndPaint;
+      ExPainter.BeginPaint(ACanvas);
+      ExPainter.FillRectangleByGradient(ARect, AFrom, ATo, AVertical);
+      ExPainter.EndPaint;
     end
     else
       acFillRect(ACanvas, ARect, AFrom);
@@ -2147,20 +2163,17 @@ begin
 end;
 
 constructor TACLRegion.CreateFromDC(DC: HDC);
-const
-  MaxRegionSize = 30000;
 var
-  APoint: TPoint;
+  LPoint: TPoint;
 begin
-  CreateRect(NullRect);
-  GetClipRgn(DC, Handle);
-  if Empty then
-    SetRectRgn(Handle, 0, 0, MaxRegionSize, MaxRegionSize)
-  else
+  Create;
+  if GetClipRgn(DC, Handle) = 1 then
   begin
-    GetWindowOrgEx(DC, APoint{%H-});
-    Offset(APoint.X, APoint.Y);
-  end;
+    GetWindowOrgEx(DC, LPoint{%H-});
+    Offset(LPoint.X, LPoint.Y);
+  end
+  else
+    SetRectRgn(Handle, 0, 0, MaxRegionSize, MaxRegionSize);
 end;
 
 constructor TACLRegion.CreateFromHandle(AHandle: TRegionHandle);
@@ -2265,19 +2278,44 @@ begin
   DataAllocate(ACount);
 end;
 
-constructor TACLRegionData.CreateFromHandle(ARgn: TRegionHandle);
-{$IFDEF LCLGtk2}
-type
-  PGdkRectangleArray = ^TGdkRectangleArray;
-  TGdkRectangleArray = array[0..0] of TGdkRectangle;
+constructor TACLRegionData.CreateFromDC(DC: HDC);
+{$IF DEFINED(LCLGtk2)}
 var
-  LGdkRectCount: Integer;
-  LGdkRects: PGdkRectangle;
-  LRect: TRect;
-  I: Integer;
-{$ENDIF}
+  LRegion: PGdiObject;
 begin
-{$IF DEFINED(MSWINDOWS)}
+  LRegion := TGtkDeviceContext(DC).ClipRegion;
+  if LRegion <> nil then
+    DataAllocateFromNativeHandle(LRegion^.GDIRegionObject);
+{$ELSE}
+var
+  LOrigin: TPoint;
+  LRegion: TRegionHandle;
+begin
+  LRegion := CreateRectRgn(0, 0, 0, 0);
+  try
+    if GetClipRgn(DC, LRegion) = 1 then
+    begin
+      GetWindowOrgEx(DC, LOrigin);
+      OffsetRgn(LRegion, LOrigin.X, LOrigin.Y);
+      CreateFromHandle(LRegion);
+    end;
+  finally
+    acRegionFree(LRegion);
+  end;
+{$ENDIF}
+end;
+
+constructor TACLRegionData.CreateFromHandle(ARgn: TRegionHandle);
+{$IF DEFINED(LCLGtk2)}
+var
+  LRect: TRect;
+begin
+  case GetRgnBox(ARgn, @LRect) of
+    SimpleRegion, ComplexRegion:
+      DataAllocateFromNativeHandle({%H-}PGDIObject(ARgn)^.GDIRegionObject);
+  end;
+{$ELSEIF DEFINED(MSWINDOWS)}
+begin
   FDataSize := GetRegionData(ARgn, 0, nil);
   if FDataSize > 0 then
   begin
@@ -2286,28 +2324,8 @@ begin
     FRects := @PRgnData(FData)^.Buffer[0];
     FCount := PRgnData(FData)^.rdh.nCount;
   end;
-{$ELSEIF DEFINED(LCLGtk2)}
-  case GetRgnBox(ARgn, @LRect) of
-    SimpleRegion, ComplexRegion:
-      begin
-        LGdkRects := nil;
-        LGdkRectCount := 0;
-        gdk_region_get_rectangles({%H-}PGDIObject(ARgn)^.GDIRegionObject, LGdkRects, @LGdkRectCount);
-        if LGdkRects <> nil then
-        try
-          DataAllocate(LGdkRectCount);
-          for I := 0 to LGdkRectCount - 1 do
-          begin
-            with PGdkRectangleArray(LGdkRects)^[I] do
-              Rects^[I] := Rect(x, y, x + width, y + height);
-          end;
-        finally
-          g_free(LGdkRects);
-        end;
-      end;
-  end;
 {$ELSE}
-  raise ENotImplemented.Create('TACLRegionData.CreateFromHandle');
+  {$MESSAGE FATAL 'TACLRegionData.CreateFromHandle not implemented'}
 {$ENDIF}
 end;
 
@@ -2317,59 +2335,47 @@ begin
   inherited Destroy;
 end;
 
-function TACLRegionData.CreateHandle: TRegionHandle;
+function TACLRegionData.BoundingBox: TRect;
 var
   I: Integer;
-  LBounds: TRect;
-  LScan: PRect;
 begin
-  if Count > 0 then
-  begin
-    LScan := @Rects[0];
-    LBounds := LScan^;
-    Inc(LScan);
-    for I := 1 to Count - 1 do
-    begin
-      LBounds.Add(LScan^);
-      Inc(LScan);
-    end;
-    Result := CreateHandle(LBounds);
-  end
-  else
-    Result := CreateRectRgnIndirect(NullRect);
+  if Count = 0 then
+    Exit(NullRect);
+
+  Result := Rects[0];
+  for I := 1 to Count - 1 do
+    Result.Add(Rects[I]);
 end;
 
-function TACLRegionData.CreateHandle(const ARegionBounds: TRect): TRegionHandle;
+function TACLRegionData.CreateHandle(const ABoundingBox: TRect): TRegionHandle;
 {$IFNDEF MSWINDOWS}
 var
   I: Integer;
   LRect: TGdkRectangle;
 {$ENDIF}
 begin
-  if Count > 0 then
+  if Count = 0 then
+    Exit(CreateRectRgnIndirect(NullRect));
+
+{$IF DEFINED(MSWINDOWS)}
+  PRgnData(FData)^.rdh.rcBound := ABoundingBox;
+  Result := ExtCreateRegion(nil, FDataSize, PRgnData(FData)^);
+{$ELSEIF DEFINED(LCLGtk2)}
+  Result := CreateRectRgnIndirect(NullRect);
+  for I := 0 to Count - 1 do
   begin
-  {$IF DEFINED(MSWINDOWS)}
-    PRgnData(FData)^.rdh.rcBound := ARegionBounds;
-    Result := ExtCreateRegion(nil, FDataSize, PRgnData(FData)^);
-  {$ELSEIF DEFINED(LCLGtk2)}
-    Result := CreateRectRgnIndirect(NullRect);
-    for I := 0 to Count - 1 do
+    with Rects^[I] do
     begin
-      with Rects^[I] do
-      begin
-        LRect.x := Left;
-        LRect.y := Top;
-        LRect.width := Width;
-        LRect.height := Height;
-      end;
-      gdk_region_union_with_rect({%H-}PGDIObject(Result)^.GDIRegionObject, @LRect);
+      LRect.x := Left;
+      LRect.y := Top;
+      LRect.width := Width;
+      LRect.height := Height;
     end;
-  {$ELSE}
-    raise ENotImplemented.Create('TACLRegionData.CreateHandle');
-  {$ENDIF}
-  end
-  else
-    Result := CreateRectRgnIndirect(NullRect);
+    gdk_region_union_with_rect({%H-}PGDIObject(Result)^.GDIRegionObject, @LRect);
+  end;
+{$ELSE}
+  raise ENotImplemented.Create('TACLRegionData.CreateHandle');
+{$ENDIF}
 end;
 
 procedure TACLRegionData.DataAllocate(ACount: Integer);
@@ -2390,10 +2396,41 @@ begin
 {$ENDIF}
 end;
 
+procedure TACLRegionData.DataAllocateFromNativeHandle(APtr: Pointer);
+{$IF DEFINED(LCLGtk2)}
+type
+  PGdkRectangleArray = ^TGdkRectangleArray;
+  TGdkRectangleArray = array[0..0] of TGdkRectangle;
+var
+  LGdkRectCount: Integer;
+  LGdkRects: PGdkRectangle;
+  I: Integer;
+begin
+  if APtr = nil then Exit;
+  LGdkRects := nil;
+  LGdkRectCount := 0;
+  gdk_region_get_rectangles(APtr, LGdkRects, @LGdkRectCount);
+  if LGdkRects <> nil then
+  try
+    DataAllocate(LGdkRectCount);
+    for I := 0 to LGdkRectCount - 1 do
+    begin
+      with PGdkRectangleArray(LGdkRects)^[I] do
+        Rects^[I] := Rect(x, y, x + width, y + height);
+    end;
+  finally
+    g_free(LGdkRects);
+  end;
+{$ELSE}
+begin
+{$ENDIF}
+end;
+
 procedure TACLRegionData.DataFree;
 begin
-  FreeMemAndNil(Pointer(FData));
+  FreeMem(FData);
   FDataSize := 0;
+  FData := nil;
   FRects := nil;
   FCount := 0;
 end;
@@ -2752,12 +2789,9 @@ var
 begin
   LSurface := cairo_create_surface(Colors, Width, Height);
   try
-    GpPaintCanvas.BeginPaint(ACanvas);
-    try
-      GpPaintCanvas.FillSurface(R, SrcRect, LSurface, AAlpha / 255, False);
-    finally
-      GpPaintCanvas.EndPaint;
-    end;
+    CairoPainter.BeginPaint(ACanvas);
+    CairoPainter.FillSurface(R, SrcRect , LSurface, AAlpha / 255, False);
+    CairoPainter.EndPaint;
   finally
     cairo_surface_destroy(LSurface);
   end;
@@ -3089,7 +3123,7 @@ begin
     LDib := TACLDib.Create(Width, Height);
     try
       acBitBlt(LDib.Handle, ACanvas.Handle, LDib.ClientRect, P);
-      FBlendFunctions[AMode](LDib, Self, AAlpha);
+      BlendFunctions[AMode](LDib, Self, AAlpha);
       LDib.DrawCopy(ACanvas, P);
     finally
       LDib.Free;
@@ -3942,6 +3976,14 @@ initialization
 {$IFDEF FPC}
   if not Assigned(FindIntToIdent(TypeInfo(TAlphaColor))) then
     RegisterIntegerConsts(TypeInfo(TAlphaColor), @IdentToAlphaColor, @AlphaColorToIdent);
+{$ENDIF}
+{$IFDEF ACL_CAIRO_TEXTOUT}
+  DefaultTextLayoutCanvasRender := TACLTextLayoutCairoRender;
+{$ENDIF}
+{$IF DEFINED(ACL_CAIRO_RENDER)}
+  ExPainter := TACLCairoRender.Create;
+{$ELSEIF DEFINED(MSWINDOWS)}
+  ExPainter := TACLGdiplusPaintCanvas.Create;
 {$ENDIF}
 
 finalization

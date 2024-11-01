@@ -1449,7 +1449,7 @@ var
   ATailCount, I: Integer;
 begin
   if (AIndex < 0) or (ACount < 0) or (AIndex + ACount > Count) or (AIndex + ACount < 0) then
-    raise EArgumentOutOfRangeException.CreateRes(@SArgumentOutOfRange);
+    raise EArgumentOutOfRangeException.CreateFmt('Argument out of range [%d-%d] in %d', [AIndex, ACount, Count]);
   if ACount = 0 then
     Exit;
 

@@ -51,6 +51,7 @@ uses
   ACL.Geometry,
   ACL.Geometry.Utils,
   ACL.Graphics,
+  ACL.Graphics.Images,
   ACL.Threading,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.BaseEditors,
@@ -209,11 +210,7 @@ type
 implementation
 
 uses
-{$IFDEF FPC}
-  ACL.Graphics.Ex.Cairo;
-{$ELSE}
-  ACL.Graphics.Ex.Gdip;
-{$ENDIF}
+  ACL.Graphics.Ex;
 
 type
 
@@ -797,16 +794,14 @@ end;
 
 procedure TACLUIInsightSearchPopupWindow.Paint;
 begin
-  GpPaintCanvas.BeginPaint(Canvas);
+  ExPainter.BeginPaint(Canvas);
   try
-  {$IFNDEF FPC}
-    GpPaintCanvas.SmoothingMode := smNone;
-    GpPaintCanvas.PixelOffsetMode := pomHalf;
-  {$ENDIF}
-    GpPaintCanvas.FillRectangle(ClientRect, TAlphaColor.FromColor(Color));
-    GpPaintCanvas.Line(FPolyline, TAlphaColor.FromColor(FBorderColor), 2);
+    ExPainter.SetPixelOffsetMode(ipomHalf);
+    ExPainter.SetGeometrySmoothing(TACLBoolean.False);
+    ExPainter.FillRectangle(ClientRect, TAlphaColor.FromColor(Color));
+    ExPainter.Line(FPolyline, TAlphaColor.FromColor(FBorderColor), 2);
   finally
-    GpPaintCanvas.EndPaint;
+    ExPainter.EndPaint;
   end;
 end;
 

@@ -19,8 +19,10 @@ unit ACL.Graphics.SkinImage;
 interface
 
 uses
-{$IFDEF FPC}
+{$IFDEF ACL_CAIRO}
   Cairo,
+{$ENDIF}
+{$IFDEF FPC}
   LCLIntf,
   LCLType,
 {$ELSE}
@@ -254,7 +256,7 @@ type
     procedure ApplyColorSchema(const AValue: TACLColorSchema);
     procedure ApplyTint(const AColor: TACLPixel32);
     // Drawing
-  {$IFDEF FPC}
+  {$IFDEF ACL_CAIRO}
     procedure Draw(ACairo: Pcairo_t; ARect: TRect;
       AFrameIndex: Integer = 0; AAlpha: Byte = MaxByte); overload;
   {$ENDIF}
@@ -351,9 +353,7 @@ implementation
 uses
   ACL.FastCode,
   ACL.Graphics.Ex,
-{$IFDEF MSWINDOWS}
-  ACL.Graphics.Ex.Gdip,
-{$ELSE}
+{$IFDEF ACL_CAIRO}
   ACL.Graphics.Ex.Cairo,
 {$ENDIF}
   ACL.Math,
@@ -384,37 +384,53 @@ type
   { TACLSkinImageRenderer }
 
   TACLSkinImageRenderer = class
+  strict private type
+    TFillPart = procedure (const ATarget: TRect; AColor: TAlphaColor) of object;
+    TDrawPart = procedure (const ATarget, ASource: TRect; ATile: Boolean) of object;
   strict private
     class var FLock: TACLCriticalSection;
     class var FFrame: Integer;
     class var FImage: TACLSkinImage;
+  strict private
   {$IFDEF MSWINDOWS}
     class var FDstCanvas: TCanvas;
     class var FFunc: TBlendFunction;
     class var FMemDC: HDC;
     class var FOldBmp: HBITMAP;
-    class var FOpaque: Boolean;
 
     class procedure doAlphaBlend(const R, SrcR: TRect); inline;
     class procedure doAlphaBlendTile(const R, SrcR: TRect);
-  {$ELSE}
+    class procedure doWinDraw(const ATarget, ASource: TRect; ATile: Boolean);
+    class procedure doWinDrawOpaque(const ATarget, ASource: TRect; ATile: Boolean);
+    class procedure doWinFill(const ATarget: TRect; AColor: TAlphaColor);
+    class procedure doWinFinish;
+  {$ENDIF}
+  strict private
+  {$IFDEF ACL_CAIRO}
     class var FAlpha: Double;
     class var FCairo: TACLCairoRender;
     class var FSourceSurface: Pcairo_surface_t;
+
+    class procedure doCairoDraw(const ATarget, ASource: TRect; ATile: Boolean);
+    class procedure doCairoFill(const ATarget: TRect; AColor: TAlphaColor);
+    class procedure doCairoFinish;
   {$ENDIF}
-    class procedure FillPart(const ATarget: TRect; AColor: TAlphaColor);
-    class procedure DrawPart(const ATarget, ASource: TRect; AIsTileMode: Boolean);
+  protected
+    // Current State, Valid inside Start/Finish
+    class var Finish: TThreadMethod;
+    class var FillPart: TFillPart;
+    class var DrawPart: TDrawPart;
+    class procedure doInit(AExitProc: TThreadMethod; AFillProc: TFillPart; ADrawProc: TDrawPart);
   public
     class constructor Create;
     class destructor Destroy;
     class procedure Start(AImage: TACLSkinImage;
       ACanvas: TCanvas; AFrameIndex: Integer; AAlpha: Byte); overload;
-  {$IFDEF FPC}
+  {$IFDEF ACL_CAIRO}
     class procedure Start(AImage: TACLSkinImage;
       ACairo: Pcairo_t; AFrameIndex: Integer; AAlpha: Byte); overload;
   {$ENDIF}
     class procedure Draw(ARect: TRect);
-    class procedure Finish;
   end;
 
 procedure acCalculateTiledAreas(const R: TRect; const AParams: TACLSkinImageTiledAreas;
@@ -648,7 +664,7 @@ end;
 
 destructor TACLSkinImageBitsStorage.Destroy;
 begin
-  FreeMem(Data, DataSize);
+  FreeMem(Data);
   inherited;
 end;
 
@@ -866,7 +882,7 @@ begin
   Changed;
 end;
 
-{$IFDEF FPC}
+{$IFDEF ACL_CAIRO}
 procedure TACLSkinImage.Draw(ACairo: Pcairo_t;
   ARect: TRect; AFrameIndex: Integer = 0; AAlpha: Byte = MaxByte);
 var
@@ -898,7 +914,7 @@ begin
     try
       TACLSkinImageRenderer.Draw(ARect);
     finally
-      TACLSkinImageRenderer.Finish;
+      TACLSkinImageRenderer.Finish();
     end;
   end;
 end;
@@ -932,7 +948,7 @@ begin
     try
       TACLSkinImageRenderer.Draw(ARect);
     finally
-      TACLSkinImageRenderer.Finish;
+      TACLSkinImageRenderer.Finish();
     end;
   end;
 end;
@@ -2198,7 +2214,8 @@ begin
   ZeroMemory(@FFunc, SizeOf(FFunc));
   FFunc.BlendOp := AC_SRC_OVER;
   FFunc.AlphaFormat := AC_SRC_ALPHA;
-{$ELSE}
+{$ENDIF}
+{$IFDEF ACL_CAIRO}
   FCairo := TACLCairoRender.Create;
 {$ENDIF}
 end;
@@ -2209,7 +2226,8 @@ begin
 {$IFDEF MSWINDOWS}
   DeleteDC(FMemDC);
   FMemDC := 0;
-{$ELSE}
+{$ENDIF}
+{$IFDEF ACL_CAIRO}
   FreeAndNil(FCairo);
 {$ENDIF}
 end;
@@ -2270,7 +2288,49 @@ begin
     end;
   end;
 end;
+
+class procedure TACLSkinImageRenderer.doWinDraw(const ATarget, ASource: TRect; ATile: Boolean);
+begin
+  if ATarget.IsEmpty or ASource.IsEmpty then
+    Exit;
+  if ATile then
+    doAlphaBlendTile(ATarget, ASource)
+  else
+    doAlphaBlend(ATarget, ASource);
+end;
+
+class procedure TACLSkinImageRenderer.doWinDrawOpaque(const ATarget, ASource: TRect; ATile: Boolean);
+begin
+  if ATarget.IsEmpty or ASource.IsEmpty then
+    Exit;
+  if ATile then
+    acTileBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource)
+  else
+    acStretchBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource);
+end;
+
+class procedure TACLSkinImageRenderer.doWinFill(const ATarget: TRect; AColor: TAlphaColor);
+begin
+  acFillRect(FDstCanvas, ATarget, AColor);
+end;
+
+class procedure TACLSkinImageRenderer.doWinFinish;
+begin
+  SelectObject(FMemDC, FOldBmp);
+  doInit(nil, nil, nil);
+  FDstCanvas := nil;
+  FImage := nil;
+  FLock.Leave;
+end;
 {$ENDIF}
+
+class procedure TACLSkinImageRenderer.doInit(
+  AExitProc: TThreadMethod; AFillProc: TFillPart; ADrawProc: TDrawPart);
+begin
+  Finish := AExitProc;
+  FillPart := AFillProc;
+  DrawPart := ADrawProc;
+end;
 
 class procedure TACLSkinImageRenderer.Start(AImage: TACLSkinImage;
   ACanvas: TCanvas; AFrameIndex: Integer; AAlpha: Byte);
@@ -2283,16 +2343,20 @@ begin
   if FMemDC = 0 then
     FMemDC := CreateCompatibleDC(0);
   FOldBmp := SelectObject(FMemDC, AImage.Handle);
-  FOpaque := (AAlpha = 255) and FImage.FrameInfo[AFrameIndex].IsOpaque;
   FFunc.SourceConstantAlpha := AAlpha;
+  if (AAlpha = 255) and FImage.FrameInfo[AFrameIndex].IsOpaque then
+    doInit(doWinFinish, doWinFill, doWinDrawOpaque)
+  else
+    doInit(doWinFinish, doWinFill, doWinDraw)
 {$ELSE}
   FAlpha := AAlpha / 255;
   FCairo.BeginPaint(ACanvas);
   FSourceSurface := cairo_create_surface(AImage.Bits, AImage.Width, AImage.Height);
+  doInit(doCairoFinish, doCairoFill, doCairoDraw);
 {$ENDIF}
 end;
 
-{$IFDEF FPC}
+{$IFDEF ACL_CAIRO}
 class procedure TACLSkinImageRenderer.Start(AImage: TACLSkinImage;
   ACairo: Pcairo_t; AFrameIndex: Integer; AAlpha: Byte);
 begin
@@ -2302,38 +2366,30 @@ begin
   FAlpha := AAlpha / 255;
   FCairo.BeginPaint(ACairo);
   FSourceSurface := cairo_create_surface(AImage.Bits, AImage.Width, AImage.Height);
+  doInit(doCairoFinish, doCairoFill, doCairoDraw);
 end;
-{$ENDIF}
 
-class procedure TACLSkinImageRenderer.FillPart(const ATarget: TRect; AColor: TAlphaColor);
+class procedure TACLSkinImageRenderer.doCairoDraw(const ATarget, ASource: TRect; ATile: Boolean);
 begin
-{$IFDEF MSWINDOWS}
-  acFillRect(FDstCanvas, ATarget, AColor);
-{$ELSE}
+  if not (ATarget.IsEmpty or ASource.IsEmpty) then
+    FCairo.FillSurface(ATarget, ASource, FSourceSurface, FAlpha, ATile);
+end;
+
+class procedure TACLSkinImageRenderer.doCairoFill(const ATarget: TRect; AColor: TAlphaColor);
+begin
   FCairo.FillRectangle(ATarget.Left, ATarget.Top, ATarget.Right, ATarget.Bottom, AColor);
-{$ENDIF}
 end;
 
-class procedure TACLSkinImageRenderer.DrawPart(const ATarget, ASource: TRect; AIsTileMode: Boolean);
+class procedure TACLSkinImageRenderer.doCairoFinish;
 begin
-  if ATarget.IsEmpty then Exit;
-{$IFDEF MSWINDOWS}
-  if FOpaque then
-  begin
-    if AIsTileMode then
-      acTileBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource)
-    else
-      acStretchBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource);
-  end
-  else
-    if AIsTileMode then
-      doAlphaBlendTile(ATarget, ASource)
-    else
-      doAlphaBlend(ATarget, ASource);
-{$ELSE}
-  FCairo.FillSurface(ATarget, ASource, FSourceSurface, FAlpha, AIsTileMode);
-{$ENDIF}
+  FCairo.EndPaint;
+  cairo_surface_destroy(FSourceSurface);
+  doInit(nil, nil, nil);
+  FSourceSurface := nil;
+  FImage := nil;
+  FLock.Leave;
 end;
+{$ENDIF}
 
 class procedure TACLSkinImageRenderer.Draw(ARect: TRect);
 
@@ -2388,20 +2444,6 @@ begin
     end;
     DrawPart(ARect, FImage.FrameRect[FFrame], FImage.StretchMode = isTile);
   end;
-end;
-
-class procedure TACLSkinImageRenderer.Finish;
-begin
-{$IFDEF MSWINDOWS}
-  SelectObject(FMemDC, FOldBmp);
-  FDstCanvas := nil;
-{$ELSE}
-  FCairo.EndPaint;
-  cairo_surface_destroy(FSourceSurface);
-  FSourceSurface := nil;
-{$ENDIF}
-  FImage := nil;
-  FLock.Leave;
 end;
 
 end.

@@ -34,42 +34,52 @@ uses
   // ACL
   ACL.Graphics,
   ACL.Graphics.Ex,
-  ACL.Ui.Controls.Base,
+  ACL.UI.Controls.Base,
   // VCL
   {Vcl.}Controls;
 
 type
   TACLRenderEvent = procedure (Sender: TObject; Render: TACL2DRender) of object;
 
+  { TACLRenderMode }
+
+  {$SCOPEDENUMS ON}
+  TACLRenderMode = (Default, Gdip, Direct2D, Cairo);
+  {$SCOPEDENUMS OFF}
+
+  TACLRenderModeHelper = record helper for TACLRenderMode
+  public
+    function IsAvailable: Boolean;
+    function NextAvailable: TACLRenderMode;
+  end;
+
   { TACLCustom2DScene }
 
   TACLCustom2DScene = class(TWinControl)
   strict private
     FRender: TACL2DRender;
-    FUseHardwareAcceleration: Boolean;
+    FRenderMode: TACLRenderMode;
 
-    function CreateActualRender: TACL2DRender;
+    procedure CreateRender;
     procedure RecreateRenderRequested(Sender: TObject = nil);
-    procedure SetUseHardwareAcceleration(AValue: Boolean);
+    procedure SetRenderMode(AValue: TACLRenderMode);
     procedure WMEraseBkgnd(var Message: TWMEraseBkgnd); message WM_ERASEBKGND;
     procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
   protected
     procedure CreateHandle; override;
     procedure DestroyHandle; override;
     procedure Paint(ARender: TACL2DRender); virtual;
-
-    // events
+    //# Events
     procedure DoCreate; virtual;
     procedure DoDestroy; virtual;
-
+    //# Properties
     property Render: TACL2DRender read FRender;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    function IsHardwareAccelerationUsed: Boolean;
   published
-    property UseHardwareAcceleration: Boolean read
-      FUseHardwareAcceleration write SetUseHardwareAcceleration default True;
+    property RenderMode: TACLRenderMode read FRenderMode
+      write SetRenderMode default TACLRenderMode.Default;
   end;
 
   { TACLPaintBox2D }
@@ -92,12 +102,40 @@ type
 implementation
 
 uses
-{$IFDEF FPC}
-  ACL.Graphics.Ex.Cairo;
-{$ELSE}
-  ACL.Graphics.Ex.D2D,
-  ACL.Graphics.Ex.Gdip;
+{$IFDEF ACL_CAIRO}
+  ACL.Graphics.Ex.Cairo,
 {$ENDIF}
+{$IFDEF MSWINDOWS}
+  ACL.Graphics.Ex.D2D,
+  ACL.Graphics.Ex.Gdip,
+{$ENDIF}
+  ACL.Utils.Common;
+
+{ TACLRenderModeHelper }
+
+function TACLRenderModeHelper.IsAvailable: Boolean;
+begin
+{$IFDEF MSWINDOWS}
+  if Self = TACLRenderMode.Direct2D then
+    Exit(TACLDirect2D.Initialize);
+  if Self = TACLRenderMode.Gdip then
+    Exit(True);
+{$ENDIF}
+{$IFDEF ACL_CAIRO}
+  if Self = TACLRenderMode.Cairo then
+    Exit(True);
+{$ENDIF}
+  Result := False;
+end;
+
+function TACLRenderModeHelper.NextAvailable: TACLRenderMode;
+begin
+  Result := Self;
+  repeat
+    Result := TACLRenderMode((Ord(Result) + 1) mod (Ord(High(TACLRenderMode)) + 1));
+    if Result = Self then Exit; // прошли круг, но ничего не выбрали
+  until (Result <> TACLRenderMode.Default) and Result.IsAvailable;
+end;
 
 { TACLCustom2DScene }
 
@@ -105,7 +143,6 @@ constructor TACLCustom2DScene.Create(AOwner: TComponent);
 begin
   inherited;
   ControlStyle := ControlStyle + [csOpaque];
-  FUseHardwareAcceleration := True;
 end;
 
 destructor TACLCustom2DScene.Destroy;
@@ -115,17 +152,36 @@ begin
   inherited;
 end;
 
-function TACLCustom2DScene.CreateActualRender: TACL2DRender;
+procedure TACLCustom2DScene.CreateRender;
 begin
-{$IFDEF FPC}
-  Result := TACLCairoRender.Create;
+{$IFDEF MSWINDOWS}
+  if (RenderMode = TACLRenderMode.Direct2D) and not (csDesigning in ComponentState) then
+  begin
+    if TACLDirect2D.TryCreateRender(RecreateRenderRequested, WindowHandle, FRender) then
+      Exit;
+  end;
+  if RenderMode = TACLRenderMode.Gdip then
+  begin
+    FRender := TACLGdiplusRender.Create;
+    Exit;
+  end;
+{$ENDIF}
+
+{$IFDEF ACL_CAIRO}
+  if RenderMode = TACLRenderMode.Cairo then
+  begin
+    FRender := TACLCairoRender.Create;
+    Exit;
+  end;
+{$ENDIF}
+
+  // Creating Default Render
+{$IF DEFINED(MSWINDOWS)}
+  FRender := TACLGdiplusRender.Create;
+{$ELSEIF DEFINED(ACL_CAIRO)}
+  FRender := TACLCairoRender.Create;
 {$ELSE}
-  if (csDesigning in ComponentState) or
-    not HandleAllocated or
-    not UseHardwareAcceleration or
-    not TACLDirect2D.TryCreateRender(RecreateRenderRequested, WindowHandle, Result)
-  then
-    Result := TACLGdiplusRender.Create;
+  raise ENotImplemented.Create('TACLScene2D - no one render is available');
 {$ENDIF}
 end;
 
@@ -135,7 +191,7 @@ var
 begin
   inherited;
   if Render = nil then
-    FRender := CreateActualRender;
+    CreateRender;
   if Supports(Render, IACL2DRenderWndBased, LIntf) then
   begin
     LIntf.SetWndHandle(Handle);
@@ -167,15 +223,6 @@ begin
   // do nothing
 end;
 
-function TACLCustom2DScene.IsHardwareAccelerationUsed: Boolean;
-begin
-{$IFDEF FPC}
-  Result := False;
-{$ELSE}
-  Result := Render is TACLDirect2DHwndBasedRender;
-{$ENDIF}
-end;
-
 procedure TACLCustom2DScene.Paint(ARender: TACL2DRender);
 begin
   // do nothing
@@ -187,25 +234,25 @@ begin
   FreeAndNil(FRender);
   if HandleAllocated then
   begin
-    FRender := CreateActualRender;
+    CreateRender;
     DoCreate;
     Invalidate;
   end;
 end;
 
-procedure TACLCustom2DScene.SetUseHardwareAcceleration(AValue: Boolean);
+procedure TACLCustom2DScene.SetRenderMode(AValue: TACLRenderMode);
 begin
-  if FUseHardwareAcceleration <> AValue then
+  if FRenderMode <> AValue then
   begin
-    FUseHardwareAcceleration := AValue;
-  {$IFNDEF FPC}
+    FRenderMode := AValue;
     if not (csDesigning in ComponentState) then
     begin
       RecreateRenderRequested;
+    {$IFNDEF FPC}
       if HandleAllocated then
         RecreateWnd;
+    {$ENDIF}
     end;
-  {$ENDIF}
   end;
 end;
 
@@ -216,7 +263,7 @@ end;
 
 procedure TACLCustom2DScene.WMPaint(var Message: TWMPaint);
 var
-  APaintStruct: TPaintStruct;
+  LPaintStruct: TPaintStruct;
 begin
   if Message.DC <> 0 then
   begin
@@ -228,24 +275,24 @@ begin
     end;
   end
   else
-    if Supports(Render, IACL2DRenderGdiCompatible) then
-      TACLControls.BufferedPaint(Self)
-    else
+    if Supports(Render, IACL2DRenderWndBased) then
     begin
-      BeginPaint(Handle, APaintStruct{%H-});
+      BeginPaint(Handle, LPaintStruct{%H-});
       try
         // We not need to copy directX frame's content to DC (its already been
         // drawn over our hwnd). So, what why we set DC to zero.
-        Render.BeginPaint(0, ClientRect, APaintStruct.rcPaint);
+        Render.BeginPaint(0, ClientRect, LPaintStruct.rcPaint);
         try
           Paint(Render);
         finally
           Render.EndPaint;
         end;
       finally
-        EndPaint(Handle, APaintStruct);
+        EndPaint(Handle, LPaintStruct);
       end;
-    end;
+    end
+    else
+      TACLControls.BufferedPaint(Self);
 end;
 
 { TACLPaintBox2D }

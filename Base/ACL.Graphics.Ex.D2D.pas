@@ -46,7 +46,6 @@ uses
   ACL.Graphics,
   ACL.Graphics.Ex,
   ACL.Graphics.Ex.D2D.Types,
-  ACL.Graphics.Ex.Gdip,
   ACL.Math,
   ACL.Utils.Common;
 
@@ -84,6 +83,7 @@ type
     procedure ApplyWorldTransform;
   protected
     FDeviceContext: ID2D1DeviceContext;
+    FImageSmoothStretching: TACLBoolean;
     FRecreateContextNeeded: Boolean;
     FResources: TList;
 
@@ -94,14 +94,20 @@ type
       out ABitmapTarget: ID2D1BitmapRenderTarget): Boolean;
     function CreatePathGeometry(APoints: PPoint; ACount: Integer;
       AFigureBegin: TD2D1FigureBegin; AFigureEnd: TD2D1_FigureEnd): ID2D1PathGeometry1;
+    function CreateTextFormat(AFont: TFont): IDWriteTextFormat;
     procedure DoBeginDraw(const AClipRect: TRect);
     procedure DoEndDraw; virtual;
     procedure ReleaseDevice; virtual;
   public
-    constructor Create(OnRecreateNeeded: TNotifyEvent);
+    constructor Create; overload; override;
+    constructor Create(OnRecreateNeeded: TNotifyEvent); reintroduce; overload;
     destructor Destroy; override;
     procedure EndPaint; override;
     procedure FlushCache;
+
+    // General
+    function Name: string; override;
+    function FriendlyName: string; override;
 
     // Clipping
     function Clip(const R: TRect; out Data: TACL2DRenderRawData): Boolean; override;
@@ -132,10 +138,16 @@ type
       Width: Single = 1; Style: TACL2DRenderStrokeStyle = ssSolid); override;
     procedure FillHatchRectangle(const R: TRect; Color1, Color2: TAlphaColor; Size: Integer); override;
     procedure FillRectangle(X1, Y1, X2, Y2: Single; Color: TAlphaColor); override;
+    procedure FillRectangleByGradient(const R: TRect;
+      Color1, Color2: TAlphaColor; Vertical: Boolean); override;
 
     // Text
-    procedure DrawText(const Text: string; const R: TRect; Color: TAlphaColor; Font: TFont;
-      HorzAlign: TAlignment = taLeftJustify; VertAlign: TVerticalAlignment = taVerticalCenter;
+    procedure MeasureText(const Text: string;
+      Font: TFont; var Rect: TRect; WordWrap: Boolean); override;
+    procedure DrawText(const Text: string; const R: TRect;
+      Color: TAlphaColor; Font: TFont;
+      HorzAlign: TAlignment = taLeftJustify;
+      VertAlign: TVerticalAlignment = taVerticalCenter;
       WordWrap: Boolean = False); override;
 
     // Path
@@ -160,6 +172,9 @@ type
     procedure SaveWorldTransform(out State: TACL2DRenderRawData); override;
     procedure SetWorldTransform(const XForm: TXForm); override;
     procedure TransformPoints(Points: PPointF; Count: Integer); override;
+
+    // Options
+    procedure SetImageSmoothing(AValue: TACLBoolean); override;
   end;
 
   { TACLDirect2DGdiCompatibleRender }
@@ -801,13 +816,19 @@ end;
 
 { TACLDirect2DAbstractRender }
 
-constructor TACLDirect2DAbstractRender.Create(OnRecreateNeeded: TNotifyEvent);
+constructor TACLDirect2DAbstractRender.Create;
 begin
-  FOnRecreateNeeded := OnRecreateNeeded;
+  inherited;
   FResources := TList.Create;
   FResources.Capacity := 1024;
   FCacheHatchBrushes := TACLValueCacheManager<UInt64, ID2D1Brush>.Create;
   FCacheSolidBrushes := TACLValueCacheManager<TAlphaColor, ID2D1SolidColorBrush>.Create;
+end;
+
+constructor TACLDirect2DAbstractRender.Create(OnRecreateNeeded: TNotifyEvent);
+begin
+  Create;
+  FOnRecreateNeeded := OnRecreateNeeded;
 end;
 
 destructor TACLDirect2DAbstractRender.Destroy;
@@ -895,6 +916,16 @@ begin
   end;
 end;
 
+function TACLDirect2DAbstractRender.CreateTextFormat(AFont: TFont): IDWriteTextFormat;
+begin
+  if Failed(TACLDirect2D.DWriteFactory.CreateTextFormat(PChar(AFont.Name), nil,
+    TACLMath.IfThen(fsBold in AFont.Style, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_NORMAL),
+    TACLMath.IfThen(fsItalic in AFont.Style, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STYLE_NORMAL),
+    DWRITE_FONT_STRETCH_NORMAL, -AFont.Height, 'en-us', Result))
+  then
+    Result := nil;
+end;
+
 procedure TACLDirect2DAbstractRender.DrawEllipse(X1, Y1, X2, Y2: Single;
   Color: TAlphaColor; Width: Single; Style: TACL2DRenderStrokeStyle);
 begin
@@ -907,6 +938,12 @@ end;
 
 procedure TACLDirect2DAbstractRender.DrawImage(
   Image: TACL2DRenderImage; const TargetRect, SourceRect: TRect; Alpha: Byte);
+const
+  Map: array[TACLBoolean] of TD2D1InterpolationMode = (
+    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, // default
+    D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, // false
+    D2D1_INTERPOLATION_MODE_ANISOTROPIC // true
+  );
 var
   LSourceRectangle: TD2D1RectF;
   LTargetRectangle: TD2D1RectF;
@@ -917,7 +954,7 @@ begin
     LTargetRectangle := TargetRect.OffsetTo(-Origin.X, -Origin.Y);
     FDeviceContext.DrawBitmap(
       TACLDirect2DRenderImage(Image).Handle, @LTargetRectangle,
-      Alpha / MaxByte, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, @LSourceRectangle);
+      Alpha / MaxByte, Map[FImageSmoothStretching], @LSourceRectangle);
   end;
 end;
 
@@ -994,6 +1031,32 @@ begin
     CacheGetSolidBrush(Color), Width, CacheGetStrokeStyle(Style));
 end;
 
+procedure TACLDirect2DAbstractRender.MeasureText(
+  const Text: string; Font: TFont; var Rect: TRect; WordWrap: Boolean);
+const
+  WordWrapMap: array[Boolean] of TDWriteWordWrapping = (
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_WORD_WRAPPING_WRAP
+  );
+var
+  LTextMetrics: TDwriteTextMetrics;
+  LTextFormat: IDWriteTextFormat;
+  LTextLayout: IDWriteTextLayout;
+begin
+  LTextFormat := CreateTextFormat(Font);
+  if LTextFormat <> nil then
+  begin
+    LTextFormat.SetWordWrapping(WordWrapMap[WordWrap]);
+    if Succeeded(TACLDirect2D.DWriteFactory.CreateTextLayout(
+      PChar(Text), Length(Text), LTextFormat, 0, 0, LTextLayout)) then
+    begin
+      LTextLayout.SetMaxWidth(Rect.Width);
+      LTextLayout.GetMetrics(LTextMetrics);
+      Rect.Height := Round(LTextMetrics.Height);
+      Rect.Width := Round(LTextMetrics.WidthIncludingTrailingWhitespace);
+    end;
+  end;
+end;
+
 procedure TACLDirect2DAbstractRender.DrawText(const Text: string;
   const R: TRect; Color: TAlphaColor; Font: TFont; HorzAlign: TAlignment;
   VertAlign: TVerticalAlignment; WordWrap: Boolean);
@@ -1008,39 +1071,37 @@ const
     DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_WORD_WRAPPING_WRAP
   );
 var
-  ATextFormat: IDWriteTextFormat;
-  ATextLayout: IDWriteTextLayout;
-  ATextLength: Integer;
-  ATextRange: TDwriteTextRange;
+  LTextFormat: IDWriteTextFormat;
+  LTextLayout: IDWriteTextLayout;
+  LTextLength: Integer;
+  LTextRange: TDwriteTextRange;
 begin
-  ATextLength := Length(Text);
-  if (ATextLength > 0) and Color.IsValid then
+  LTextLength := Length(Text);
+  if (LTextLength > 0) and Color.IsValid then
   begin
-    if Succeeded(TACLDirect2D.DWriteFactory.CreateTextFormat(PChar(Font.Name), nil,
-      TACLMath.IfThen(fsBold in Font.Style, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_WEIGHT_NORMAL),
-      TACLMath.IfThen(fsItalic in Font.Style, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STYLE_NORMAL),
-      DWRITE_FONT_STRETCH_NORMAL, -Font.Height, 'en-us', ATextFormat)) then
+    LTextFormat := CreateTextFormat(Font);
+    if LTextFormat <> nil then
     begin
-      ATextFormat.SetTextAlignment(HorzAlignMap[HorzAlign]);
-      ATextFormat.SetParagraphAlignment(VertAlignMap[VertAlign]);
-      ATextFormat.SetWordWrapping(WordWrapMap[WordWrap]);
+      LTextFormat.SetTextAlignment(HorzAlignMap[HorzAlign]);
+      LTextFormat.SetParagraphAlignment(VertAlignMap[VertAlign]);
+      LTextFormat.SetWordWrapping(WordWrapMap[WordWrap]);
 
       if fsUnderline in Font.Style then
       begin
         if Succeeded(TACLDirect2D.DWriteFactory.CreateTextLayout(
-          PChar(Text), ATextLength, ATextFormat, R.Width, R.Height, ATextLayout)) then
+          PChar(Text), LTextLength, LTextFormat, R.Width, R.Height, LTextLayout)) then
         begin
-          ATextRange.startPosition := 0;
-          ATextRange.length := ATextLength;
-          ATextLayout.SetUnderline(True, ATextRange);
+          LTextRange.startPosition := 0;
+          LTextRange.length := LTextLength;
+          LTextLayout.SetUnderline(True, LTextRange);
           FDeviceContext.DrawTextLayout(
             D2D1PointF(R.Left - Origin.X, R.Top - Origin.Y),
-            ATextLayout, CacheGetSolidBrush(Color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            LTextLayout, CacheGetSolidBrush(Color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         end;
       end
       else
-        FDeviceContext.DrawText(PChar(Text), ATextLength,
-          ATextFormat, R.OffsetTo(-Origin.X, -Origin.Y),
+        FDeviceContext.DrawText(PChar(Text), LTextLength,
+          LTextFormat, R.OffsetTo(-Origin.X, -Origin.Y),
           CacheGetSolidBrush(Color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     end
   end;
@@ -1090,12 +1151,48 @@ begin
     CacheGetSolidBrush(Color));
 end;
 
+procedure TACLDirect2DAbstractRender.FillRectangleByGradient(
+  const R: TRect; Color1, Color2: TAlphaColor; Vertical: Boolean);
+var
+  LGradientBrush: ID2D1LinearGradientBrush;
+  LGradientBrushProperties: TD2D1LinearGradientBrushProperties;
+  LGradientStop: array[0..1] of TD2D1GradientStop;
+  LGradientStopCollection: ID2D1GradientStopCollection;
+  LRect: TD2D1RectF;
+begin
+  LRect := D2D1Rect(Origin, R.Left, R.Top, R.Right, R.Bottom);
+
+  LGradientBrushProperties.startPoint := D2D1PointF(LRect.left, LRect.top);
+  if Vertical then
+    LGradientBrushProperties.endPoint := D2D1PointF(LRect.left, LRect.bottom)
+  else
+    LGradientBrushProperties.endPoint := D2D1PointF(LRect.right, LRect.top);
+
+  LGradientStop[0].position := 0;
+  LGradientStop[0].color := D2D1ColorF(Color1);
+  LGradientStop[1].position := 1;
+  LGradientStop[1].color := D2D1ColorF(Color2);
+
+  if Succeeded(FDeviceContext.CreateGradientStopCollection(@LGradientStop[0],
+    Length(LGradientStop), D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP, LGradientStopCollection))
+  then
+    if Succeeded(FDeviceContext.CreateLinearGradientBrush(
+      LGradientBrushProperties, nil, LGradientStopCollection, LGradientBrush))
+    then
+      FDeviceContext.FillRectangle(LRect, LGradientBrush);
+end;
+
 procedure TACLDirect2DAbstractRender.FlushCache;
 begin
   for var I := Low(FCacheStrokeStyles) to High(FCacheStrokeStyles) do
     FCacheStrokeStyles[I] := nil;
   FCacheSolidBrushes.Clear;
   FCacheHatchBrushes.Clear;
+end;
+
+function TACLDirect2DAbstractRender.FriendlyName: string;
+begin
+  Result := 'Direct2D';
 end;
 
 procedure TACLDirect2DAbstractRender.Geometry(const AHandle: ID2D1Geometry;
@@ -1149,6 +1246,11 @@ begin
   ApplyWorldTransform;
 end;
 
+function TACLDirect2DAbstractRender.Name: string;
+begin
+  Result := 'D2D';
+end;
+
 procedure TACLDirect2DAbstractRender.RestoreWorldTransform(State: TACL2DRenderRawData);
 var
   LMatrix: PD2D1Matrix3x2F absolute State;
@@ -1164,6 +1266,11 @@ var
 begin
   New(LMatrix);
   LMatrix^ := FWorldTransform;
+end;
+
+procedure TACLDirect2DAbstractRender.SetImageSmoothing(AValue: TACLBoolean);
+begin
+  FImageSmoothStretching := AValue;
 end;
 
 procedure TACLDirect2DAbstractRender.SetWorldTransform(const XForm: TXForm);
@@ -1207,6 +1314,7 @@ procedure TACLDirect2DAbstractRender.DoBeginDraw(const AClipRect: TRect);
 var
   LData: TACL2DRenderRawData;
 begin
+  FImageSmoothStretching := TACLBoolean.Default;
   SetWorldTransform(TXForm.CreateIdentityMatrix);
   FDeviceContext.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
   FDeviceContext.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT);

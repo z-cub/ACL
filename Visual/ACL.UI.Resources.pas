@@ -628,7 +628,7 @@ type
     procedure ApplyColorSchema(const AColorSchema: TACLColorSchema);
     // IACLResourceProvider
     function GetResource(const ID: string; AResourceClass: TClass; ASender: TObject = nil): TObject; virtual;
-    //
+    // Properties
     property TargetDPI: Integer read FTargetDPI write SetTargetDPI;
   published
     property Collection: TACLCustomResourceCollection read FCollection write SetCollection;

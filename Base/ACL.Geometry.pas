@@ -211,7 +211,7 @@ type
     function MarginsWidth: Integer; inline;
 
     //# Self-Modifiers
-    procedure Add(const R: TRect); // Unline the Union, does not check the R to emptines
+    procedure Add(const R: TRect); // Unlike the Union, does not check the R to emptines
     procedure Center(const ASize: TSize);
     procedure CenterHorz(AWidth: Integer);
     procedure CenterVert(AHeight: Integer);
