@@ -73,8 +73,9 @@ type
     procedure DoDraw(Index: Integer; Canvas: TCanvas;
       X, Y: Integer; Style: Cardinal; Enabled: Boolean = True); override;
   {$ENDIF}
+  protected
+    procedure Initialize; override;
   public
-    procedure AfterConstruction; override;
     function AddBitmap(ABitmap: TBitmap): Integer;
     function AddImage(const AImageFileName: string): Integer; overload;
     function AddImage(const AImage: TACLImage): Integer; overload;
@@ -98,7 +99,6 @@ type
   {$IFNDEF FPC}
     property ColorDepth default cd32Bit;
   {$ENDIF}
-    property Masked default False;
     property Scalable: Boolean read GetScalable write SetScalable stored False;
     property SourceDPI: Integer read FSourceDPI write SetSourceDPI default 96;
   end;
@@ -266,20 +266,6 @@ end;
 
 { TACLImageList }
 
-procedure TACLImageList.AfterConstruction;
-begin
-  inherited AfterConstruction;
-  FSourceDPI := acDefaultDPI;
-{$IFNDEF FPC}
-  try
-    ColorDepth := cd32Bit;
-  except
-    ColorDepth := cdDefault;
-  end;
-{$ENDIF}
-  Masked := False;
-end;
-
 function TACLImageList.AddBitmap(ABitmap: TBitmap): Integer;
 var
   LTemp: TACLBitmap;
@@ -423,6 +409,19 @@ end;
 function TACLImageList.GetScalable: Boolean;
 begin
   Result := FSourceDPI > 0;
+end;
+
+procedure TACLImageList.Initialize;
+begin
+  inherited;
+  FSourceDPI := acDefaultDPI;
+{$IFNDEF FPC}
+  try
+    ColorDepth := cd32Bit;
+  except
+    ColorDepth := cdDeviceDependent;
+  end;
+{$ENDIF}
 end;
 
 procedure TACLImageList.LoadImage(ABitmap: TBitmap);

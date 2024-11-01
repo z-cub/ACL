@@ -1358,8 +1358,7 @@ begin
   AButton.Parent := Self;
 
   FImages := TACLImageList.Create(Self);
-  FImages.Width := 16;
-  FImages.Height := 16;
+  FImages.SetSize(16);
 
   FEditor := TACLImageComboBox.Create(Self);
   FEditor.Parent := Self;

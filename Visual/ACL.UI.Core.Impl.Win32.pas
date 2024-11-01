@@ -28,8 +28,14 @@ uses
 const
   MSGF_COMMCTRL_BEGINDRAG = $4200;
 
+procedure BringWindowOverTheOwner(AWnd: HWND);
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 implementation
+
+procedure BringWindowOverTheOwner(AWnd: HWND);
+begin
+  // Not necessary, Windows does it by itself.
+end;
 
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 var

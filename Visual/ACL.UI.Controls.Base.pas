@@ -1740,7 +1740,8 @@ begin
   FBounds.Enum(
     procedure (const AControl: TControl; const R: TRect)
     begin
-      AControl.Invalidate;
+      if AControl.Parent <> nil then
+        AControl.Invalidate;
     end);
 {$ELSE}
 var

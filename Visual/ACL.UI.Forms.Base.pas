@@ -231,6 +231,7 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
     function DialogChar(var Message: TWMKey): Boolean; override;
     procedure DpiChanged; override;
+    procedure UpdateChildrenFormsZOrder;
     procedure UpdateImageLists; virtual;
 
     // Config
@@ -261,6 +262,7 @@ type
     procedure WMExitMenuLoop(var Msg: TMessage); message WM_EXITMENULOOP;
     procedure WMNCActivate(var Msg: TWMNCActivate); message WM_NCACTIVATE;
     procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
+    procedure WMSetFocus(var Msg: TMessage); message WM_SETFOCUS;
     procedure WndProc(var Message: TMessage); override;
   public
     constructor Create(AOwner: TComponent); override;
@@ -309,9 +311,14 @@ type
 
 implementation
 
-{$IFNDEF FPC}
 uses
-  Vcl.AppEvnts;
+{$IFNDEF FPC}
+  Vcl.AppEvnts,
+{$ENDIF}
+{$IF DEFINED(LCLGtk2)}
+  ACL.UI.Core.Impl.Gtk2;
+{$ELSEIF DEFINED(MSWINDOWS)}
+  ACL.UI.Core.Impl.Win32;
 {$ENDIF}
 
 type
@@ -785,8 +792,9 @@ end;
 procedure TACLBasicForm.InitializeNewForm;
 begin
   //#AI:
-  // В TCustomForm.InitializeNewForm сначала выставляются дефолтные размеры формы, а уже потом Visible в False.
-  // На Wine зз-за этого форма на секунду становится видимой в нулевых координатах.
+  // В TCustomForm.InitializeNewForm сначала выставляются дефолтные размеры
+  // формы, а уже потом Visible в False. На Wine зз-за этого форма на секунду
+  // становится видимой в нулевых координатах.
   Visible := False;
   inherited;
 {$IFNDEF FPC}
@@ -795,6 +803,9 @@ begin
 {$ENDIF}
   if not ParentFont then
     Font.Height := acGetFontHeight(FCurrentPPI, Font.Size);
+{$IFDEF DELPHI120}
+  Font.IsDPIRelated := True;
+{$ENDIF}
 end;
 
 procedure TACLBasicForm.Loaded;
@@ -1262,6 +1273,22 @@ begin
   SetFocus;
 end;
 
+procedure TACLCustomForm.UpdateChildrenFormsZOrder;
+var
+  LForm: TACLCustomForm;
+  I: Integer;
+begin
+  if (Application.ModalLevel = 0) and HandleAllocated then
+  begin
+    for I := Screen.CustomFormCount - 1 downto 0 do
+      if Safe.Cast(Screen.CustomForms[I], TACLCustomForm, LForm) then
+      begin
+        if (LForm.FOwnerHandle = WindowHandle) and LForm.HandleAllocated and LForm.Visible then
+          BringWindowOverTheOwner(LForm.Handle);
+      end;
+  end;
+end;
+
 procedure TACLCustomForm.UpdateImageLists;
 begin
   TACLImageListReplacer.Execute(FCurrentPPI, Self);
@@ -1310,7 +1337,7 @@ end;
 
 procedure TACLCustomForm.ResourceChanged(Sender: TObject; Resource: TACLResource = nil);
 begin
-  if FInCreation = acFalse then
+  if (FInCreation = acFalse) and not (csDestroying in ComponentState) then
     ResourceChanged;
 end;
 
@@ -1415,6 +1442,12 @@ begin
     PaintHandler(Message)
   else
     TACLControls.BufferedPaint(Self);
+end;
+
+procedure TACLCustomForm.WMSetFocus(var Msg: TMessage);
+begin
+  UpdateChildrenFormsZOrder;
+  inherited;
 end;
 
 procedure TACLCustomForm.WndProc(var Message: TMessage);

@@ -23,6 +23,19 @@ unit ACL.UI.Forms.Styled;
 interface
 
 uses
+{$IF DEFINED(LCLGtk2)}
+  GLib2,
+  Gdk2,
+  Gdk2x,
+  Gtk2,
+  Gtk2Def,
+  Gtk2Extra,
+  Gtk2Globals,
+  Gtk2Int,
+  Gtk2proc,
+  Gtk2WSForms,
+  WSLCLClasses,
+{$ENDIF}
 {$IFDEF FPC}
   LCLIntf,
   LCLType,
@@ -206,29 +219,33 @@ type
   public
     procedure SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer); override;
   end;
+
+  { TACLWSCustomStyledForm }
+
+  TACLWSCustomStyledForm = class(TGtk2WSCustomForm)
+  strict private
+    class var FFakeObj: TObject;
+    class function DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl; static;
+  protected
+    class procedure SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
+  public
+    class destructor Destroy;
+  published
+    class function CreateHandle(const AWinControl: TWinControl;
+      const AParams: TCreateParams): TLCLHandle; override;
+    class procedure SetCallbacks(const AWidget: PGtkWidget;
+      const AWidgetInfo: PWidgetInfo); override;
+    class procedure SetFormBorderStyle(const AForm: TCustomForm;
+      const AFormBorderStyle: TFormBorderStyle); override;
+    class procedure ShowHide(const AWinControl: TWinControl); override;
+  end;
+
 {$ENDIF}
 {$ENDREGION}
 
 implementation
 
 uses
-{$IF DEFINED(LCLGtk2)}
-  GLib2,
-  Gdk2,
-  Gdk2x,
-  Gtk2,
-  Gtk2Def,
-  Gtk2Globals,
-  Gtk2Int,
-  Gtk2proc,
-  Gtk2WSForms,
-  WSLCLClasses,
-{$ENDIF}
-{$IFDEF FPC}
-  ACL.Graphics.Ex.Cairo,
-{$ELSE}
-  ACL.Graphics.Ex.Gdip,
-{$ENDIF}
   ACL.Graphics.Ex,
   ACL.Graphics.SkinImage,
   ACL.Graphics.SkinImageSet,
@@ -676,25 +693,6 @@ end;
 {$ENDIF}{$ENDREGION}
 
 {$REGION ' Form Implementation - Gtk2'}{$IFDEF LCLGtk2}
-type
-
-  { TAIMPGtk2CustomForm }
-
-  TAIMPGtk2CustomForm = class(TGtk2WSCustomForm)
-  strict private
-    class var FFakeObj: TObject;
-    class function DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl; static;
-    class procedure SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
-  public
-    class destructor Destroy;
-  published
-    class function CreateHandle(const AWinControl: TWinControl;
-      const AParams: TCreateParams): TLCLHandle; override;
-    class procedure SetCallbacks(const AWidget: PGtkWidget;
-      const AWidgetInfo: PWidgetInfo); override;
-    class procedure ShowHide(const AWinControl: TWinControl); override;
-  end;
-
 //procedure gdk_window_show_window_menu(window: PGdkWindow; event: PGdkEvent);
 //const
 //  SubstructureNotifyMask   = 1 shl 19;
@@ -735,21 +733,30 @@ type
 //    False, SubstructureRedirectMask or SubstructureNotifyMask, @xclient);
 //end;
 
-{ TAIMPGtk2CustomForm }
+procedure RegisterStyledForm;
+const
+  Done: Boolean = False;
+begin
+  if Done then exit;
+  RegisterWSComponent(TACLCustomStyledFormImpl, TACLWSCustomStyledForm);
+  Done := True;
+end;
 
-class destructor TAIMPGtk2CustomForm.Destroy;
+{ TACLWSCustomStyledForm }
+
+class destructor TACLWSCustomStyledForm.Destroy;
 begin
   FreeAndNil(FFakeObj);
 end;
 
-class function TAIMPGtk2CustomForm.CreateHandle(
+class function TACLWSCustomStyledForm.CreateHandle(
   const AWinControl: TWinControl; const AParams: TCreateParams): TLCLHandle;
 begin
-  Result := inherited CreateHandle(AWinControl, AParams);
+  Result := inherited;
   SetWindowCapabities(TACLCustomStyledForm(AWinControl), PGtkWidget(Result));
 end;
 
-class function TAIMPGtk2CustomForm.DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl;
+class function TACLWSCustomStyledForm.DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl;
 begin
   if FFakeObj = nil then
     FFakeObj := TObject.Create;
@@ -758,26 +765,47 @@ begin
   SetWindowCapabities(TACLCustomStyledForm(Data), Widget);
 end;
 
-class procedure TAIMPGtk2CustomForm.SetCallbacks(
+class procedure TACLWSCustomStyledForm.SetCallbacks(
   const AWidget: PGtkWidget; const AWidgetInfo: PWidgetInfo);
 var
   LFixed: PGtkWidget;
 begin
   inherited SetCallbacks(AWidget, AWidgetInfo);
 
-  // подменяем gtkRealizeCB нашим обработчиком, чтобы подсунуть окну правильную декорацию и функционал
-  g_signal_handlers_disconnect_by_func(AWidget, @gtkRealizeCB, AWidgetInfo^.LCLObject);
-  g_signal_connect(AWidget, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
-
-  LFixed := GetFixedWidget(AWidget);
-  if LFixed <> nil then
+  if AWidgetInfo^.Style and WS_CHILD = 0 then
   begin
-    g_signal_handlers_disconnect_by_func(LFixed, @gtkRealizeCB, AWidgetInfo^.LCLObject);
-    g_signal_connect(LFixed, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
+    // подменяем gtkRealizeCB нашим обработчиком, чтобы подсунуть окну правильную декорацию и функционал
+    g_signal_handlers_disconnect_by_func(AWidget, @gtkRealizeCB, AWidgetInfo^.LCLObject);
+    g_signal_connect(AWidget, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
+
+    LFixed := GetFixedWidget(AWidget);
+    if LFixed <> nil then
+    begin
+      g_signal_handlers_disconnect_by_func(LFixed, @gtkRealizeCB, AWidgetInfo^.LCLObject);
+      g_signal_connect(LFixed, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
+    end;
   end;
 end;
 
-class procedure TAIMPGtk2CustomForm.SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
+class procedure TACLWSCustomStyledForm.SetFormBorderStyle(
+  const AForm: TCustomForm; const AFormBorderStyle: TFormBorderStyle);
+var
+  LWidget: PGtkWidget;
+  LWidgetInfo: PWidgetInfo;
+begin
+  if AForm.Parent <> nil then Exit;
+  LWidget := {%H-}PGtkWidget(AForm.Handle);
+  LWidgetInfo := GetWidgetInfo(LWidget);
+  if FormStyleMap[AFormBorderStyle] <> FormStyleMap[TFormBorderStyle(LWidgetInfo.FormBorderStyle)] then
+    RecreateWnd(AForm)
+  else
+  begin
+    SetWindowCapabities(TACLCustomStyledForm(AForm), LWidget);
+    LWidgetInfo^.FormBorderStyle := Ord(AFormBorderStyle);
+  end;
+end;
+
+class procedure TACLWSCustomStyledForm.SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
 var
   LWnd: PGdkWindow;
 begin
@@ -792,7 +820,7 @@ begin
   end;
 end;
 
-class procedure TAIMPGtk2CustomForm.ShowHide(const AWinControl: TWinControl);
+class procedure TACLWSCustomStyledForm.ShowHide(const AWinControl: TWinControl);
 var
   LForm: TACLCustomStyledForm absolute AWinControl;
   LGtkWindow: PGtkWindow;
@@ -963,7 +991,7 @@ end;
 class procedure TACLCustomStyledFormImpl.WSRegisterClass;
 begin
   inherited;
-  RegisterWSComponent(Self, TAIMPGtk2CustomForm);
+  RegisterStyledForm;
 end;
 {$ENDIF}
 {$ENDREGION}

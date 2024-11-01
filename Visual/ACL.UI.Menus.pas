@@ -382,7 +382,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure BeforeDestruction; override;
-    function CreateMenuItem: TMenuItem; {$IFNDEF FPC}override;{$ENDIF}
+    function CreateMenuItem: TMenuItem; {$IFDEF FPC}virtual;{$ELSE}override;{$ENDIF}
     procedure ScaleForDpi(ATargetDpi: Integer);
     procedure Popup(const P: TPoint); reintroduce; overload;
     procedure Popup(X, Y: Integer); overload; override;
@@ -2573,9 +2573,9 @@ constructor TACLMenuPopupLooper.Create(AOwner: TACLMenuPopupWindow);
 
   function GetMenuDelayTime: Integer;
   begin
+    Result := 400; // Default delay in Windows.
     SystemParametersInfo(SPI_GETMENUSHOWDELAY, 0, @Result, 0);
-    if Result = 0 then
-      Result := 1;
+    Result := Max(Result, 1);
   end;
 
 begin
