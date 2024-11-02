@@ -524,8 +524,14 @@ var
   LOrigin: TPoint;
   LRect: TRect;
 begin
-  Result := True;
+  Result := False;
   case GetClipBox(DC, {$IFDEF FPC}@{$ENDIF}LRect) of
+    NullRegion:
+      begin
+        cairo_rectangle(ACairo, 0, 0, 0, 0);
+        cairo_clip(ACairo);
+      end;
+
     SimpleRegion:
       begin
         LOrigin := NullPoint;
@@ -533,6 +539,7 @@ begin
         LRect.Offset(-LOrigin.X, -LOrigin.Y);
         cairo_rectangle(ACairo, LRect.Left, LRect.Top, LRect.Width, LRect.Height);
         cairo_clip(ACairo);
+        Result := True;
       end;
 
     ComplexRegion:
@@ -548,9 +555,8 @@ begin
         finally
           LData.Free;
         end;
+        Result := True;
       end;
-  else
-    Result := False;
   end;
 end;
 
