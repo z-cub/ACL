@@ -975,7 +975,7 @@ end;
 
 procedure acRegionSetToWindow(AWnd: TWndHandle; ARegion: TRegionHandle; ARedraw: Boolean);
 begin
-{$IFDEF FPC}
+{$IFDEF LCLGtk2}
   // LCLGtk2 не умеет делать Redraw для окна, если регион = 0:
   //    gdk_region_empty: assertion 'region != NULL' failed
   if ARedraw and (ARegion = 0) then
@@ -986,6 +986,9 @@ begin
   end;
 {$ENDIF}
   SetWindowRgn(AWnd, ARegion, ARedraw);
+{$IFDEF LCLGtk2}
+  DeleteObject(ARegion);
+{$ENDIF}
 end;
 
 //----------------------------------------------------------------------------------------------------------------------
