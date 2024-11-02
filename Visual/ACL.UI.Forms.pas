@@ -93,7 +93,7 @@ type
   TACLPopupWindowClass = class of TACLPopupWindow;
   TACLPopupWindow = class(TACLBasicForm)
   strict private
-    FOwnerFormWnd: HWND;
+    FOwnerFormWnd: TWndHandle;
 
     FOnClosePopup: TNotifyEvent;
     FOnPopup: TNotifyEvent;
@@ -293,10 +293,12 @@ begin
   BorderStyle := bsNone;
   DefaultMonitor := dmDesktop;
   Position := poDesigned;
-  FormStyle := fsStayOnTop;
+  InitPopupMode(Safe.CastOrNil<TWinControl>(AOwner));
 {$IFDEF FPC}
   KeyPreview := True;
   ShowInTaskBar := stNever;
+//{$ELSE}
+//  FormStyle := fsStayOnTop;
 {$ENDIF}
   Scaled := False; // manual control
   InitScaling;
@@ -344,8 +346,6 @@ end;
 procedure TACLPopupWindow.CreateParams(var Params: TCreateParams);
 begin
   inherited;
-  if Owner is TWinControl then
-    Params.WndParent := GetParentForm(TWinControl(Owner)).Handle;
   Params.WindowClass.Style := Params.WindowClass.Style or CS_HREDRAW or CS_VREDRAW or CS_DROPSHADOW;
 end;
 

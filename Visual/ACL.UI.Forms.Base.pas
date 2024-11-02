@@ -150,6 +150,7 @@ type
     constructor CreateNew(AOwner: TComponent; ADummy: Integer = 0); override;
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
+    procedure InitPopupMode(AControl: TWinControl);
   {$IFDEF FPC}
     procedure MouseWheelHandler(var Message: TMessage); virtual;
   {$ENDIF}
@@ -231,7 +232,6 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
     function DialogChar(var Message: TWMKey): Boolean; override;
     procedure DpiChanged; override;
-    procedure UpdateChildrenFormsZOrder;
     procedure UpdateImageLists; virtual;
 
     // Config
@@ -262,7 +262,6 @@ type
     procedure WMExitMenuLoop(var Msg: TMessage); message WM_EXITMENULOOP;
     procedure WMNCActivate(var Msg: TWMNCActivate); message WM_NCACTIVATE;
     procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
-    procedure WMSetFocus(var Msg: TMessage); message WM_SETFOCUS;
     procedure WndProc(var Message: TMessage); override;
   public
     constructor Create(AOwner: TComponent); override;
@@ -311,14 +310,9 @@ type
 
 implementation
 
-uses
 {$IFNDEF FPC}
-  Vcl.AppEvnts,
-{$ENDIF}
-{$IF DEFINED(LCLGtk2)}
-  ACL.UI.Core.Impl.Gtk2;
-{$ELSEIF DEFINED(MSWINDOWS)}
-  ACL.UI.Core.Impl.Win32;
+uses
+  Vcl.AppEvnts;
 {$ENDIF}
 
 type
@@ -774,6 +768,18 @@ begin
 {$ENDIF}
 end;
 
+procedure TACLBasicForm.InitPopupMode(AControl: TWinControl);
+begin
+  if AControl <> nil then
+  begin
+    PopupParent := GetParentForm(AControl); // выставит pmExplicit автоматом
+    if PopupParent = nil then
+      PopupMode := pmAuto;
+  end
+  else
+    PopupMode := pmNone;
+end;
+
 function TACLBasicForm.DialogChar(var Message: TWMKey): Boolean;
 begin
 {$IFDEF FPC}
@@ -805,6 +811,7 @@ begin
     Font.Height := acGetFontHeight(FCurrentPPI, Font.Size);
 {$IFDEF DELPHI120}
   Font.IsDPIRelated := True;
+  Font.PixelsPerInch := PixelsPerInch;
 {$ENDIF}
 end;
 
@@ -1072,18 +1079,19 @@ end;
 
 constructor TACLCustomForm.CreateDialog(AOwnerHandle: TWndHandle; ANew: Boolean = False);
 var
-  AOwner: TComponent;
+  LOwner: TComponent;
 begin
   FOwnerHandle := AOwnerHandle;
-  AOwner := FindControl(AOwnerHandle);
-  if AOwner is TCustomForm then
-    AOwner := GetParentForm(TCustomForm(AOwner)); // to make a poOwnerFormCenter works correctly
-  if AOwner = nil then
-    AOwner := Application;
+  LOwner := FindControl(FOwnerHandle);
+  if LOwner is TCustomForm then
+    LOwner := GetParentForm(TCustomForm(LOwner)); // to make a poOwnerFormCenter works correctly
+  if LOwner = nil then
+    LOwner := Application;
   if ANew then
-    CreateNew(AOwner)
+    CreateNew(LOwner)
   else
-    Create(AOwner);
+    Create(LOwner);
+  InitPopupMode(Safe.CastOrNil<TWinControl>(Owner));
 end;
 
 procedure TACLCustomForm.CreateHandle;
@@ -1273,22 +1281,6 @@ begin
   SetFocus;
 end;
 
-procedure TACLCustomForm.UpdateChildrenFormsZOrder;
-var
-  LForm: TACLCustomForm;
-  I: Integer;
-begin
-  if (Application.ModalLevel = 0) and HandleAllocated then
-  begin
-    for I := Screen.CustomFormCount - 1 downto 0 do
-      if Safe.Cast(Screen.CustomForms[I], TACLCustomForm, LForm) then
-      begin
-        if (LForm.FOwnerHandle = WindowHandle) and LForm.HandleAllocated and LForm.Visible then
-          BringWindowOverTheOwner(LForm.Handle);
-      end;
-  end;
-end;
-
 procedure TACLCustomForm.UpdateImageLists;
 begin
   TACLImageListReplacer.Execute(FCurrentPPI, Self);
@@ -1442,12 +1434,6 @@ begin
     PaintHandler(Message)
   else
     TACLControls.BufferedPaint(Self);
-end;
-
-procedure TACLCustomForm.WMSetFocus(var Msg: TMessage);
-begin
-  UpdateChildrenFormsZOrder;
-  inherited;
 end;
 
 procedure TACLCustomForm.WndProc(var Message: TMessage);

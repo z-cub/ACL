@@ -102,7 +102,6 @@ type
       const ALeft, ATop, AWidth, AHeight: Integer); override;
   end;
 
-procedure BringWindowOverTheOwner(AWnd: HWND);
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 implementation
 
@@ -113,18 +112,18 @@ uses
 type
   TGtk2WidgetSetAccess = class(TGtk2WidgetSet);
 
-procedure BringWindowOverTheOwner(AWnd: HWND);
-var
-  LWidget: PGtkWidget absolute AWnd;
-  LWindow: PGdkWindow;
-begin
-  if GtkWidgetIsA(LWidget, GTK_TYPE_WINDOW) then
-  begin
-    LWindow := GetControlWindow(LWidget);
-    if (LWindow <> nil) and gdk_window_is_visible(LWindow) then
-      gdk_window_raise(LWindow);
-  end;
-end;
+//procedure BringWindowOverTheOwner(AWnd: HWND);
+//var
+//  LWidget: PGtkWidget absolute AWnd;
+//  LWindow: PGdkWindow;
+//begin
+//  if GtkWidgetIsA(LWidget, GTK_TYPE_WINDOW) then
+//  begin
+//    LWindow := GetControlWindow(LWidget);
+//    if (LWindow <> nil) and gdk_window_is_visible(LWindow) then
+//      gdk_window_raise(LWindow);
+//  end;
+//end;
 
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 begin
