@@ -767,7 +767,7 @@ var
 begin
   R := FOwner.ClientRect;
 
-  MeasureCanvas.Font := FOwner.Font;
+  MeasureCanvas.SetScaledFont(FOwner.Font);
   CalculateLabels(MeasureCanvas, R);
 
   R.Content(FOwner.Padding.GetScaledMargins(CurrentDpi));

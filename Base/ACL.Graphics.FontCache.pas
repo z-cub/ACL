@@ -481,9 +481,7 @@ begin
   if Handle <> AFont.Handle then // Why VCL does not check it?
   begin
     AFont.Assign(Self);
-  {$IFDEF FPC}
     AFont.Height := Height;
-  {$ENDIF}
   end;
 end;
 

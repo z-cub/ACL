@@ -479,13 +479,15 @@ type
 function CalculateTextFieldSize(AFont: TFont; ADigits: Integer): Integer;
 const
   AllowedChars: array[0..21] of Char = (
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'a', 'b', 'c', 'd', 'e', 'f'
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    'A', 'B', 'C', 'D', 'E', 'F',
+    'a', 'b', 'c', 'd', 'e', 'f'
   );
 var
   I: Integer;
 begin
   Result := 0;
-  MeasureCanvas.Font := AFont;
+  MeasureCanvas.SetScaledFont(AFont);
   for I := 0 to Length(AllowedChars) - 1 do
     Result := Max(Result, MeasureCanvas.TextWidth(AllowedChars[I]));
   Result := Result * ADigits;

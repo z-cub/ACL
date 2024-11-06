@@ -1924,7 +1924,7 @@ procedure TACLCheckBoxSubClass.CalculateTextSize(var R: TRect; out ATextSize: TS
 var
   ATextRect: TRect;
 begin
-  MeasureCanvas.Font := Font;
+  MeasureCanvas.SetScaledFont(Font);
   if ShowCheckMark then
     R.Inflate(-acTextIndent, -acFocusRectIndent);
 

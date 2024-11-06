@@ -367,7 +367,7 @@ var
   LTextSize: TSize;
 begin
   FTextRect := R;
-  MeasureCanvas.Font := Font;
+  MeasureCanvas.SetScaledFont(Font);
   if Style.WordWrap then
     LTextSize := acTextSizeMultiline(MeasureCanvas, Caption, FTextRect.Width)
   else
@@ -437,7 +437,7 @@ end;
 
 function TACLLabel.MeasureSize(AWidth: Integer = 0): TSize;
 begin
-  MeasureCanvas.Font := Font;
+  MeasureCanvas.SetScaledFont(Font);
   if Style.WordWrap then
     Result := acTextSizeMultiline(MeasureCanvas, Caption, AWidth)
   else

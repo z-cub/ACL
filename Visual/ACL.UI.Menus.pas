@@ -1748,7 +1748,7 @@ var
   I: Integer;
   LItem: TItemInfo;
 begin
-  MeasureCanvas.Font := Font;
+  MeasureCanvas.SetScaledFont(Font);
   for I := 0 to Items.Count - 1 do
   begin
     LItem := Items.List[I];

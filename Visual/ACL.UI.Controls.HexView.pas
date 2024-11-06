@@ -1123,7 +1123,7 @@ begin
   TextView.ColorOdd := FLabelTextColor;
   TextView.ColorEven := FLabelTextColor;
 
-  MeasureCanvas.Font := SubClass.Font;
+  MeasureCanvas.SetScaledFont(SubClass.Font);
   GetTextMetrics(MeasureCanvas.Handle, AMetric{%H-});
   FLinespacing := IndentBetweenViews - AMetric.tmDescent;
 end;

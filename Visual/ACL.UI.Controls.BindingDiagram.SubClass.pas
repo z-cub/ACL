@@ -869,7 +869,7 @@ function TACLBindingDiagramObjectViewInfo.CalculateCaptionSize: TSize;
 begin
   if (FCaptionSize = NullSize) and SubClass.OptionsView.ShowCaption then
   begin
-    MeasureCanvas.Font := SubClass.Font;
+    MeasureCanvas.SetScaledFont(SubClass.Font);
     MeasureCanvas.Font.Style := CaptionFontStyle;
     FCaptionSize := acTextSize(MeasureCanvas, &Object.Caption);
     Inc(FCaptionSize.cx, 2 * dpiApply(acTextIndent, CurrentDpi));

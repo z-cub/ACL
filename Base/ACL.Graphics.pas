@@ -1061,13 +1061,13 @@ end;
 
 function acTextSize(AFont: TFont; const AText: string): TSize;
 begin
-  MeasureCanvas.Font := AFont;
+  MeasureCanvas.SetScaledFont(AFont);
   Result := acTextSize(MeasureCanvas, AText);
 end;
 
 function acTextSize(AFont: TFont; const AText: PChar; ALength: Integer): TSize;
 begin
-  MeasureCanvas.Font := AFont;
+  MeasureCanvas.SetScaledFont(AFont);
   Result := acTextSize(MeasureCanvas, AText, ALength);
 end;
 
