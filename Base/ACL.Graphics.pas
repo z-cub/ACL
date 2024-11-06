@@ -587,7 +587,7 @@ procedure acRegionMoveToWindowOrg(DC: HDC; ARegion: TRegionHandle);
 procedure acRestoreWindowOrg(DC: HDC; const P: TPoint);
 
 // Bitmaps
-procedure acFillBitmapInfoHeader(out AHeader: TBitmapInfoHeader; AWidth, AHeight: Integer);
+procedure acInitBitmap32Info(out AInfo: TBitmapInfo; AWidth, AHeight: Integer);
 function acGetBitmapBits(ABitmap: TBitmap): TACLPixel32DynArray;
 procedure acSetBitmapBits(ABitmap: TBitmap; const AColors: TACLPixel32DynArray); overload;
 procedure acSetBitmapBits(ABitmap: TBitmap; AColors: PACLPixel32; ACount: Integer); overload;
@@ -1384,16 +1384,17 @@ end;
 // Bitmaps
 //----------------------------------------------------------------------------------------------------------------------
 
-procedure acFillBitmapInfoHeader(out AHeader: TBitmapInfoHeader; AWidth, AHeight: Integer);
+procedure acInitBitmap32Info(out AInfo: TBitmapInfo; AWidth, AHeight: Integer);
 begin
-  FillChar(AHeader{%H-}, SizeOf(AHeader), 0);
-  AHeader.biSize := SizeOf(TBitmapInfoHeader);
-  AHeader.biWidth := AWidth;
-  AHeader.biHeight := -AHeight;
-  AHeader.biPlanes := 1;
-  AHeader.biBitCount := 32;
-  AHeader.biSizeImage := ((AWidth shl 5 + 31) and -32) shr 3 * AHeight;
-  AHeader.biCompression := BI_RGB;
+  FillChar(AInfo{%H-}, SizeOf(AInfo), 0);
+  AInfo.bmiHeader.biSize := SizeOf(TBitmapInfoHeader);
+  AInfo.bmiHeader.biWidth := AWidth;
+  AInfo.bmiHeader.biHeight := -AHeight;
+  AInfo.bmiHeader.biPlanes := 1;
+  AInfo.bmiHeader.biBitCount := 32;
+  AInfo.bmiHeader.biSizeImage := AWidth * AHeight * 4;
+//  AInfo.bmiHeader.biSizeImage := ((AWidth shl 5 + 31) and -32) shr 3 * AHeight;
+  AInfo.bmiHeader.biCompression := BI_RGB;
 end;
 
 function acGetBitmapBits(ABitmap: TBitmap): TACLPixel32DynArray;
@@ -1401,7 +1402,7 @@ var
   AInfo: TBitmapInfo;
 begin
   SetLength(Result{%H-}, ABitmap.Width * ABitmap.Height);
-  acFillBitmapInfoHeader(AInfo.bmiHeader, ABitmap.Width, ABitmap.Height);
+  acInitBitmap32Info(AInfo, ABitmap.Width, ABitmap.Height);
   GetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, ABitmap.Height, Result, AInfo, DIB_RGB_COLORS);
 end;
 
@@ -1424,7 +1425,7 @@ begin
 var
   AInfo: TBitmapInfo;
 begin
-  acFillBitmapInfoHeader(AInfo.bmiHeader, ABitmap.Width, ABitmap.Height);
+  acInitBitmap32Info(AInfo, ABitmap.Width, ABitmap.Height);
   SetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, ABitmap.Height, AColors, AInfo, DIB_RGB_COLORS);
   TBitmapAccess(ABitmap).Changed(ABitmap);
 {$ENDIF}
@@ -2960,7 +2961,8 @@ end;
 
 procedure TACLDib.CreateHandles(W, H: Integer);
 var
-  AInfo: TBitmapInfo;
+  LBitmap: TBitmapInfo;
+  LErrorText: string;
 begin
   if (W <= 0) or (H <= 0) then
     Exit;
@@ -2969,18 +2971,24 @@ begin
   FHeight := H;
   FColorCount := W * H;
   FHandle := CreateCompatibleDC(0);
-  acFillBitmapInfoHeader(AInfo.bmiHeader, Width, Height);
+  acInitBitmap32Info(LBitmap, Width, Height);
 {$IFDEF LCLGtk2}
   FColors := AllocMem(FColorCount * SizeOf(TACLPixel32));
   FBitmap := CreateCompatibleBitmap(FHandle, Width, Height);
 {$ELSE}
-  FBitmap := CreateDIBSection(0, AInfo, DIB_RGB_COLORS, Pointer(FColors), 0, 0);
+  FColors := nil;
+  FBitmap := CreateDIBSection(0, LBitmap, DIB_RGB_COLORS, Pointer(FColors), 0, 0);
 {$ENDIF}
   DeleteObject(SelectObject(FHandle, FBitmap));
   if FColors = nil then
   begin
+    LErrorText := Format('Failed to create DIB (%dx%d)', [W, H]);
+  {$IFDEF MSWINDOWS}
+    LErrorText := Format('%d: %s, %d', [GetLastError, LErrorText,
+      GetGuiResources(GetCurrentProcess, GR_GDIOBJECTS)]);
+  {$ENDIF}
     FreeHandles;
-    raise EInvalidGraphicOperation.CreateFmt('Unable to create bitmap layer (%dx%d)', [W, H]);
+    raise EInvalidGraphicOperation.Create(LErrorText);
   end;
 end;
 

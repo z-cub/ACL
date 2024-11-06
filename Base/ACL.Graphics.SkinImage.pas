@@ -1109,7 +1109,7 @@ var
   AInfo: TBitmapInfo;
 begin
   DoCreateBits(ABitmap.Width, ABitmap.Height);
-  acFillBitmapInfoHeader(AInfo.bmiHeader, Width, Height);
+  acInitBitmap32Info(AInfo, Width, Height);
   GetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, Height, Bits, AInfo, DIB_RGB_COLORS);
   if (ABitmap.PixelFormat > pfDevice) and (ABitmap.PixelFormat < pf32bit) then
     TACLColors.MakeTransparent(PACLPixel32(Bits), BitCount, TACLColors.MaskPixel);
@@ -1241,7 +1241,7 @@ begin
     try
       ABitmap.AlphaFormat := afIgnored;
       ABitmap.PixelFormat := pf32bit;
-      acFillBitmapInfoHeader(LInfo.bmiHeader, Width, Height);
+      acInitBitmap32Info(LInfo, Width, Height);
       SetDIBits(LDC, ABitmap.Handle, 0, Height, Bits, LInfo, DIB_RGB_COLORS);
       if not HasAlpha then
         ABitmap.PixelFormat := pf24bit;
@@ -1524,7 +1524,7 @@ begin
     Inc(FSkinImageMemoryUsage, BitCount * SizeOf(TACLPixel32));
   {$ENDIF}
   {$IFDEF MSWINDOWS}
-    acFillBitmapInfoHeader(AInfo.bmiHeader, Width, Height);
+    acInitBitmap32Info(AInfo, Width, Height);
     FHandle := CreateDIBSection(0, AInfo, DIB_RGB_COLORS, Pointer(FBits), 0, 0);
     if (FHandle = 0) or (FBits = nil) then
       raise EACLSkinImageException.CreateFmt(sErrorCannotCreateImage, [Width, Height]);

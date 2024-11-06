@@ -374,7 +374,7 @@ begin
   ABuffer := AllocMem(ABitmap.Width * ABitmap.Height * 4);
   try
     ABitmapHandle := ABitmap.Handle;
-    acFillBitmapInfoHeader(ABitmapInfo.bmiHeader, ABitmap.Width, ABitmap.Height);
+    acInitBitmap32Info(ABitmapInfo, ABitmap.Width, ABitmap.Height);
     GetDIBits(ABitmap.Canvas.Handle, ABitmapHandle, 0, ABitmap.Height, ABuffer, ABitmapInfo, DIB_RGB_COLORS);
     Result := D2D1Bitmap(ATarget, ABuffer, ABitmap.Width, ABitmap.Height, AAlphaFormat);
   finally
