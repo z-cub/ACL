@@ -838,9 +838,11 @@ end;
 
 procedure TACLImage.LoadFromBitmap(ABitmap: TBitmap; AAlphaFormat: TAlphaFormat);
 begin
+{$IFNDEF FPC}
   if ABitmap.PixelFormat <> pf32bit then
     LoadFromBitmap(ABitmap.Handle, ABitmap.Palette)
   else
+{$ENDIF}
     LoadFromBits(@acGetBitmapBits(ABitmap)[0], ABitmap.Width, ABitmap.Height, AAlphaFormat);
 end;
 

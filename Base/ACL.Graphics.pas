@@ -22,6 +22,7 @@ interface
 uses
 {$IFDEF FPC}
   GraphType,
+  IntfGraphics,
   LCLIntf,
   LCLType,
 {$ELSE}
@@ -1384,6 +1385,30 @@ end;
 // Bitmaps
 //----------------------------------------------------------------------------------------------------------------------
 
+{$IFDEF FPC}
+procedure acRawImageToBits(ABits: PACLPixel32; const ARawImage: TRawImage);
+var
+  LImage: TLazIntfImage;
+  X, Y: Integer;
+begin
+  LImage := TLazIntfImage.Create(ARawImage, False);
+  try
+    for Y := 0 to LImage.Height - 1 do
+      for X := 0 to LImage.Width - 1 do
+        with LImage.Colors[x, y] do
+        begin
+          ABits^.A := Alpha shr 8;
+          ABits^.R := Red shr 8;
+          ABits^.G := Green shr 8;
+          ABits^.B := Blue shr 8;
+          Inc(ABits);
+        end;
+  finally
+    LImage.Free;
+  end;
+end;
+{$ENDIF}
+
 procedure acInitBitmap32Info(out AInfo: TBitmapInfo; AWidth, AHeight: Integer);
 begin
   FillChar(AInfo{%H-}, SizeOf(AInfo), 0);
@@ -1398,12 +1423,19 @@ begin
 end;
 
 function acGetBitmapBits(ABitmap: TBitmap): TACLPixel32DynArray;
-var
-  AInfo: TBitmapInfo;
+{$IFDEF FPC}
 begin
   SetLength(Result{%H-}, ABitmap.Width * ABitmap.Height);
-  acInitBitmap32Info(AInfo, ABitmap.Width, ABitmap.Height);
-  GetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, ABitmap.Height, Result, AInfo, DIB_RGB_COLORS);
+  if Length(Result) > 0 then
+    acRawImageToBits(@Result[0], ABitmap.RawImage);
+{$ELSE}
+var
+  LInfo: TBitmapInfo;
+begin
+  SetLength(Result{%H-}, ABitmap.Width * ABitmap.Height);
+  acInitBitmap32Info(LInfo, ABitmap.Width, ABitmap.Height);
+  GetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, ABitmap.Height, Result, LInfo, DIB_RGB_COLORS);
+{$ENDIF}
 end;
 
 procedure acSetBitmapBits(ABitmap: TBitmap; const AColors: TACLPixel32DynArray);
@@ -2624,8 +2656,6 @@ end;
 
 {$IFDEF FPC}
 procedure TACLDib.Assign(ASource: TRawImage);
-var
-  LBitmap: TBitmap;
 begin
   Resize(ASource.Description.Width, ASource.Description.Height);
   if Empty then
@@ -2643,16 +2673,7 @@ begin
       Premultiply;
   end
   else
-  begin
-    LBitmap := TBitmap.Create;
-    try
-      LBitmap.LoadFromRawImage(ASource, False);
-      Reset;
-      Canvas.Draw(0, 0, LBitmap);
-    finally
-      LBitmap.Free;
-    end;
-  end;
+    acRawImageToBits(PACLPixel32(Colors), ASource);
 end;
 {$ENDIF}
 
