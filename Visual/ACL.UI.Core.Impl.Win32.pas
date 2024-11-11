@@ -55,6 +55,7 @@ begin
         Continue;
 
       case LMsg.message of
+        WM_MOUSEWHEEL, WM_MOUSEHWHEEL,
         WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP:
           begin
             ReleaseCapture;
