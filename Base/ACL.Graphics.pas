@@ -2545,12 +2545,12 @@ end;
 
 procedure TFontHelper.ResolveHeight;
 var
-  ALogFont: TLogFont;
+  LLogFont: TLogFont;
 begin
   if Height = 0 then
   begin
-    if GetObject(Handle, SizeOf(ALogFont), @ALogFont) <> 0 then
-      Height := -Abs(ALogFont.lfHeight);
+    if GetObject(Handle, SizeOf(LLogFont), @LLogFont) <> 0 then
+      Height := {$IFDEF LCLGtk2}-{$ENDIF}LLogFont.lfHeight;
   end;
 end;
 
