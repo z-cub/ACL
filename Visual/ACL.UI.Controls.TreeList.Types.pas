@@ -1838,13 +1838,12 @@ end;
 
 function TACLTreeListNode.GetCheckState: TCheckBoxState;
 begin
-  if TreeList.AutoCheckParents and ChildrenLoaded then
+  if ChildrenLoaded and TreeList.AutoCheckParents then
     Result := ChildrenCheckState
+  else if FChecked then
+    Result := cbChecked
   else
-    if FChecked then
-      Result := cbChecked
-    else
-      Result := cbUnchecked;
+    Result := cbUnchecked;
 end;
 
 function TACLTreeListNode.GetChildren(Index: Integer): TACLTreeListNode;

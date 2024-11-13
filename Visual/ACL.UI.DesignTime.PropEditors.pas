@@ -75,6 +75,7 @@ uses
   ACL.UI.Resources,
   ACL.Utils.Common,
   ACL.Utils.DPIAware,
+  ACL.Utils.RTTI,
   ACL.Utils.Strings;
 
 type
@@ -759,14 +760,8 @@ begin
 end;
 
 function TACLImageIndexProperty.GetImages: TCustomImageList;
-var
-  APropInfo: PPropInfo;
 begin
-  APropInfo := TypInfo.GetPropInfo(GetComponent(0), 'Images', [tkClass]);
-  if APropInfo <> nil then
-    Result := TCustomImageList(GetObjectProp(GetComponent(0), APropInfo, TCustomImageList))
-  else
-    Result := nil;
+  Result := TRTTI.TryGetPropObject<TCustomImageList>(GetComponent(0), 'Images');
 end;
 
 { TACLMultiLineStringEditor }

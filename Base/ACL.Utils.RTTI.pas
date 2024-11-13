@@ -38,12 +38,16 @@ type
   public
     class constructor Create;
     class destructor Destroy;
-    class procedure EnumClassProperties<T: class>(AObject: TObject; AEnumProc: TRttiEnumProc<T>;
+
+    class procedure EnumClassProperties<T: class>(
+      AObject: TObject; AEnumProc: TRttiEnumProc<T>;
       ARecursive: Boolean = True; AVisibility: TMemberVisibilities = [mvPublished]);
+
     class function FindPropertyByName(AProperties: TArray<TRttiProperty>;
       const AName: string; out AProperty: TRttiProperty): Boolean; overload;
     class function FindPropertyByName(AType: TRttiType;
       const AName: string; out AProperty: TRttiProperty): Boolean; overload;
+
     class function GetProperties(AClass: TClass;
       out AList: PPropList; out ACount: Integer): Boolean; overload;
     class function GetProperties(AObject: TObject;
@@ -51,8 +55,6 @@ type
     class function GetPropInfo(AObject: TObject;
       const AName: string; AVisibility: TMemberVisibilities = [mvPublished]): PPropInfo;
     class function GetType(AObject: TObject): TRttiType; static;
-    class procedure ResolvePath(var AObject: TObject;
-      var ANamePath: string; AVisibility: TMemberVisibilities = [mvPublished]);
 
     class function IsBoolean(APropInfo: PPropInfo): Boolean;
     class function IsFloat(APropInfo: PPropInfo): Boolean; inline;
@@ -64,16 +66,36 @@ type
     class function GetPropAttribute(AObject: TObject; APropInfo: PPropInfo;
       AClass: TCustomAttributeClass; ACheckParents: Boolean = True): TCustomAttribute; overload;
 
-    class function GetPropValue(AObject: TObject; APropInfo: PPropInfo): string; overload;
-    class function GetPropValue(AObject: TObject; APropInfo: PPropInfo; out AValue: string): Boolean; overload;
-    class function GetPropValue(AObject: TObject; const AName: string): string; overload;
-    class function GetPropValueAsVariant(AObject: TObject; APropInfo: PPropInfo; PreferStrings: Boolean = False): Variant; overload;
-    class function GetPropValueAsVariant(AObject: TObject; const AName: string; PreferStrings: Boolean = False): Variant; overload;
-    class procedure SetEnumPropValue(AObject: TObject; APropInfo: PPropInfo; const AValue: string);
-    class procedure SetPropValue(AObject: TObject; APropInfo: PPropInfo; const AValue: string); overload;
-    class procedure SetPropValue(AObject: TObject; const AName, AValue: string); overload;
-    class procedure SetPropValueAsVariant(AObject: TObject; APropInfo: PPropInfo; const AValue: Variant); overload;
-    class procedure SetPropValueAsVariant(AObject: TObject; const AName: string; const AValue: Variant); overload;
+    class function GetPropValue(AObject: TObject;
+      const APropInfo: PPropInfo): string; overload;
+    class function GetPropValue(AObject: TObject;
+      const APropInfo: PPropInfo; out AValue: string): Boolean; overload;
+    class function GetPropValue(AObject: TObject;
+      const AName: string): string; overload;
+    class function GetPropValueAsVariant(AObject: TObject;
+      const APropInfo: PPropInfo; PreferStrings: Boolean = False): Variant; overload;
+    class function GetPropValueAsVariant(AObject: TObject;
+      const AName: string; PreferStrings: Boolean = False): Variant; overload;
+
+    class procedure SetEnumPropValue(AObject: TObject;
+      const APropInfo: PPropInfo; const AValue: string);
+    class procedure SetPropValue(AObject: TObject;
+      const APropInfo: PPropInfo; const AValue: string); overload;
+    class procedure SetPropValue(AObject: TObject;
+      const AName, AValue: string); overload;
+    class procedure SetPropValueAsVariant(AObject: TObject;
+      const APropInfo: PPropInfo; const AValue: Variant); overload;
+    class procedure SetPropValueAsVariant(AObject: TObject;
+      const AName: string; const AValue: Variant); overload;
+
+    class procedure ResolvePath(var AObject: TObject;
+      var ANamePath: string; AVisibility: TMemberVisibilities = [mvPublished]);
+
+    // Returns nil, if property does not exists or object is not inherited from the AMinClass
+    class function TryGetPropObject<T: class>(
+      AObject: TObject; const AName: string): T; overload; inline;
+    class function TryGetPropObject(AObject: TObject;
+      const AName: string; AMinClass: TClass): TObject; overload;
 
     class property Context: TRttiContext read FContext;
   end;
@@ -340,13 +362,13 @@ begin
   Result := (APropInfo <> nil) and (GetPropType(APropInfo) = ATypeInfo);
 end;
 
-class function TRTTI.GetPropValue(AObject: TObject; APropInfo: PPropInfo): string;
+class function TRTTI.GetPropValue(AObject: TObject; const APropInfo: PPropInfo): string;
 begin
   if not GetPropValue(AObject, APropInfo, Result) then
     Result := '';
 end;
 
-class function TRTTI.GetPropValue(AObject: TObject; APropInfo: PPropInfo; out AValue: string): Boolean;
+class function TRTTI.GetPropValue(AObject: TObject; const APropInfo: PPropInfo; out AValue: string): Boolean;
 var
   LValue: Variant;
 begin
@@ -370,7 +392,7 @@ begin
 end;
 
 class function TRTTI.GetPropValueAsVariant(
-  AObject: TObject; APropInfo: PPropInfo; PreferStrings: Boolean): Variant;
+  AObject: TObject; const APropInfo: PPropInfo; PreferStrings: Boolean): Variant;
 begin
   if AObject = nil then
     Exit(Null);
@@ -390,7 +412,7 @@ begin
 end;
 
 class procedure TRTTI.SetEnumPropValue(
-  AObject: TObject; APropInfo: PPropInfo; const AValue: string);
+  AObject: TObject; const APropInfo: PPropInfo; const AValue: string);
 var
   AData: Integer;
   ATypeData: PTypeData;
@@ -411,7 +433,7 @@ begin
 end;
 
 class procedure TRTTI.SetPropValue(
-  AObject: TObject; APropInfo: PPropInfo; const AValue: string);
+  AObject: TObject; const APropInfo: PPropInfo; const AValue: string);
 begin
   if APropInfo = nil then
     Exit;
@@ -433,7 +455,7 @@ begin
 end;
 
 class procedure TRTTI.SetPropValueAsVariant(
-  AObject: TObject; APropInfo: PPropInfo; const AValue: Variant);
+  AObject: TObject; const APropInfo: PPropInfo; const AValue: Variant);
 begin
   if APropInfo.SetProc = nil then
     raise EPropReadOnly.CreateFmt(sErrorReadOnly, [APropInfo.Name]);
@@ -447,6 +469,23 @@ class procedure TRTTI.SetPropValueAsVariant(
   AObject: TObject; const AName: string; const AValue: Variant);
 begin
   SetPropValueAsVariant(AObject, GetPropInfo(AObject, AName), AValue);
+end;
+
+class function TRTTI.TryGetPropObject<T>(AObject: TObject; const AName: string): T;
+begin
+  Result := T(TryGetPropObject(AObject, AName, T));
+end;
+
+class function TRTTI.TryGetPropObject(AObject: TObject;
+  const AName: string; AMinClass: TClass): TObject;
+var
+  LPropInfo: PPropInfo;
+begin
+  LPropInfo := TypInfo.GetPropInfo(AObject, AName, [tkClass]);
+  if LPropInfo <> nil then
+    Result := GetObjectProp(AObject, LPropInfo, AMinClass)
+  else
+    Result := nil;
 end;
 
 { HiddenAttribute }

@@ -783,11 +783,14 @@ type
     procedure SetStyle(AValue: TACLStyleBackground);
   protected
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+    function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     function CreateStyle: TACLStyleBackground; virtual;
     function GetContentOffset: TRect; override;
+
     procedure Paint; override;
     procedure SetAutoSize(Value: Boolean); override;
     procedure SetTargetDPI(AValue: Integer); override;
+    function SmartAutoSize(var AWidth, AHeight: Integer): Boolean;
     procedure UpdateTransparency; override;
     //# Properties
     property Borders: TACLBorders read FBorders write SetBorders default acAllBorders;
@@ -821,9 +824,9 @@ type
   public
     function BroadcastRecursive(Msg: Cardinal; ParamW: WPARAM; ParamL: LPARAM): LRESULT;
     function CalcCursorPos: TPoint;
+    function ControlHeight: Integer; // + including margins
+    function ControlWidth: Integer;  // + including margins
   {$IFDEF FPC}
-    function ExplicitHeight: Integer;
-    function ExplicitWidth: Integer;
     procedure SendCancelMode(Sender: TControl);
   {$ENDIF}
   end;
@@ -927,6 +930,7 @@ uses
   ACL.UI.Core.Impl.Win32,
 {$ENDIF}
   ACL.Threading,
+  ACL.Utils.Rtti,
   ACL.UI.HintWindow;
 
 type
@@ -1536,38 +1540,38 @@ begin
     case Position of
       mLeft:
         begin
-          LBounds.Width := Control.ExplicitWidth;
+          LBounds.Width := Control.ControlWidth;
           if Align <> acTrue then
-            LBounds.CenterVert(Control.ExplicitHeight);
+            LBounds.CenterVert(Control.ControlHeight);
           Inc(AClientRect.Left, GetActualIndentBetweenElements);
-          Inc(AClientRect.Left, Control.ExplicitWidth);
+          Inc(AClientRect.Left, Control.ControlWidth);
         end;
 
       mRight:
         begin
-          LBounds := LBounds.Split(srRight, Control.ExplicitWidth);
+          LBounds := LBounds.Split(srRight, Control.ControlWidth);
           if Align <> acTrue then
-            LBounds.CenterVert(Control.ExplicitHeight);
+            LBounds.CenterVert(Control.ControlHeight);
           Dec(AClientRect.Right, GetActualIndentBetweenElements);
-          Dec(AClientRect.Right, Control.ExplicitWidth);
+          Dec(AClientRect.Right, Control.ControlWidth);
         end;
 
       mTop:
         begin
-          LBounds.Height := Control.ExplicitHeight;
+          LBounds.Height := Control.ControlHeight;
           if Align = acFalse then
-            LBounds.Width := Control.ExplicitWidth;
+            LBounds.Width := Control.ControlWidth;
           Inc(AClientRect.Top, GetActualIndentBetweenElements);
-          Inc(AClientRect.Top, Control.ExplicitHeight);
+          Inc(AClientRect.Top, Control.ControlHeight);
         end;
 
       mBottom:
         begin
-          LBounds := LBounds.Split(srBottom, Control.ExplicitHeight);
+          LBounds := LBounds.Split(srBottom, Control.ControlHeight);
           if Align = acFalse then
-            LBounds.Width := Control.ExplicitWidth;
+            LBounds.Width := Control.ControlWidth;
           Dec(AClientRect.Bottom, GetActualIndentBetweenElements);
-          Dec(AClientRect.Bottom, Control.ExplicitHeight);
+          Dec(AClientRect.Bottom, Control.ControlHeight);
         end;
     end;
     TACLControls.AlignControl(Control, LBounds);
@@ -1580,15 +1584,15 @@ begin
   begin
     if Position in [mRight, mLeft] then
     begin
-      AHeight := Max(AHeight, Control.ExplicitHeight);
+      AHeight := Max(AHeight, Control.ControlHeight);
       Inc(AWidth, GetActualIndentBetweenElements);
-      Inc(AWidth, Control.ExplicitWidth);
+      Inc(AWidth, Control.ControlWidth);
     end
     else
     begin
-      AWidth := Max(AWidth, Control.ExplicitWidth);
+      AWidth := Max(AWidth, Control.ControlWidth);
       Inc(AHeight, GetActualIndentBetweenElements);
-      Inc(AHeight, Control.ExplicitHeight);
+      Inc(AHeight, Control.ControlHeight);
     end;
   end;
 end;
@@ -1600,12 +1604,12 @@ begin
     if Position in [mRight, mLeft] then
     begin
       Dec(AWidth, GetActualIndentBetweenElements);
-      Dec(AWidth, Control.ExplicitWidth);
+      Dec(AWidth, Control.ControlWidth);
     end
     else
     begin
       Dec(AHeight, GetActualIndentBetweenElements);
-      Dec(AHeight, Control.ExplicitHeight);
+      Dec(AHeight, Control.ControlHeight);
     end;
   end;
 end;
@@ -1925,7 +1929,6 @@ begin
   if LOrderProp <> nil then
     SetOrdProp(AControl, LOrderProp, AOrder);
 end;
-
 {$ENDREGION}
 
 {$REGION ' In-placing '}
@@ -3066,6 +3069,11 @@ begin
     inherited;
 end;
 
+function TACLContainer.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
+begin
+  Result := SmartAutoSize(NewWidth, NewHeight) or inherited;
+end;
+
 procedure TACLContainer.CMShowingChanged(var Message: TMessage);
 begin
   inherited;
@@ -3129,6 +3137,75 @@ procedure TACLContainer.SetTargetDPI(AValue: Integer);
 begin
   inherited SetTargetDPI(AValue);
   Style.SetTargetDPI(AValue);
+end;
+
+function TACLContainer.SmartAutoSize(var AWidth, AHeight: Integer): Boolean;
+var
+  I: Integer;
+  LCtrl: TControlAccess;
+  LCtrlSize: TSize;
+  LExtents: TRect;
+  LHorz, LVert: TPoint;
+  LIgnored: TList;
+  LMargins: TSize;
+  LSubCtrl: TACLSubControlOptions;
+begin
+  LIgnored := nil;
+  LHorz := NullPoint; // left, right, client
+  LVert := NullPoint; // top, bottom
+  for I := 0 to ControlCount - 1 do
+  begin
+    LCtrl := TControlAccess(Controls[I]);
+    if (LIgnored <> nil) and LIgnored.Contains(LCtrl) then
+      Continue;
+    if LCtrl.Visible or
+      (csDesigning in LCtrl.ComponentState) and not
+      (csNoDesignVisible in LCtrl.ControlStyle) then
+    begin
+      LMargins.cx := LCtrl.ControlWidth - LCtrl.Width;
+      LMargins.cy := LCtrl.ControlHeight - LCtrl.Height;
+      if LCtrl.AutoSize then
+      begin
+        LSubCtrl := TRTTI.TryGetPropObject<TACLSubControlOptions>(LCtrl, 'SubControl');
+        if (LSubCtrl <> nil) and (LSubCtrl.Control <> nil) then
+        begin
+          if LIgnored = nil then
+            LIgnored := TList.Create;
+          LIgnored.Add(LSubCtrl.Control);
+        end;
+      end;
+      case LCtrl.Align of
+        alTop, alBottom:
+          begin
+            LCtrlSize := TSize.Create(LCtrl.Width, LCtrl.Height);
+            if LCtrl.AutoSize then
+              LCtrl.CanAutoSize(LCtrlSize.cx, LCtrlSize.cy);
+            LVert.X := Max(LVert.X, LCtrlSize.cx + LMargins.cx);
+            LVert.Y := LVert.Y + LCtrlSize.cy + LMargins.cy;
+          end;
+        alLeft, alRight, alClient:
+          begin
+            LCtrlSize := TSize.Create(LCtrl.Width, LCtrl.Constraints.MinHeight);
+            if LCtrl.AutoSize then
+              LCtrl.CanAutoSize(LCtrlSize.cx, LCtrlSize.cy);
+            LHorz.X := LHorz.X + LCtrlSize.cx + LMargins.cx;
+            LHorz.Y := Max(LHorz.Y, LCtrlSize.cy + LMargins.cy);
+          end;
+      else
+        LIgnored.Free;
+        Exit(False);
+      end;
+    end;
+  end;
+
+  LExtents := NullRect;
+  AdjustClientRect(LExtents);
+  if Align in [alNone, alLeft, alRight] then
+    AWidth := Max(LHorz.X, LVert.X) + LExtents.Left - LExtents.Right;
+  if Align in [alNone, alTop, alBottom] then
+    AHeight := LHorz.Y + LVert.Y + LExtents.Top - LExtents.Bottom;
+  LIgnored.Free;
+  Result := True;
 end;
 
 procedure TACLContainer.UpdateTransparency;
@@ -3412,17 +3489,25 @@ begin
   Result := ScreenToClient(Mouse.CursorPos);
 end;
 
+function TACLControlHelper.ControlHeight: Integer;
+begin
 {$IFDEF FPC}
-function TACLControlHelper.ExplicitHeight: Integer;
-begin
   Result := BorderSpacing.ControlHeight;
+{$ELSE}
+  Result := Margins.ControlHeight;
+{$ENDIF}
 end;
 
-function TACLControlHelper.ExplicitWidth: Integer;
+function TACLControlHelper.ControlWidth: Integer;
 begin
+{$IFDEF FPC}
   Result := BorderSpacing.ControlWidth;
+{$ELSE}
+  Result := Margins.ControlWidth;
+{$ENDIF}
 end;
 
+{$IFDEF FPC}
 procedure TACLControlHelper.SendCancelMode(Sender: TControl);
 var
   LControl: TControl;
