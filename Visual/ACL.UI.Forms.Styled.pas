@@ -224,12 +224,7 @@ type
 
   TACLWSCustomStyledForm = class(TGtk2WSCustomForm)
   strict private
-    class var FFakeObj: TObject;
     class function DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl; static;
-  protected
-    class procedure SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
-  public
-    class destructor Destroy;
   published
     class function CreateHandle(const AWinControl: TWinControl;
       const AParams: TCreateParams): TLCLHandle; override;
@@ -237,6 +232,8 @@ type
       const AWidgetInfo: PWidgetInfo); override;
     class procedure SetFormBorderStyle(const AForm: TCustomForm;
       const AFormBorderStyle: TFormBorderStyle); override;
+    class procedure SetWindowCapabities(
+      AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
     class procedure ShowHide(const AWinControl: TWinControl); override;
   end;
 
@@ -744,11 +741,6 @@ end;
 
 { TACLWSCustomStyledForm }
 
-class destructor TACLWSCustomStyledForm.Destroy;
-begin
-  FreeAndNil(FFakeObj);
-end;
-
 class function TACLWSCustomStyledForm.CreateHandle(
   const AWinControl: TWinControl; const AParams: TCreateParams): TLCLHandle;
 begin
@@ -758,10 +750,8 @@ end;
 
 class function TACLWSCustomStyledForm.DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl;
 begin
-  if FFakeObj = nil then
-    FFakeObj := TObject.Create;
   // таким образом пытаемся добраться до метода RealizeAccelerator
-  Result := gtkRealizeCB(Widget, FFakeObj); // главное не отдать туда форму или nil.
+  Result := gtkRealizeCB(Widget, Data);
   SetWindowCapabities(TACLCustomStyledForm(Data), Widget);
 end;
 
@@ -905,8 +895,9 @@ const
     GDK_WINDOW_EDGE_SOUTH, GDK_WINDOW_EDGE_SOUTH_WEST, GDK_WINDOW_EDGE_SOUTH_EAST
   );
 var
-  LPoint: TPoint;
   LHitCode: Integer;
+  LPoint: TPoint;
+  LXPos, LYPos: gint;
 begin
   if Button = mbLeft then
   begin
@@ -933,6 +924,9 @@ begin
           begin
             MouseCapture := False;
             LastMouse.Down := False;
+            LXPos := 0; LYPos := 0;
+            gdk_window_get_origin(GetControlWindow(PGtkWindow(Handle)), @LXPos, @LYPos);
+            gtk_widget_set_uposition(PGtkWidget(Handle), LXPos, LYPos);
             gtk_window_begin_move_drag(PGtkWindow(Handle), 1, LPoint.X, LPoint.Y, GDK_CURRENT_TIME);
           end;
     else

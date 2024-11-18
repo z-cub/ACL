@@ -97,6 +97,7 @@ type
     procedure ApplyColorSchema;
     procedure SetClientHeight(Value: Integer);
     procedure SetClientWidth(Value: Integer);
+    procedure SetParentFont(Value: Boolean);
     procedure TakeParentFontIfNecessary;
     // IACLCurrentDpi
     function GetCurrentDpi: Integer;
@@ -119,9 +120,10 @@ type
     FIScaling: Boolean;
     ScalingFlags: TScalingFlags;
 
+    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
     function DoAlignChildControls(AAlign: TAlign; AControl: TControl;
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
-    procedure DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy; const X, Y: Double); override;
   {$ELSE}
   protected
     procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override; final;
@@ -163,6 +165,7 @@ type
   published
     property ClientHeight write SetClientHeight;
     property ClientWidth write SetClientWidth;
+    property ParentFont write SetParentFont;
     property PixelsPerInch write SetPixelsPerInch;
   end;
 
@@ -655,20 +658,23 @@ begin
 end;
 
 {$IFDEF FPC}
+procedure TACLBasicForm.AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+  const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer);
+begin
+  if FIScaling or (AMode <> lapAutoAdjustForDPI) then
+    inherited
+  else
+  begin
+    ScaleForPPI(AToPPI);
+    DesignTimePPI := AToPPI;
+  end;
+end;
+
 function TACLBasicForm.DoAlignChildControls(AAlign: TAlign;
   AControl: TControl; AList: TTabOrderList; var ARect: TRect): Boolean;
 begin
   TACLOrderedAlign.List(Self, [AAlign], AList);
   Result := False;
-end;
-
-procedure TACLBasicForm.DoAutoAdjustLayout(
-  const AMode: TLayoutAdjustmentPolicy; const X, Y: Double);
-begin
-  if FIScaling or (AMode <> lapAutoAdjustForDPI) then
-    inherited
-  else
-    ScaleForPPI(Round(X * FCurrentPPI));
 end;
 
 procedure TACLBasicForm.MouseWheelHandler(var Message: TMessage);
@@ -892,6 +898,14 @@ begin
   end
   else
     inherited ClientWidth := Value;
+end;
+
+procedure TACLBasicForm.SetParentFont(Value: Boolean);
+begin
+  inherited ParentFont := Value;
+{$IFDEF FPC}
+  TakeParentFontIfNecessary;
+{$ENDIF}
 end;
 
 procedure TACLBasicForm.SetPixelsPerInch(Value: Integer);
@@ -1170,6 +1184,7 @@ end;
 procedure TACLCustomForm.DpiChanged;
 begin
   inherited;
+  Style.TargetDPI := FCurrentPPI;
   if FInCreation = acFalse then
     ResourceChanged;
   UpdateImageLists;

@@ -584,6 +584,8 @@ type
   {$IFDEF FPC}
   protected
     FCurrentPPI: Integer;
+    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
     procedure ChangeScale(M, D: Integer); overload; override; final;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); overload; virtual;
     procedure DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy; const X, Y: Double); override;
@@ -930,7 +932,7 @@ uses
   ACL.UI.Core.Impl.Win32,
 {$ENDIF}
   ACL.Threading,
-  ACL.Utils.Rtti,
+  ACL.Utils.RTTI,
   ACL.UI.HintWindow;
 
 type
@@ -2404,6 +2406,17 @@ begin
   FCurrentPPI := acDefaultDpi;
 end;
 
+procedure TCustomScalableControl.AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+  const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer);
+begin
+  Perform(CM_SCALECHANGING, 0, 0);
+  try
+    inherited;
+  finally
+    Perform(CM_SCALECHANGED, 0, 0);
+  end;
+end;
+
 procedure TCustomScalableControl.ChangeScale(M, D: Integer);
 begin
   ChangeScale(M, D, False);
@@ -2420,18 +2433,9 @@ end;
 procedure TCustomScalableControl.DoAutoAdjustLayout(
   const AMode: TLayoutAdjustmentPolicy; const X, Y: Double);
 begin
+  inherited;
   if AMode = lapAutoAdjustForDPI then
-  begin
-    Perform(CM_SCALECHANGING, 0, 0);
-    try
-      inherited;
-      ChangeScale(Round(X * FCurrentPPI), FCurrentPPI, True);
-    finally
-      Perform(CM_SCALECHANGED, 0, 0);
-    end;
-  end
-  else
-    inherited;
+    ChangeScale(Round(X * FCurrentPPI), FCurrentPPI, True);
 end;
 {$ENDIF}
 
@@ -2463,7 +2467,8 @@ end;
 class procedure TCustomScalableControl.ScaleOnSetParent(ACaller: TControl);
 {$IFDEF FPC}
 var
-  ASrcDpi, ADstDpi: Integer;
+  LDstDpi, LSrcDpi: Integer;
+  LParentFont: Boolean;
 {$ENDIF}
 begin
   if csDestroying in ACaller.ComponentState then
@@ -2471,10 +2476,25 @@ begin
   if ACaller.Parent = nil then
     Exit;
 {$IF DEFINED(FPC)}
-  ASrcDpi := acGetCurrentDpi(ACaller);
-  ADstDpi := acGetCurrentDpi(ACaller.Parent);
-  if ASrcDpi <> ADstDpi then
-    ACaller.AutoAdjustLayout(lapAutoAdjustForDPI, ASrcDpi, ADstDpi, 0, 0);
+  LParentFont := ACaller.IsParentFont;
+  LSrcDpi := acGetCurrentDpi(ACaller);
+  LDstDpi := acGetCurrentDpi(ACaller.Parent);
+  if LSrcDpi <> LDstDpi then
+    ACaller.AutoAdjustLayout(lapAutoAdjustForDPI, LSrcDpi, LDstDpi, 0, 0);
+  // AI, 12.11.2024
+  // Без этого будет криво работать скейлинг шрифта, если на уровне DFM-ки
+  // не прописана его высота (только стиль, например).
+  if LParentFont and (csLoading in ACaller.ComponentState) then
+  begin
+    TControlAccess(ACaller).Font.BeginUpdate;
+    try
+      TControlAccess(ACaller).Font.PixelsPerInch := ACaller.Parent.Font.PixelsPerInch;
+      TControlAccess(ACaller).Font := ACaller.Parent.Font;
+      TControlAccess(ACaller).ParentFont := True;
+    finally
+      TControlAccess(ACaller).Font.EndUpdate;
+    end;
+  end;
 {$ELSEIF NOT DEFINED(DELPHI110ALEXANDRIA)}
   // AI, 14.06.2023 (Delphi 10.4)
   // csFreeNotification:
@@ -2685,7 +2705,8 @@ end;
 
 procedure TACLCustomControl.SetFocusOnClick;
 begin
-  if not Focused then SetFocus;
+  if not Focused then
+    acSafeSetFocus(Self);
 end;
 
 procedure TACLCustomControl.SetMargins(const Value: TACLMargins);
