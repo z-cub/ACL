@@ -350,16 +350,13 @@ type
   TACLSoftwareImplBlendMode = class
   strict private type
   {$REGION 'Internal Types'}
+    TCalculateMatrixProc = function (const Source, Target: Integer): Integer;
     TChunk = class
-    protected
+    public
       Count: Integer;
       Source: PACLPixel32;
       Target: PACLPixel32;
     end;
-
-    TChunks = class(TACLObjectListOf<TChunk>);
-
-    TCalculateMatrixProc = function (const Source, Target: Integer): Integer;
   {$ENDREGION}
   strict private
     class var FAdditionMatrix: PACLPixelMap;
@@ -373,13 +370,14 @@ type
     class var FSubstractMatrix: PACLPixelMap;
 
     class var FLock: TACLCriticalSection;
+    class var FWorkChunk: TChunk;
+    class var FWorkChunks: array of TChunk;
     class var FWorkMatrix: PACLPixelMap;
     class var FWorkOpacity: Byte;
 
-    class function BuildChunks(ATarget, ASource: TACLDib): TChunks;
     class procedure InitializeMatrix(var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc);
     class procedure ProcessByMatrix(Chunk: TChunk); static;
-    class procedure ProcessGrayScale(Chunk: TChunk); static;
+    class procedure ProcessGrayscale(Chunk: TChunk); static;
 
     class function CalculateAdditionMatrix(const ASource, ATarget: Integer): Integer; static;
     class function CalculateDarkenMatrix(const ASource, ATarget: Integer): Integer; static;
@@ -486,6 +484,7 @@ type
 class procedure TACLSoftwareImplBlendMode.Register;
 begin
   FLock := TACLCriticalSection.Create;
+  FWorkChunk := TChunk.Create;
   BlendFunctions[bmAddition] := DoAddition;
   BlendFunctions[bmDarken] := DoDarken;
   BlendFunctions[bmDifference] := DoDifference;
@@ -500,7 +499,11 @@ begin
 end;
 
 class procedure TACLSoftwareImplBlendMode.Unregister;
+var
+  I: Integer;
 begin
+  for I := Low(FWorkChunks) to High(FWorkChunks) do
+    FreeAndNil(FWorkChunks[I]);
   FreeMemAndNil(Pointer(FAdditionMatrix));
   FreeMemAndNil(Pointer(FDarkenMatrix));
   FreeMemAndNil(Pointer(FDifferenceMatrix));
@@ -510,6 +513,7 @@ begin
   FreeMemAndNil(Pointer(FOverlayMatrix));
   FreeMemAndNil(Pointer(FScreenMatrix));
   FreeMemAndNil(Pointer(FSubstractMatrix));
+  FreeAndNil(FWorkChunk);
   FreeAndNil(FLock);
 end;
 
@@ -535,7 +539,7 @@ end;
 
 class procedure TACLSoftwareImplBlendMode.DoGrayScale(ABackground, AForeground: TACLDib; AAlpha: Byte);
 begin
-  Run(ABackground, AForeground, @ProcessGrayScale, AAlpha);
+  Run(ABackground, AForeground, @ProcessGrayscale, AAlpha);
 end;
 
 class procedure TACLSoftwareImplBlendMode.DoLighten(ABackground, AForeground: TACLDib; AAlpha: Byte);
@@ -572,16 +576,54 @@ class procedure TACLSoftwareImplBlendMode.Run(
   ABackground, AForeground: TACLDib;
   AProc: TACLMultithreadedOperation.TFilterProc; AOpacity: Byte);
 var
-  AChunks: TChunks;
+  I: Integer;
+  LChunk: TChunk;
+  LChunkCount: Integer;
+  LChunkSize: Integer;
+  LChunkTail: Integer;
+  LScanSource: PACLPixel32;
+  LScanTarget: PACLPixel32;
 begin
+  if (ABackground.Width  <> AForeground.Width) or
+     (ABackground.Height <> AForeground.Height)
+  then
+    raise EInvalidOperation.Create('Cannot blend DIBs with different sizes');
+
   FLock.Enter;
   try
     FWorkOpacity := AOpacity;
-    AChunks := BuildChunks(ABackground, AForeground);
-    try
-      TACLMultithreadedOperation.Run(@AChunks.List[0], AChunks.Count, AProc);
-    finally
-      AChunks.Free;
+    if AForeground.ColorCount >= BlendFunctionsThreadingThreshold then
+    begin
+      if Length(FWorkChunks) = 0 then
+      begin
+        SetLength(FWorkChunks, Max(CPUCount, 1));
+        for I := 0 to Length(FWorkChunks) - 1 do
+          FWorkChunks[I] := TChunk.Create;
+      end;
+      LChunk := nil;
+      LChunkCount := Length(FWorkChunks);
+      LScanTarget := @ABackground.Colors[0];
+      LScanSource := @AForeground.Colors[0];
+      LChunkSize := AForeground.ColorCount div LChunkCount;
+      LChunkTail := AForeground.ColorCount mod LChunkCount;
+      for I := 0 to LChunkCount - 1 do
+      begin
+        LChunk := FWorkChunks[I];
+        LChunk.Count  := LChunkSize;
+        LChunk.Source := LScanSource;
+        LChunk.Target := LScanTarget;
+        Inc(LScanTarget, LChunkSize);
+        Inc(LScanSource, LChunkSize);
+      end;
+      Inc(LChunk.Count, LChunkTail);
+      TACLMultithreadedOperation.Run(@FWorkChunks[0], LChunkCount, AProc);
+    end
+    else
+    begin
+      FWorkChunk.Count  := ABackground.ColorCount;
+      FWorkChunk.Source := @AForeground.Colors^[0];
+      FWorkChunk.Target := @ABackground.Colors^[0];
+      AProc(FWorkChunk);
     end;
   finally
     FLock.Leave;
@@ -602,43 +644,8 @@ begin
   end;
 end;
 
-class function TACLSoftwareImplBlendMode.BuildChunks(ATarget, ASource: TACLDib): TChunks;
-var
-  AChunk: TChunk;
-  AChunkCount: Integer;
-  AChunkSize: Integer;
-  ASourceScan: PACLPixel32;
-  ATargetScan: PACLPixel32;
-  I: Integer;
-begin
-  if (ATarget.Width <> ASource.Width) or (ATarget.Height <> ASource.Height) then
-    raise EInvalidOperation.Create('Cannot blend DIBs with different sizes');
-
-  if ASource.ColorCount >= BlendFunctionsThreadingThreshold then
-    AChunkCount := CPUCount
-  else
-    AChunkCount := 1;
-
-  AChunkSize := ASource.ColorCount div AChunkCount;
-  ASourceScan := @ASource.Colors[0];
-  ATargetScan := @ATarget.Colors[0];
-
-  Result := TChunks.Create;
-  Result.Capacity := AChunkCount;
-  for I := 0 to AChunkCount - 1 do
-  begin
-    AChunk := TChunk.Create;
-    AChunk.Count := AChunkSize;
-    AChunk.Source := ASourceScan;
-    AChunk.Target := ATargetScan;
-    Inc(ATargetScan, AChunkSize);
-    Inc(ASourceScan, AChunkSize);
-    Result.Add(AChunk);
-  end;
-  Inc(Result.Last.Count, ASource.ColorCount mod AChunkCount);
-end;
-
-class procedure TACLSoftwareImplBlendMode.InitializeMatrix(var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc);
+class procedure TACLSoftwareImplBlendMode.InitializeMatrix(
+  var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc);
 var
   ASource, ATarget: Byte;
 begin
@@ -647,46 +654,56 @@ begin
     AMatrix := AllocMem(SizeOf(TACLPixelMap));
     for ASource := 0 to MaxByte do
       for ATarget := 0 to MaxByte do
-        AMatrix[ASource, ATarget] := MinMax(AProc(ASource, ATarget), 0, MaxByte);
+        AMatrix[ASource, ATarget] := EnsureRange(AProc(ASource, ATarget), 0, MaxByte);
   end;
 end;
 
 class procedure TACLSoftwareImplBlendMode.ProcessByMatrix(Chunk: TChunk);
 var
-  AAlpha: Byte;
-  ASource: TACLPixel32;
-  ATarget: TACLPixel32;
+  LSource: TACLPixel32;
+  LTarget: TACLPixel32;
 begin
   while Chunk.Count > 0 do
   begin
-    PAlphaColor(@ASource)^ := PAlphaColor(Chunk.Source)^;
-    if ASource.A > 0 then
+    TAlphaColor(LSource) := PAlphaColor(Chunk.Source)^;
+    if LSource.A > 0 then
     begin
-      PAlphaColor(@ATarget)^ := PAlphaColor(Chunk.Target)^;
-
-      if ATarget.A = MaxByte then
+      if LSource.A < MaxByte then
       begin
-        TACLColors.Unpremultiply(ASource);
-        ASource.B := FWorkMatrix[ASource.B, ATarget.B];
-        ASource.G := FWorkMatrix[ASource.G, ATarget.G];
-        ASource.R := FWorkMatrix[ASource.R, ATarget.R];
-        TACLColors.Premultiply(ASource);
+        LSource.G := TACLColors.UnpremultiplyTable[LSource.G, LSource.A];
+        LSource.B := TACLColors.UnpremultiplyTable[LSource.B, LSource.A];
+        LSource.R := TACLColors.UnpremultiplyTable[LSource.R, LSource.A];
+      end;
+
+      TAlphaColor(LTarget) := TAlphaColor(Chunk.Target^);
+      if LTarget.A = MaxByte then
+      begin
+        LSource.B := FWorkMatrix[LSource.B, LTarget.B];
+        LSource.G := FWorkMatrix[LSource.G, LTarget.G];
+        LSource.R := FWorkMatrix[LSource.R, LTarget.R];
       end
       else
-        if ATarget.A > 0 then
+        if LTarget.A > 0 then
         begin
-          TACLColors.Unpremultiply(ASource);
-          AAlpha := MaxByte - ATarget.A;
-          ASource.R := TACLColors.PremultiplyTable[ASource.R, AAlpha] +
-            TACLColors.PremultiplyTable[FWorkMatrix[ASource.R, ATarget.R], ATarget.A];
-          ASource.B := TACLColors.PremultiplyTable[ASource.B, AAlpha] +
-            TACLColors.PremultiplyTable[FWorkMatrix[ASource.B, ATarget.B], ATarget.A];
-          ASource.G := TACLColors.PremultiplyTable[ASource.G, AAlpha] +
-            TACLColors.PremultiplyTable[FWorkMatrix[ASource.G, ATarget.G], ATarget.A];
-          TACLColors.Premultiply(ASource);
+          LTarget.R := TACLColors.PremultiplyTable[FWorkMatrix[LSource.R, LTarget.R], LTarget.A];
+          LTarget.G := TACLColors.PremultiplyTable[FWorkMatrix[LSource.G, LTarget.G], LTarget.A];
+          LTarget.B := TACLColors.PremultiplyTable[FWorkMatrix[LSource.B, LTarget.B], LTarget.A];
+
+          LTarget.A := MaxByte - LTarget.A;
+
+          LSource.R := TACLColors.PremultiplyTable[LSource.R, LTarget.A] + LTarget.R;
+          LSource.B := TACLColors.PremultiplyTable[LSource.B, LTarget.A] + LTarget.G;
+          LSource.G := TACLColors.PremultiplyTable[LSource.G, LTarget.A] + LTarget.B;
         end;
 
-      TACLColors.AlphaBlend(Chunk.Target^, ASource, FWorkOpacity);
+      if LSource.A < MaxByte then
+      begin
+        LSource.R := TACLColors.PremultiplyTable[LSource.R, LSource.A];
+        LSource.B := TACLColors.PremultiplyTable[LSource.B, LSource.A];
+        LSource.G := TACLColors.PremultiplyTable[LSource.G, LSource.A];
+      end;
+
+      TACLColors.AlphaBlend(Chunk.Target^, LSource, FWorkOpacity);
     end;
     Inc(Chunk.Source);
     Inc(Chunk.Target);
@@ -694,15 +711,16 @@ begin
   end;
 end;
 
-class procedure TACLSoftwareImplBlendMode.ProcessGrayScale(Chunk: TChunk);
+class procedure TACLSoftwareImplBlendMode.ProcessGrayscale(Chunk: TChunk);
 var
-  ASource: TACLPixel32;
+  LSource: TACLPixel32;
 begin
   while Chunk.Count > 0 do
   begin
-    ASource := Chunk.Target^;
-    TACLColors.Grayscale(ASource);
-    TACLColors.AlphaBlend(Chunk.Target^, ASource, TACLColors.PremultiplyTable[FWorkOpacity, Chunk.Source^.A]);
+    TAlphaColor(LSource) := PAlphaColor(Chunk.Target)^;
+    TACLColors.Grayscale(LSource);
+    TACLColors.AlphaBlend(Chunk.Target^, LSource,
+      TACLColors.PremultiplyTable[FWorkOpacity, Chunk.Source^.A]);
     Inc(Chunk.Source);
     Inc(Chunk.Target);
     Dec(Chunk.Count);

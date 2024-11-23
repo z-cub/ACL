@@ -450,19 +450,19 @@ type
     class function IsDark(Color: TColor): Boolean;
     class function IsMask(const P: TACLPixel32): Boolean; inline; static;
 
-    class procedure AlphaBlend(var D: TColor; S: TColor; AAlpha: Integer = 255); overload; inline; static;
-    class procedure AlphaBlend(var D: TACLPixel32; const S: TACLPixel32;
-      AAlpha: Integer = 255; AProcessPerChannelAlpha: Boolean = True); overload; inline; static;
+    class procedure AlphaBlend(var D: TColor; S: TColor; AAlpha: Byte = 255); overload; inline; static;
+    class procedure AlphaBlend(var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte = 255); overload; inline; static;
     class procedure Flip(AColors: PACLPixel32Array; AWidth, AHeight: Integer; AHorizontally, AVertically: Boolean);
     class procedure Flush(var P: TACLPixel32); inline; static;
-    class procedure Grayscale(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False); overload; static;
-    class procedure Grayscale(var P: TACLPixel32; IgnoreMask: Boolean = False); overload; inline; static;
+    class procedure Grayscale(P: PACLPixel32; Count: Integer); overload; static;
+    class procedure Grayscale(var P: TACLPixel32); overload; inline; static;
     class function Hue(Color: TColor): Single; overload; static;
     class function Lightness(Color: TColor): Single; overload; static;
     class procedure MakeDisabled(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False); overload; static;
     class procedure MakeDisabled(var P: TACLPixel32; IgnoreMask: Boolean = False); overload; inline; static;
     class procedure MakeOpaque(P: PACLPixel32; Count: Integer); overload; static;
     class procedure MakeTransparent(P: PACLPixel32; ACount: Integer; const AColor: TACLPixel32); overload;
+    class procedure Mix(var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte = 255); overload; inline; static;
 
     // ApplyColorSchema
     class procedure ApplyColorSchema(AColors: PACLPixel32;
@@ -2927,28 +2927,29 @@ end;
 
 procedure TACLDib.MakeMirror(ASize: Integer);
 var
-  AAlpha: Single;
-  AAlphaDelta: Single;
-  AIndex: Integer;
-  I, J, O1, O2, R: Integer;
+  LAlpha: Single;
+  LAlphaDelta: Single;
+  LAlphaValue: Integer;
+  LIndex: Integer;
+  I, J, O1, O2: Integer;
 begin
   if (ASize > 0) and (ASize < Height div 2) then
   begin
-    AAlpha := 60;
-    AAlphaDelta := AAlpha / ASize;
+    LAlpha := 60;
+    LAlphaDelta := LAlpha / ASize;
     O2 := Width;
     O1 := O2 * (Height - ASize);
 
-    AIndex := O1;
+    LIndex := O1;
     for J := 0 to ASize - 1 do
     begin
-      R := Round(AAlpha);
+      LAlphaValue := Round(LAlpha);
       for I := 0 to O2 - 1 do
       begin
-        TACLColors.AlphaBlend(Colors^[AIndex], Colors^[O1 + I], R, False);
-        Inc(AIndex);
+        TACLColors.Mix(Colors^[LIndex], Colors^[O1 + I], LAlphaValue);
+        Inc(LIndex);
       end;
-      AAlpha := AAlpha - AAlphaDelta;
+      LAlpha := LAlpha - LAlphaDelta;
       Dec(O1, O2);
     end;
   end;
@@ -3415,33 +3416,27 @@ begin
   Result := (P.G = MaskPixel.G) and (P.B = MaskPixel.B) and (P.R = MaskPixel.R);
 end;
 
-class procedure TACLColors.AlphaBlend(var D: TColor; S: TColor; AAlpha: Integer = 255);
+class procedure TACLColors.AlphaBlend(var D: TColor; S: TColor; AAlpha: Byte = 255);
 var
-  DQ, SQ: TACLPixel32;
+  DQ: TACLPixel32;
 begin
   DQ := TACLPixel32.Create(D);
-  SQ := TACLPixel32.Create(S);
-  AlphaBlend(DQ, SQ, AAlpha);
+  AlphaBlend(DQ, TACLPixel32.Create(S), AAlpha);
   D := DQ.ToColor;
 end;
 
-class procedure TACLColors.AlphaBlend(var D: TACLPixel32; const S: TACLPixel32;
-  AAlpha: Integer = 255; AProcessPerChannelAlpha: Boolean = True);
+class procedure TACLColors.AlphaBlend(
+  var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte = 255);
 var
-  A: Integer;
+  LTargetAlpha: Byte;
 begin
-  if AProcessPerChannelAlpha then
-    A := PremultiplyTable[S.A, AAlpha]
-  else
-    A := AAlpha;
-
-  if (A <> MaxByte) or (AAlpha <> MaxByte) then
+  if (AAlpha < MaxByte) or (S.A < MaxByte) then
   begin
-    A := MaxByte - A;
-    D.R := PremultiplyTable[D.R, A] + PremultiplyTable[S.R, AAlpha];
-    D.B := PremultiplyTable[D.B, A] + PremultiplyTable[S.B, AAlpha];
-    D.G := PremultiplyTable[D.G, A] + PremultiplyTable[S.G, AAlpha];
-    D.A := PremultiplyTable[D.A, A] + PremultiplyTable[S.A, AAlpha];
+    LTargetAlpha := MaxByte - PremultiplyTable[S.A, AAlpha];
+    D.R := PremultiplyTable[D.R, LTargetAlpha] + PremultiplyTable[S.R, AAlpha];
+    D.B := PremultiplyTable[D.B, LTargetAlpha] + PremultiplyTable[S.B, AAlpha];
+    D.G := PremultiplyTable[D.G, LTargetAlpha] + PremultiplyTable[S.G, AAlpha];
+    D.A := PremultiplyTable[D.A, LTargetAlpha] + PremultiplyTable[S.A, AAlpha];
   end
   else
     TAlphaColor(D) := TAlphaColor(S);
@@ -3603,24 +3598,21 @@ begin
   PCardinal(@P)^ := 0;
 end;
 
-class procedure TACLColors.Grayscale(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False);
+class procedure TACLColors.Grayscale(P: PACLPixel32; Count: Integer);
 begin
   while Count > 0 do
   begin
-    Grayscale(P^, IgnoreMask);
+    Grayscale(P^);
     Dec(Count);
     Inc(P);
   end;
 end;
 
-class procedure TACLColors.Grayscale(var P: TACLPixel32; IgnoreMask: Boolean = False);
+class procedure TACLColors.Grayscale(var P: TACLPixel32);
 begin
-  if IgnoreMask or not IsMask(P) then
-  begin
-    P.B := PremultiplyTable[P.B, 77] + PremultiplyTable[P.G, 150] + PremultiplyTable[P.R, 28];
-    P.G := P.B;
-    P.R := P.B;
-  end;
+  P.B := PremultiplyTable[P.B, 77] + PremultiplyTable[P.G, 150] + PremultiplyTable[P.R, 28];
+  P.G := P.B;
+  P.R := P.B;
 end;
 
 class function TACLColors.Lightness(Color: TColor): Single;
@@ -3677,6 +3669,17 @@ begin
     Dec(ACount);
     Inc(P);
   end;
+end;
+
+class procedure TACLColors.Mix(var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte);
+var
+  LAlpha: Byte;
+begin
+  LAlpha := MaxByte - AAlpha;
+  D.R := PremultiplyTable[D.R, LAlpha] + PremultiplyTable[S.R, AAlpha];
+  D.B := PremultiplyTable[D.B, LAlpha] + PremultiplyTable[S.B, AAlpha];
+  D.G := PremultiplyTable[D.G, LAlpha] + PremultiplyTable[S.G, AAlpha];
+  D.A := PremultiplyTable[D.A, LAlpha] + PremultiplyTable[S.A, AAlpha];
 end;
 
 class procedure TACLColors.Tint(P: PACLPixel32; ACount: Integer; const ATintColor: TACLPixel32);
