@@ -95,7 +95,6 @@ type
     function EndLock(var AData: TBitmapData): Boolean;
     function GetPixelFormat: Integer;
   {$ENDIF}
-    property Handle: TACLImageHandle read FHandle;
   public
     constructor Create(ABitmap: HBITMAP); overload;
     constructor Create(ABitmap: TBitmap; AAlphaFormat: TAlphaFormat = afPremultiplied); overload;
@@ -130,6 +129,7 @@ type
       AAlpha: Byte = MaxByte; ATile: Boolean = False); overload;
     procedure Draw(Graphics: GpGraphics; const R: TRect;
       AAlpha: Byte = MaxByte; ATile: Boolean = False); overload;
+    procedure Draw(DC: HDC; const R, ASource: TRect; AAlpha: Byte = MaxByte); overload;
   {$ENDIF}
 
     // Sizing
@@ -158,6 +158,7 @@ type
     property ClientRect: TRect read GetClientRect;
     property Empty: Boolean read GetIsEmpty;
     property Format: TACLImageFormatClass read FFormat;
+    property Handle: TACLImageHandle read FHandle;
     property Height: Integer read GetHeight;
     property Width: Integer read GetWidth;
     //# Draw Settings
@@ -691,6 +692,15 @@ end;
 {$ENDIF}
 
 {$IFNDEF FPC}
+procedure TACLImage.Draw(DC: HDC; const R, ASource: TRect; AAlpha: Byte = MaxByte);
+var
+  LGraphics: GpGraphics;
+begin
+  GdipCreateFromHDC(Dc, LGraphics);
+  Draw(LGraphics, R, ASource, AAlpha);
+  GdipDeleteGraphics(LGraphics);
+end;
+
 procedure TACLImage.Draw(Graphics: GpGraphics;
   const R, ASource, AMargins: TRect; AAlpha: Byte; ATile: Boolean);
 var

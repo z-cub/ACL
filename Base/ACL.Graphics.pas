@@ -20,6 +20,12 @@ unit ACL.Graphics;
 interface
 
 uses
+{$IFDEF ACL_CAIRO}
+  Cairo,
+{$ENDIF}
+{$IFDEF LCLGtk2}
+  Gdk2pixbuf,
+{$ENDIF}
 {$IFDEF FPC}
   GraphType,
   IntfGraphics,
@@ -225,10 +231,15 @@ type
     procedure Assign(AColors: PACLPixel32; AWidth, AHeight: Integer); overload;
     procedure Assign(ASource: TACLDib); overload;
     procedure Assign(ASource: TGraphic); overload;
+  {$IFDEF LCLGtk2}
+    procedure Assign(Source: PGdkPixbuf); overload;
+  {$ENDIF}
   {$IFDEF FPC}
     procedure Assign(ASource: TRawImage); overload;
-  {$ENDIF}
+    procedure AssignTo(ATarget: TRasterImage);
+  {$ELSE}
     procedure AssignTo(ATarget: TBitmap);
+  {$ENDIF}
     function Clone(out AData: PACLPixel32Array): Boolean;
     function CoordToFlatIndex(X, Y: Integer): Integer; inline;
     function Equals(Obj: TObject): Boolean; override;
@@ -253,10 +264,14 @@ type
     function Resize(const ANewWidth, ANewHeight: Integer): Boolean; overload;
 
     //# Draw
+  {$IFDEF ACL_CAIRO}
+    procedure DrawBlend(ACairo: Pcairo_t; const ATargetRect, ASourceRect: TRect; AAlpha: Byte = MaxByte); overload;
+  {$ENDIF}
+    procedure DrawBlend(ACanvas: HDC; const ATargetRect, ASourceRect: TRect; AAlpha: Byte = MaxByte); overload;
     procedure DrawBlend(ACanvas: TCanvas; const P: TPoint; AAlpha: Byte = MaxByte); overload;
     procedure DrawBlend(ACanvas: TCanvas; const P: TPoint;
       AMode: TACLBlendMode; AAlpha: Byte = MaxByte); overload;
-    procedure DrawBlend(ACanvas: TCanvas; const R, SrcRect: TRect;
+    procedure DrawBlend(ACanvas: TCanvas; const ATargetRect, ASourceRect: TRect;
       AAlpha: Byte; ASmoothStretch: Boolean = False); overload;
     procedure DrawBlend(ACanvas: TCanvas; const R: TRect;
       AAlpha: Byte = MaxByte; ASmoothStretch: Boolean = False); overload;
@@ -642,12 +657,9 @@ implementation
 uses
 {$IFDEF LCLGtk2}
   Gdk2,
-  Gdk2pixbuf,
   Glib2,
   Gtk2Def,
-{$ENDIF}
-{$IFDEF ACL_CAIRO}
-  Cairo,
+  Gtk2Int,
 {$ENDIF}
   ACL.Math,
   ACL.Graphics.Ex,
@@ -2654,6 +2666,23 @@ begin
     end;
 end;
 
+{$IFDEF LCLGtk2}
+procedure TACLDib.Assign(Source: PGdkPixbuf);
+var
+  LImage: TRawImage;
+begin
+  LImage.Init;
+  if (Source <> nil) and GTK2WidgetSet.RawImage_DescriptionFromPixbuf(LImage.Description, Source) then
+  begin
+    LImage.Data := gdk_pixbuf_get_pixels(Source);
+    LImage.DataSize := LImage.Description.BytesPerLine * LImage.Description.Height;
+    Assign(LImage);
+  end
+  else
+    Resize(0, 0);
+end;
+{$ENDIF}
+
 {$IFDEF FPC}
 procedure TACLDib.Assign(ASource: TRawImage);
 begin
@@ -2677,7 +2706,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TACLDib.AssignTo(ATarget: TBitmap);
+procedure TACLDib.AssignTo;
 {$IFDEF FPC}
 var
   LRawImage: TRawImage;
@@ -2765,6 +2794,53 @@ begin
   BitBlt(Handle, X, Y, R.Width, R.Height, ACanvas.Handle, R.Left, R.Top, SRCCOPY);
 end;
 
+{$IFDEF ACL_CAIRO}
+procedure TACLDib.DrawBlend(ACairo: Pcairo_t;
+  const ATargetRect, ASourceRect: TRect; AAlpha: Byte = MaxByte);
+var
+  LSurface: Pcairo_surface_t;
+begin
+  LSurface := cairo_create_surface(Colors, Width, Height);
+  try
+    CairoPainter.BeginPaint(ACairo);
+    CairoPainter.FillSurface(ATargetRect, ASourceRect, LSurface, AAlpha / 255, False);
+    CairoPainter.EndPaint;
+  finally
+    cairo_surface_destroy(LSurface);
+  end;
+end;
+{$ENDIF}
+
+procedure TACLDib.DrawBlend(ACanvas: HDC;
+  const ATargetRect, ASourceRect: TRect; AAlpha: Byte = MaxByte);
+{$IFDEF MSWINDOWS}
+var
+  LBlendFunc: TBlendFunction;
+begin
+  LBlendFunc.AlphaFormat := AC_SRC_ALPHA;
+  LBlendFunc.BlendOp := AC_SRC_OVER;
+  LBlendFunc.BlendFlags := 0;
+  LBlendFunc.SourceConstantAlpha := AAlpha;
+  AlphaBlend(ACanvas,
+    ATargetRect.Left, ATargetRect.Top, ATargetRect.Width, ATargetRect.Height,
+    Handle,
+    ASourceRect.Left, ASourceRect.Top, ASourceRect.Width, ASourceRect.Height,
+    LBlendFunc);
+{$ELSE}
+var
+  LSurface: Pcairo_surface_t;
+begin
+  LSurface := cairo_create_surface(Colors, Width, Height);
+  try
+    CairoPainter.BeginPaint(ACanvas);
+    CairoPainter.FillSurface(ATargetRect, ASourceRect, LSurface, AAlpha / 255, False);
+    CairoPainter.EndPaint;
+  finally
+    cairo_surface_destroy(LSurface);
+  end;
+{$ENDIF}
+end;
+
 procedure TACLDib.DrawBlend(ACanvas: TCanvas; const P: TPoint; AAlpha: Byte = 255);
 begin
   DrawBlend(ACanvas, Bounds(P.X, P.Y, Width, Height), AAlpha);
@@ -2777,37 +2853,33 @@ begin
 end;
 
 procedure TACLDib.DrawBlend(ACanvas: TCanvas;
-  const R, SrcRect: TRect; AAlpha: Byte; ASmoothStretch: Boolean);
+  const ATargetRect, ASourceRect: TRect; AAlpha: Byte; ASmoothStretch: Boolean);
 {$IFDEF MSWINDOWS}
 var
-  LBlendFunc: TBlendFunction;
   LGpCanvas: GpGraphics;
   LGpHandle: GpImage;
 begin
-  if ASmoothStretch and not R.EqualSizes(SrcRect) then
+  if ASmoothStretch and not ATargetRect.EqualSizes(ASourceRect) then
   begin
     LGpHandle := GpCreateBitmap(Width, Height, PByte(Colors));
-    GdipCheck(GdipCreateFromHDC(ACanvas.Handle, LGpCanvas));
     try
-      GdipSetCompositingMode(LGpCanvas, CompositingModeSourceOver);
-      GdipSetInterpolationMode(LGpCanvas, InterpolationModeLowQuality);
-      GdipSetPixelOffsetMode(LGpCanvas, PixelOffsetModeHalf);
-      GpDrawImage(LGpCanvas, LGpHandle,
-        TACLGdiplusAlphaBlendAttributes.Get(AAlpha), R, SrcRect, False);
+      if GdipCreateFromHDC(ACanvas.Handle, LGpCanvas) = Ok then
+      try
+        GdipSetCompositingMode(LGpCanvas, CompositingModeSourceOver);
+        GdipSetInterpolationMode(LGpCanvas, InterpolationModeLowQuality);
+        GdipSetPixelOffsetMode(LGpCanvas, PixelOffsetModeHalf);
+        GpDrawImage(LGpCanvas, LGpHandle,
+          TACLGdiplusAlphaBlendAttributes.Get(AAlpha),
+          ATargetRect, ASourceRect, False);
+      finally
+        GdipDeleteGraphics(LGpCanvas);
+      end;
     finally
-      GdipDeleteGraphics(LGpCanvas);
       GdipDisposeImage(LGpHandle);
     end;
   end
   else
-  begin
-    LBlendFunc.AlphaFormat := AC_SRC_ALPHA;
-    LBlendFunc.BlendOp := AC_SRC_OVER;
-    LBlendFunc.BlendFlags := 0;
-    LBlendFunc.SourceConstantAlpha := AAlpha;
-    AlphaBlend(ACanvas.Handle, R.Left, R.Top, R.Right - R.Left, R.Bottom - R.Top,
-      Handle, SrcRect.Left, SrcRect.Top, SrcRect.Width, SrcRect.Height, LBlendFunc);
-  end;
+    DrawBlend(ACanvas.Handle, ATargetRect, ASourceRect, AAlpha);
 {$ELSE}
 var
   LSurface: Pcairo_surface_t;
@@ -2815,7 +2887,8 @@ begin
   LSurface := cairo_create_surface(Colors, Width, Height);
   try
     CairoPainter.BeginPaint(ACanvas);
-    CairoPainter.FillSurface(R, SrcRect , LSurface, AAlpha / 255, False);
+    CairoPainter.SetImageSmoothing(TACLBoolean.From(ASmoothStretch));
+    CairoPainter.FillSurface(ATargetRect, ASourceRect, LSurface, AAlpha / 255, False);
     CairoPainter.EndPaint;
   finally
     cairo_surface_destroy(LSurface);
@@ -3954,7 +4027,9 @@ begin
   else if AMax = G then
     H := 60 * (B - R) / (AMax - AMin) + 120
   else if AMax = B then
-    H := 60 * (R - G) / (AMax - AMin) + 240;
+    H := 60 * (R - G) / (AMax - AMin) + 240
+  else
+    H := 0;
 
   if H < 0 then
     H := H + 360;

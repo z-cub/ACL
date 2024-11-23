@@ -254,7 +254,7 @@ type
     function CreateImage(Image: TACLImage): TACL2DRenderImage; overload; virtual;
     function CreateImageAttributes: TACL2DRenderImageAttributes; virtual;
     procedure DrawImage(Image: TACLDib;
-      const TargetRect: TRect; Cache: PACL2DRenderImage = nil); overload;
+      const TargetRect: TRect; Cache: PACL2DRenderImage = nil); overload; virtual;
     procedure DrawImage(Image: TACL2DRenderImage;
       const TargetRect: TRect; Alpha: Byte = MaxByte); overload;
     procedure DrawImage(Image: TACL2DRenderImage;

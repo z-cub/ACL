@@ -184,6 +184,8 @@ type
     // Images
     function CreateImage(Colors: PACLPixel32; Width, Height: Integer;
       AlphaFormat: TAlphaFormat = afDefined): TACL2DRenderImage; override;
+    procedure DrawImage(Image: TACLDib;
+      const TargetRect: TRect; Cache: PACL2DRenderImage = nil); override;
     procedure DrawImage(Image: TACL2DRenderImage;
       const TargetRect, SourceRect: TRect; Alpha: Byte = MaxByte); override;
     procedure DrawImage(Image: TACL2DRenderImage;
@@ -1787,6 +1789,12 @@ begin
     cairo_set_line(Handle, Width, Style);
     cairo_stroke(Handle);
   end;
+end;
+
+procedure TACLCairoRender.DrawImage(
+  Image: TACLDib; const TargetRect: TRect; Cache: PACL2DRenderImage);
+begin
+  Image.DrawBlend(Handle, TargetRect, Image.ClientRect);
 end;
 
 procedure TACLCairoRender.DrawImage(Image: TACL2DRenderImage;
