@@ -286,6 +286,8 @@ procedure GpDrawImage(AGraphics: GpGraphics; AImage: GpImage; AImageAttributes: 
   const ADestRect, ASourceRect: TRect; ATileDrawingMode: Boolean); overload;
 procedure GpDrawImage(AGraphics: GpGraphics; AImage: GpImage;
   const ADestRect, ASourceRect: TRect; ATileDrawingMode: Boolean; const AAlpha: Byte = $FF); overload;
+procedure GpSaveToStream(ASource: GpImage; ATarget: TStream;
+  const ATargetMimeType: string; AParams: PEncoderParameters = nil);
 implementation
 
 uses
@@ -537,6 +539,22 @@ begin
     if SameText(AMimeType, 'image/jpg') then
       Result := GpGetCodecByMimeType('image/jpeg', ACodecID)
   end;
+end;
+
+procedure GpSaveToStream(ASource: GpImage; ATarget: TStream;
+  const ATargetMimeType: string; AParams: PEncoderParameters = nil);
+var
+  LCodecID: TGUID;
+  LStream: IStream;
+begin
+  if GpGetCodecByMimeType(ATargetMimeType, LCodecID) then
+  begin
+    LStream := TStreamAdapter.Create(ATarget, soReference);
+    GdipCheck(GdipSaveImageToStream(ASource, LStream, @LCodecID, AParams));
+    LStream := nil;
+  end
+  else
+    raise EACLImageFormatError.CreateFmt('GDI+ has no codec for the "%s" mime-type', [ATargetMimeType]);
 end;
 
 { TACLGdiplusAlphaBlendAttributes }

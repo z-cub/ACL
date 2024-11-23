@@ -243,7 +243,10 @@ type
   protected
     class function CheckPreamble(AData: PByte; AMaxSize: Integer): Boolean; override;
     class function GetMaxPreamble: Integer; override;
+    class procedure Save(AStream: TStream; AImage: TACLImage); override;
   public
+    class var Quality: Integer;
+    class constructor Create;
     class function Description: string; override;
     class function Ext: string; override;
     class function MimeType: string; override;
@@ -1234,18 +1237,8 @@ begin
     LGraphic.Free;
   end;
 {$ELSE}
-var
-  ACodecID: TGUID;
-  AStreamIntf: IStream;
 begin
-  if GpGetCodecByMimeType(MimeType, ACodecID) then
-  begin
-    AStreamIntf := TStreamAdapter.Create(AStream, soReference);
-    GdipCheck(GdipSaveImageToStream(AImage.Handle, AStreamIntf, @ACodecID, nil));
-    AStreamIntf := nil;
-  end
-  else
-    raise EACLImageFormatError.CreateFmt('GDI+ has no codec for the "%s" mime-type', [MimeType]);
+  GpSaveToStream(AImage.Handle, AStream, MimeType);
 {$ENDIF}
 end;
 
@@ -1544,6 +1537,11 @@ end;
 
 { TACLImageFormatJPEG }
 
+class constructor TACLImageFormatJPEG.Create;
+begin
+  Quality := 90;
+end;
+
 class function TACLImageFormatJPEG.CheckPreamble(AData: PByte; AMaxSize: Integer): Boolean;
 begin
   Result := (PCardinal(AData)^ and $00FFFFFF) = $FFD8FF;
@@ -1605,6 +1603,32 @@ begin
   except
     Result := False;
   end;
+end;
+
+class procedure TACLImageFormatJPEG.Save(AStream: TStream; AImage: TACLImage);
+{$IFDEF MSWINDOWS}
+var
+  LParams: TEncoderParameters;
+begin
+  LParams.Count := 1;
+  LParams.Parameter[0].Guid := EncoderQuality;
+  LParams.Parameter[0].Type_ := EncoderParameterValueTypeLong;
+  LParams.Parameter[0].NumberOfValues := 1;
+  LParams.Parameter[0].Value := @Quality;
+  GpSaveToStream(AImage.Handle, AStream, MimeType, @LParams);
+{$ELSE}
+var
+  Jpeg: TJPEGImage;
+begin
+  Jpeg := TJPEGImage.Create;
+  try
+    AImage.Handle.AssignTo(Jpeg);
+    Jpeg.CompressionQuality := Quality;
+    Jpeg.SaveToStream(AStream);
+  finally
+    Jpeg.Free;
+  end;
+{$ENDIF}
 end;
 
 { TACLImageFormatJPEG2 }
