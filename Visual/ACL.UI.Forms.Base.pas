@@ -131,7 +131,6 @@ type
   protected
     procedure AdjustSize; override;
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
-    procedure ApplyClientSize(AWidth, AHeight: Integer); virtual;
     function DialogChar(var Message: TWMKey): Boolean; {$IFDEF FPC}override;{$ELSE}virtual;{$ENDIF}
     procedure DoShow; override;
     procedure DpiChanged; virtual;
@@ -649,14 +648,6 @@ begin
     acApplyColorSchema(Components[I], TACLApplication.ColorSchema);
 end;
 
-procedure TACLBasicForm.ApplyClientSize(AWidth, AHeight: Integer);
-begin
-  if AWidth >  0 then
-    inherited ClientWidth := AWidth;
-  if AHeight > 0 then
-    inherited ClientHeight := AHeight;
-end;
-
 {$IFDEF FPC}
 procedure TACLBasicForm.AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
   const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer);
@@ -852,7 +843,10 @@ begin
     FLoadedClientHeight := 0;
     FLoadedClientWidth := 0;
     inherited;
-    ApplyClientSize(FLoadedClientWidth, FLoadedClientHeight);
+    if FLoadedClientWidth >  0 then
+      inherited ClientWidth := FLoadedClientWidth;
+    if FLoadedClientHeight > 0 then
+      inherited ClientHeight := FLoadedClientHeight;
   finally
     EnableAlign;
   end;

@@ -88,8 +88,8 @@ type
     class procedure SetPropValueAsVariant(AObject: TObject;
       const AName: string; const AValue: Variant); overload;
 
-    class procedure ResolvePath(var AObject: TObject;
-      var ANamePath: string; AVisibility: TMemberVisibilities = [mvPublished]);
+    class function ResolvePropInfo(var AObject: TObject;
+      ANamePath: string; AVisibility: TMemberVisibilities = [mvPublished]): PPropInfo;
 
     // Returns nil, if property does not exists or object is not inherited from the AMinClass
     class function TryGetPropObject<T: class>(
@@ -274,23 +274,31 @@ begin
     raise EInvalidOperation.CreateFmt(sErrorNoRttiInfo, [AObject.ClassName]);
 end;
 
-class procedure TRTTI.ResolvePath(var AObject: TObject;
-  var ANamePath: string; AVisibility: TMemberVisibilities = [mvPublished]);
+class function TRTTI.ResolvePropInfo(var AObject: TObject;
+  ANamePath: string; AVisibility: TMemberVisibilities): PPropInfo;
+
+  function RequirePropInfo(const AName: string): PPropInfo;
+  begin
+    Result := GetPropInfo(AObject, AName, AVisibility);
+    if Result = nil then
+      raise EPropertyError.CreateFmt('Unknown property %s.%s', [AObject.ClassName, AName]);
+  end;
+
 var
-  APos: Integer;
-  APropInfo: PPropInfo;
+  LPos: Integer;
 begin
   repeat
-    APos := acPos('.', ANamePath);
-    if APos > 0 then
-    begin
-      APropInfo := GetPropInfo(AObject, Copy(ANamePath, 1, APos - 1), AVisibility);
-      if (APropInfo = nil) or (APropInfo.PropType^.Kind <> tkClass) then
-        raise EPropertyError.CreateResFmt(@SInvalidPropertyType, [Copy(ANamePath, 1, APos - 1)]);
-      AObject := GetObjectProp(AObject, APropInfo, TObject);
-      ANamePath := Copy(ANamePath, APos + 1, MaxInt);
-    end;
-  until APos = 0;
+    LPos := acPos('.', ANamePath);
+    if LPos = 0 then
+      Exit(RequirePropInfo(ANamePath));
+
+    Result := RequirePropInfo(Copy(ANamePath, 1, LPos - 1));
+    if Result.PropType^.Kind <> tkClass then
+      raise EPropertyError.CreateFmt('Invalid property type: %s.%s', [AObject.ClassName, GetPropName(Result)]);
+
+    AObject := GetObjectProp(AObject, Result);
+    ANamePath := Copy(ANamePath, LPos + 1);
+  until False;
 end;
 
 class function TRTTI.IsBoolean(APropInfo: PPropInfo): Boolean;

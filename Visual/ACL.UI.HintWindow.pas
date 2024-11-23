@@ -144,7 +144,7 @@ type
 
   TACLHintPauseMode = (hpmBeforeShow, hpmBeforeHide);
 
-  TACLHintController = class
+  TACLHintController = class(TComponent)
   strict private
     FDeactivateTimer: TACLTimer;
     FHintData: TACLHintData;
@@ -164,13 +164,14 @@ type
       const AHintData: TACLHintData): Boolean; virtual;
     function CreateHintWindow: TACLHintWindow; virtual;
     function GetOwnerControl: TWinControl; virtual;
+    procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
     //# Properties
     property HintData: TACLHintData read FHintData;
     property HintOwner: TObject read FHintOwner;
     property HintPoint: TPoint read FHintPoint;
     property HintWindow: TACLHintWindow read FHintWindow;
   public
-    constructor Create;
+    constructor Create; reintroduce;
     destructor Destroy; override;
     procedure Cancel;
     procedure Hide;
@@ -487,7 +488,7 @@ end;
 
 constructor TACLHintController.Create;
 begin
-  inherited Create;
+  inherited Create(nil);
   FPauseTimer := TACLTimer.CreateEx(PauseTimerHandler);
 end;
 
@@ -581,6 +582,17 @@ begin
   Result := (AForm <> nil) and ((AForm.ParentWindow <> 0) or AForm.Active);
 end;
 
+procedure TACLHintController.Notification(
+  AComponent: TComponent; AOperation: TOperation);
+begin
+  inherited;
+  if (AOperation = opRemove) and (AComponent = HintWindow) then
+  begin
+    FHintWindow := nil;
+    Hide;
+  end;
+end;
+
 procedure TACLHintController.DeactivateTimerHandler(Sender: TObject);
 var
   LForm: TCustomForm;
@@ -601,7 +613,10 @@ begin
     hpmBeforeShow:
       begin
         if HintWindow = nil then
+        begin
           FHintWindow := CreateHintWindow;
+          FHintWindow.FreeNotification(Self);
+        end;
 
         if HintData.ScreenBounds.IsEmpty or (FHintData.AlignVert = hwvaOver) and not CanShowHintOverOwner then
         begin

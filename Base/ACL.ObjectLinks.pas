@@ -58,9 +58,10 @@ type
   public
     class constructor Create;
     class destructor Destroy;
-    class function GetExtension(AObject: TObject; const IID: TGUID; out Obj): Boolean;
+    class function GetExtension(AObject: TObject; const IID: TGUID): IUnknown; overload;
+    class function GetExtension(AObject: TObject; const IID: TGUID; out Obj): Boolean; overload;
     class procedure Release(AObject: TObject);
-    //
+    // Register/Unregister
     class procedure RegisterBridge(AObject1, AObject2: TObject); overload;
     class procedure RegisterExtension(AObject: TObject; AExtension: IUnknown); overload;
     class procedure RegisterRemoveListener(AObject: TObject; ARemoveListener: IACLObjectRemoveNotify); overload;
@@ -123,6 +124,12 @@ begin
   FreeAndNil(FFreeNotifier);
   FreeAndNil(FLinks);
   FreeAndNil(FLock);
+end;
+
+class function TACLObjectLinks.GetExtension(AObject: TObject; const IID: TGUID): IUnknown;
+begin
+  if not GetExtension(AObject, IID, Result) then
+    Result := nil;
 end;
 
 class function TACLObjectLinks.GetExtension(AObject: TObject; const IID: TGUID; out Obj): Boolean;

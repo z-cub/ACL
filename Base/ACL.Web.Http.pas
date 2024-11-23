@@ -1378,7 +1378,8 @@ end;
 
 function TACLHttpRequestTask.DoCanContinue: Boolean;
 begin
-  Result := not (Assigned(FRequest.FOnCheckCanceled) and FRequest.FOnCheckCanceled);
+  Result := not (Assigned(FRequest.FOnCheckCanceled) and
+    FRequest.FOnCheckCanceled or IsCanceled);
 end;
 
 function TACLHttpRequestTask.DoProgess(const APosition, ASize: Int64): Boolean;

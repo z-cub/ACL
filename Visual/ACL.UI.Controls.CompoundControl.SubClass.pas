@@ -2364,10 +2364,14 @@ end;
 
 function TACLCompoundControlScrollContainerViewInfo.CalculateHitTest(const AInfo: TACLHitTestInfo): Boolean;
 begin
-  Result := ScrollBarHorz.CalculateHitTest(AInfo) or ScrollBarVert.CalculateHitTest(AInfo) or inherited CalculateHitTest(AInfo);
+  Result :=
+    ScrollBarHorz.CalculateHitTest(AInfo) or
+    ScrollBarVert.CalculateHitTest(AInfo) or
+    inherited CalculateHitTest(AInfo);
 end;
 
-procedure TACLCompoundControlScrollContainerViewInfo.ScrollByMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState);
+procedure TACLCompoundControlScrollContainerViewInfo.ScrollByMouseWheel(
+  ADirection: TACLMouseWheelDirection; AShift: TShiftState);
 var
   ACount: Integer;
 begin

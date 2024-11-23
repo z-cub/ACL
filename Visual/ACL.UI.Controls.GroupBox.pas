@@ -325,9 +325,13 @@ end;
 
 function TACLCustomGroupBox.GetContentOffset: TRect;
 begin
-  Result := acBorderOffsets;
-  if not FCaptionArea.IsEmpty then
+  if FCaptionArea.IsEmpty then // Panel-like mode.
+    Result := inherited
+  else
+  begin
+    Result := acBorderOffsets;
     Result.Top := FFrameRect.Top;
+  end;
 end;
 
 function TACLCustomGroupBox.GetCursor(const P: TPoint): TCursor;

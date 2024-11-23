@@ -441,9 +441,9 @@ var
 begin
   if IsMainThread then
   begin
+    Result := False;
     LStartWaitTime := TACLThread.Timestamp;
-    while True do
-    begin
+    repeat
       case FSyncObj.WaitFor(Min(MaxWaitTime, ATimeOut)) of
         wrTimeOut:
           TACLMainThread.CheckSynchronize;
@@ -451,9 +451,7 @@ begin
           Exit(True);
       else;
       end;
-      if TACLThread.IsTimeout(LStartWaitTime, ATimeOut) then
-        Exit(False);
-    end;
+    until TACLThread.IsTimeout(LStartWaitTime, ATimeOut);
   end
   else
     Result := FSyncObj.WaitFor(ATimeOut) = wrSignaled;

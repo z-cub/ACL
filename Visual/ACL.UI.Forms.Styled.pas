@@ -200,6 +200,7 @@ type
     IACLCursorProvider,
     IACLMouseTracking)
   strict private
+    FClientOffsets: TRect;
     FInLoaded: Boolean;
     // IACLCursorProvider
     function GetCursor(const P: TPoint): TCursor;
@@ -208,14 +209,16 @@ type
     procedure IACLMouseTracking.MouseEnter = Nothing;
     procedure IACLMouseTracking.MouseLeave = Nothing;
     procedure Nothing;
+    procedure UpdateClientOffsets;
   protected
-    procedure ApplyClientSize(AWidth, AHeight: Integer); override;
     procedure CalculateMetrics; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure Resize; override;
     procedure Resizing(State: TWindowState); override;
     procedure Loaded; override;
     class procedure WSRegisterClass; override;
+    property ClientOffsets: TRect read FClientOffsets;
   public
     procedure SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer); override;
   end;
@@ -836,20 +839,9 @@ end;
 
 { TACLCustomStyledFormImpl }
 
-procedure TACLCustomStyledFormImpl.ApplyClientSize(AWidth, AHeight: Integer);
-begin
-  // Здесь делаем коррекцию client-size только на величину одного бордера,
-  // чтобы привязанные к akRight/akBottom контролы посчитали правильный офсет.
-  // Реальная коррекция размеров формы будет выполняться на Loaded+SetBoundsKeepBase.
-  CalculateMetrics;
-  if AWidth > 0 then
-    Inc(AWidth, FMetrics.BorderWidth);
-  if AHeight > 0 then
-    Inc(AHeight, FMetrics.BorderWidth);
-  inherited;
-end;
-
 procedure TACLCustomStyledFormImpl.CalculateMetrics;
+var
+  LRect: TRect;
 begin
   ZeroMemory(@FMetrics, SizeOf(FMetrics));
   if BorderStyle <> bsNone then
@@ -867,8 +859,9 @@ end;
 function TACLCustomStyledFormImpl.GetCursor(const P: TPoint): TCursor;
 const
   CursorMap: array [HTLEFT..HTBOTTOMRIGHT] of TCursor = (
-    crSizeWE, crSizeWE, crSizeNS, crSizeNW, crSizeNE, crSizeNS, crSizeSW, crSizeSE
-  );
+    crSizeWE, crSizeWE, crSizeNS, crSizeNW,
+    crSizeNE, crSizeNS, crSizeSW, crSizeSE
+ );
 var
   LCode: Integer;
 begin
@@ -946,6 +939,12 @@ begin
   end;
 end;
 
+procedure TACLCustomStyledFormImpl.Resize;
+begin
+  inherited Resize;
+  UpdateClientOffsets;
+end;
+
 procedure TACLCustomStyledFormImpl.Resizing(State: TWindowState);
 begin
   if State <> WindowState then
@@ -970,7 +969,7 @@ begin
   begin
     CalculateMetrics;
     if LoadedClientWidth > 0 then
-      aWidth := LoadedClientWidth + 2 * FMetrics.BorderWidth;
+      aWidth  := LoadedClientWidth  + 2 * FMetrics.BorderWidth;
     if LoadedClientHeight > 0 then;
       aHeight := LoadedClientHeight + 2 * FMetrics.BorderWidth + FMetrics.CaptionHeight;
   end;
@@ -980,6 +979,69 @@ end;
 procedure TACLCustomStyledFormImpl.Nothing;
 begin
   // do nothing
+end;
+
+procedure TACLCustomStyledFormImpl.UpdateClientOffsets;
+var
+  LControl: TControl;
+  LDelta: TRect;
+  LRect: TRect;
+  I: Integer;
+begin
+  if FIScaling then
+    Exit;
+  if wcfCreatingHandle in FWinControlFlags then
+    Exit;
+  if csLoading in ComponentState then
+    Exit;
+  if not HandleAllocated then
+    Exit;
+
+  LRect := ClientRect;
+  AdjustClientRect(LRect);
+  LRect := TRect.CreateMargins(ClientRect, LRect);
+  if LRect = FClientOffsets then Exit;
+
+  LDelta.Left   := LRect.Left   - FClientOffsets.Left;
+  LDelta.Top    := LRect.Top    - FClientOffsets.Top;
+  LDelta.Right  := LRect.Right  - FClientOffsets.Right;
+  LDelta.Bottom := LRect.Bottom - FClientOffsets.Bottom;
+  FClientOffsets := LRect;
+
+  DisableAlign;
+  try
+    for I := 0 to ControlCount - 1 do
+    begin
+      LControl := Controls[I];
+      if not (LControl.Align in [alNone, alCustom]) then
+        Continue;
+
+      LRect := LControl.BoundsRect;
+      if TAnchorKind.akTop in LControl.Anchors then
+      begin
+        LRect.Offset(0, LDelta.Top);
+        if TAnchorKind.akBottom in LControl.Anchors then
+          Dec(LRect.Bottom, LDelta.MarginsHeight);
+      end
+      else
+        if TAnchorKind.akBottom in LControl.Anchors then
+          LRect.Offset(0, -LDelta.Bottom);
+
+      if TAnchorKind.akLeft in LControl.Anchors then
+      begin
+        LRect.Offset(LDelta.Left, 0);
+        if TAnchorKind.akRight in LControl.Anchors then
+          Dec(LRect.Right, LDelta.MarginsWidth);
+      end
+      else
+        if TAnchorKind.akRight in LControl.Anchors then
+          LRect.Offset(-LDelta.Right, 0);
+
+      LControl.BoundsRect := LRect;
+    end;
+  finally
+    EnableAlign;
+  end;
 end;
 
 class procedure TACLCustomStyledFormImpl.WSRegisterClass;

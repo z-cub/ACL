@@ -497,7 +497,7 @@ var
 begin
   case acExplodeStringAsIntegerArray(ReadString(AKey), ',', @A[0], Length(A)) of
     0: Result := ADefault;
-    1: Result := A[0];
+    1: Result := {%H-}A[0];
     else
       Result := RGB(A[0], A[1], A[2]);
   end;

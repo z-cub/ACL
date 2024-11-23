@@ -248,6 +248,7 @@ type
   public
     class function CopyOf(AStream: TStream): TMemoryStream; overload;
     class function CopyOf(AStream: TStream; ASize: Integer): TMemoryStream; overload;
+    class function Wrap(AData: Pointer; ASize: Integer): TCustomMemoryStream;
   end;
 
   { TACLAnsiStringStream }
@@ -306,6 +307,7 @@ const
 
 type
   TMemoryStreamAccess = class(TMemoryStream);
+  TCustomMemoryStreamAccess = class(TCustomMemoryStream);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Equals
@@ -1530,6 +1532,13 @@ begin
   Result := TMemoryStream.Create;
   Result.Size := ASize;
   AStream.ReadBuffer(Result.Memory^, ASize);
+end;
+
+class function TACLMemoryStreamHelper.Wrap(
+  AData: Pointer; ASize: Integer): TCustomMemoryStream;
+begin
+  Result := TCustomMemoryStream.Create;
+  TCustomMemoryStreamAccess(Result).SetPointer(AData, ASize);
 end;
 
 { TACLAnsiStringStream }

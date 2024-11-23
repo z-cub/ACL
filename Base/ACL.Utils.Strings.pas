@@ -1551,12 +1551,17 @@ begin
 end;
 
 function acCompareStringByMask(const AMask, AStr: string): Boolean;
+var
+  LComparer: TACLSearchString;
 begin
-  with TACLSearchString.Create(AMask) do
+  LComparer := TACLSearchString.Create;
   try
-    Result := Compare(AStr);
+    LComparer.Separator := '*';
+    LComparer.IgnoreCase := True;
+    LComparer.Value := AMask;
+    Result := LComparer.Compare(AStr);
   finally
-    Free;
+    LComparer.Free;
   end;
 end;
 

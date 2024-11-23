@@ -876,7 +876,7 @@ end;
 procedure TACLTaskDispatcher.SetUseCpuUsageMonitor(AValue: Boolean);
 begin
   if not IsMainThread then
-    raise EInvalidArgument.Create('');
+    raise EInvalidOperation.Create('SetUseCpuUsageMonitor');
   TACLTimer(FCpuUsageMonitor).Enabled := AValue;
 end;
 

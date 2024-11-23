@@ -527,7 +527,10 @@ begin
 end;
 {$ELSE}
 begin
-  Result := SysUtils.ExpandFileName(AFileName);
+  if acIsUrlFileName(AFileName) then
+    Result := AFileName
+  else
+    Result := SysUtils.ExpandFileName(AFileName);
 end;
 {$ENDIF}
 

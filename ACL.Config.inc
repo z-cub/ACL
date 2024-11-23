@@ -42,6 +42,23 @@
 {$IFEND}
 
 // ---------------------------------------------------------------------------------------------------------------------
+// IDE Versions
+// ---------------------------------------------------------------------------------------------------------------------
+
+{$IFDEF VER350} // 11.0 Alexandria
+  {$DEFINE DELPHI110ALEXANDRIA}
+{$ENDIF}
+
+{$IFDEF VER360} // 12.0 Athens
+  {$DEFINE DELPHI110ALEXANDRIA}
+  {$DEFINE DELPHI120}
+{$ENDIF}
+
+{$IF NOT DEFINED(FPC) AND NOT DEFINED(DELPHI110ALEXANDRIA)}
+  {$MESSAGE FATAL 'You need Delphi 11.0 Alexandria for this library, previous Delphi versions has too many bugs with dpi scaling'}
+{$IFEND}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // RTTI
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -78,19 +95,6 @@
   {$DEFINE ACL_THREADING_USE_MESSAGES}
 {$ENDIF}
 
-// ---------------------------------------------------------------------------------------------------------------------
-// IDE Versions
-// ---------------------------------------------------------------------------------------------------------------------
-
-{$IFDEF VER350} // 11.0 Alexandria
-  {$DEFINE DELPHI110ALEXANDRIA}
+{$IFDEF LINUX}
+  {$DEFINE ACL_USE_SKINNED_FORM} // Experimental!
 {$ENDIF}
-
-{$IFDEF VER360} // 12.0 Athens
-  {$DEFINE DELPHI110ALEXANDRIA}
-  {$DEFINE DELPHI120}
-{$ENDIF}
-
-{$IF NOT DEFINED(FPC) AND NOT DEFINED(DELPHI110ALEXANDRIA)}
-  {$MESSAGE FATAL 'You need Delphi 11.0 Alexandria for this library, previous Delphi versions has too many bugs with dpi scaling'}
-{$IFEND}

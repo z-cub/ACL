@@ -31,6 +31,7 @@ uses
   // Vcl
   {Vcl.}Controls,
   {Vcl.}Graphics,
+  {Vcl.}Forms,
   // ACL
   ACL.Classes,
   ACL.Geometry,
@@ -139,6 +140,7 @@ type
     procedure CalculateContentLayout; override;
     procedure DoCalculateHitTest(const AInfo: TACLHitTestInfo); override;
     procedure DoDrawCells(ACanvas: TCanvas); override;
+    function GetScrollInfo(AKind: TScrollBarKind; out AInfo: TACLScrollInfo): Boolean; override;
   public
     property FormattedText: TACLFormattedLabelFormattedText read GetFormattedText;
     property SubClass: TACLFormattedLabelSubClass read GetSubClass;
@@ -429,6 +431,13 @@ end;
 function TACLFormattedLabelViewInfo.GetOrigin: TPoint;
 begin
   Result := ClientBounds.TopLeft - Point(ViewportX, ViewportY);
+end;
+
+function TACLFormattedLabelViewInfo.GetScrollInfo(
+  AKind: TScrollBarKind; out AInfo: TACLScrollInfo): Boolean;
+begin
+  Result := inherited;
+  AInfo.LineSize := acFontHeight(FormattedText.Font);
 end;
 
 function TACLFormattedLabelViewInfo.GetSubClass: TACLFormattedLabelSubClass;

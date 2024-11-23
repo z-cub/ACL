@@ -436,14 +436,23 @@ type
 {$REGION ' Generic '}
 
 function cairo_create_context(DC: HDC): pcairo_t;
-begin
 {$IF DEFINED(LCLGtk2)}
-  Result := gdk_cairo_create(TGtkDeviceContext(DC).Drawable);
+var
+  LContext: TGtkDeviceContext;
+begin
+  LContext := TGtkDeviceContext(DC);
+  Result := gdk_cairo_create(LContext.Drawable);
+  if LContext.Offset <> NullPoint then
+    cairo_translate(Result, LContext.Offset.X, LContext.Offset.Y);
 {$ELSEIF DEFINED(MSWINDOWS)}
-  var LSurface := cairo_win32_surface_create(DC);
+var
+  LSurface: Pcairo_surface_t;
+begin
+  LSurface := cairo_win32_surface_create(DC);
   Result := cairo_create(LSurface);
   cairo_surface_destroy(LSurface);
 {$ELSE}
+begin
   Result := nil;
 {$ENDIF}
   if Result = nil then
