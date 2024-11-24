@@ -122,9 +122,11 @@ type
   TACLSpinEditOptionsValue = class(TACLLockablePersistent)
   strict private const
     DefaultDisplayFormat = '%s';
+    DefaultFloatPrecision = 2;
   strict private
     FAssignedValues: TACLSpinEditAssignedValues;
     FDisplayFormat: string;
+    FFloatPrecision: Integer;
     FOwner: TACLSpinEdit;
     FValues: array[0..2] of Variant;
     FValueType: TACLSpinEditValueType;
@@ -134,6 +136,7 @@ type
     function IsValueStored(const Index: Integer): Boolean;
     procedure SetAssignedValues(const Value: TACLSpinEditAssignedValues);
     procedure SetDisplayFormat(const Value: string);
+    procedure SetFloatPrecision(AValue: Integer);
     procedure SetValue(const Index: Integer; const AValue: Variant);
     procedure SetValueType(const Value: TACLSpinEditValueType);
   protected
@@ -147,6 +150,7 @@ type
     property ValueType: TACLSpinEditValueType read FValueType write SetValueType default evtInteger; // first!
     property AssignedValues: TACLSpinEditAssignedValues read FAssignedValues write SetAssignedValues stored False;
     property DisplayFormat: string read FDisplayFormat write SetDisplayFormat stored IsDisplayFormatStored;
+    property FloatPrecision: Integer read FFloatPrecision write SetFloatPrecision default DefaultFloatPrecision;
     property IncCount: Variant index 0 read GetValue write SetValue stored IsValueStored;
     property MaxValue: Variant index 1 read GetValue write SetValue stored IsValueStored;
     property MinValue: Variant index 2 read GetValue write SetValue stored IsValueStored;
@@ -405,6 +409,7 @@ begin
   inherited Create;
   FOwner := AOwner;
   FDisplayFormat := DefaultDisplayFormat;
+  FFloatPrecision := DefaultFloatPrecision;
   FValues[0] := 1;
   FValues[1] := 0;
   FValues[2] := 0;
@@ -419,6 +424,7 @@ begin
     MinValue := TACLSpinEditOptionsValue(Source).MinValue;
     IncCount := TACLSpinEditOptionsValue(Source).IncCount;
     DisplayFormat := TACLSpinEditOptionsValue(Source).DisplayFormat;
+    FloatPrecision := TACLSpinEditOptionsValue(Source).FloatPrecision;
     AssignedValues := TACLSpinEditOptionsValue(Source).AssignedValues; // last
   end;
 end;
@@ -437,6 +443,8 @@ begin
     V := Min(Double(V), Double(MaxValue));
   if seavMinValue in AssignedValues then
     V := Max(Double(V), Double(MinValue));
+  if ValueType = evtFloat then
+    V := RoundTo(Double(V), -FloatPrecision);
   ValidateValueType(V);
 end;
 
@@ -445,7 +453,7 @@ const
   MaxValue: Double =  MaxInt / 1.0;
   MinValue: Double = -MaxInt / 1.0;
 begin
-  V := MinMax(V, MinValue, MaxValue);
+  V := EnsureRange(V, MinValue, MaxValue);
   if ValueType = evtInteger then
     V := VarAsType(V, varInteger)
   else
@@ -483,6 +491,11 @@ begin
     FDisplayFormat := IfThenW(Value, DefaultDisplayFormat);
     Changed([apcLayout]);
   end;
+end;
+
+procedure TACLSpinEditOptionsValue.SetFloatPrecision(AValue: Integer);
+begin
+  FFloatPrecision := EnsureRange(AValue, 1, 8);
 end;
 
 procedure TACLSpinEditOptionsValue.SetValue(const Index: Integer; const AValue: Variant);
@@ -647,7 +660,7 @@ begin
   if OptionsValue.ValueType = evtInteger then
     Result := IntToStr(Value)
   else
-    Result := FormatFloat('0.00######', Value);
+    Result := FormatFloat('0.' + acDupeString('0', OptionsValue.FloatPrecision), Value);
 end;
 
 procedure TACLSpinEdit.InplaceSetValue(const AValue: string);
@@ -657,14 +670,14 @@ end;
 
 procedure TACLSpinEdit.HandlerDelayValidate(Sender: TObject);
 var
- APrevValue: string;
+  LPrevValue: string;
 begin
-  APrevValue := InnerEdit.Text;
-  if (InnerEdit.SelLength = 0) and (APrevValue <> '') then
+  LPrevValue := InnerEdit.Text;
+  if (InnerEdit.SelLength = 0) and (LPrevValue <> '') then
   begin
     FreeAndNil(FValidateDelayTimer);
     UpdateDisplayValue;
-    if InnerEdit.Text <> APrevValue then Beep;
+    if InnerEdit.Text <> LPrevValue then Beep;
   end;
 end;
 
