@@ -828,6 +828,7 @@ type
     function CalcCursorPos: TPoint;
     function ControlHeight: Integer; // + including margins
     function ControlWidth: Integer;  // + including margins
+    procedure PaintTo(ACanvas: TCanvas; X, Y: Integer);
   {$IFDEF FPC}
     procedure SendCancelMode(Sender: TControl);
   {$ENDIF}
@@ -3526,6 +3527,28 @@ begin
 {$ELSE}
   Result := Margins.ControlWidth;
 {$ENDIF}
+end;
+
+procedure TACLControlHelper.PaintTo(ACanvas: TCanvas; X, Y: Integer);
+var
+  LPrevOrg: TPoint;
+begin
+  if Self is TWinControl then
+    TWinControl(Self).PaintTo(ACanvas, X, Y)
+  else
+  begin
+    LPrevOrg := acMoveWindowOrg(ACanvas.Handle, X, Y);
+    try
+      ControlState := ControlState + [csPaintCopy];
+      try
+        Perform(WM_PAINT, ACanvas.Handle, 0);
+      finally
+        ControlState := ControlState - [csPaintCopy];
+      end;
+    finally
+      acRestoreWindowOrg(ACanvas.Handle, LPrevOrg);
+    end;
+  end;
 end;
 
 {$IFDEF FPC}

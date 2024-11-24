@@ -81,6 +81,8 @@ type
     procedure SetBorders(AValue: TBorderStyle);
     procedure SetStyle(AValue: TACLScrollBoxStyle);
   protected
+    FZOrderValidationLock: Integer;
+
     procedure AdjustClientRect(var ARect: TRect); override;
     procedure AlignControls(AControl: TControl; var ARect: TRect); override;
     procedure AlignScrollBars(const ARect: TRect); virtual;
@@ -104,6 +106,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure ScrollBy(dX, dY: Integer); {$IFDEF FPC}override; final;{$ENDIF}
+    procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
     //# Properties
     property Borders: TBorderStyle read FBorders write SetBorders default bsSingle;
     property HorzScrollBar: TACLScrollBar read FHorzScrollBar;
@@ -200,6 +203,7 @@ begin
   ControlStyle := ControlStyle + [csAcceptsControls];
   FBorders := bsSingle;
   FSizeGrip := TACLSizeGrip.Create(Self);
+  FSizeGrip.Align := alCustom;
   FSizeGrip.Visible := False;
   FSizeGrip.Parent := Self;
   FStyle := CreateStyle;
@@ -236,19 +240,20 @@ begin
     AdjustClientRect(ARect);
     AlignScrollBars(ARect);
   end;
+  if FZOrderValidationLock = 0 then
+  begin
+    FHorzScrollBar.BringToFront;
+    FVertScrollBar.BringToFront;
+    FSizeGrip.BringToFront;
+  end;
 end;
 
 procedure TACLCustomScrollingControl.AlignScrollBars(const ARect: TRect);
 begin
-  HorzScrollBar.BringToFront;
-  HorzScrollBar.SetBounds(ARect.Left, ARect.Bottom, ARect.Width, HorzScrollBar.Height);
-  HorzScrollBar.Tag := HorzScrollBar.Position;
-
-  VertScrollBar.BringToFront;
-  VertScrollBar.SetBounds(ARect.Right, ARect.Top, VertScrollBar.Width, ARect.Height);
-  VertScrollBar.Tag := VertScrollBar.Position;
-
-  FSizeGrip.BringToFront;
+  FHorzScrollBar.SetBounds(ARect.Left, ARect.Bottom, ARect.Width, HorzScrollBar.Height);
+  FHorzScrollBar.Tag := HorzScrollBar.Position;
+  FVertScrollBar.SetBounds(ARect.Right, ARect.Top, VertScrollBar.Width, ARect.Height);
+  FVertScrollBar.Tag := VertScrollBar.Position;
   FSizeGrip.SetBounds(ARect.Right, ARect.Bottom, VertScrollBar.Width, HorzScrollBar.Height);
   FSizeGrip.Visible := VertScrollBar.Visible and HorzScrollBar.Visible;
 end;
@@ -289,14 +294,27 @@ begin
 end;
 
 procedure TACLCustomScrollingControl.PaintWindow(DC: HDC);
+var
+  LRgn: TRegionHandle;
 begin
+  LRgn := acSaveClipRegion(DC);
+  try
+    if FSizeGrip.Visible then
+      acExcludeFromClipRegion(DC, FSizeGrip.BoundsRect);
+    if HorzScrollBar.Visible then
+      acExcludeFromClipRegion(DC, HorzScrollBar.BoundsRect);
+    if VertScrollBar.Visible then
+      acExcludeFromClipRegion(DC, VertScrollBar.BoundsRect);
+    inherited;
+  finally
+    acRestoreClipRegion(DC, LRgn);
+  end;
   if FSizeGrip.Visible then
-    acExcludeFromClipRegion(DC, FSizeGrip.BoundsRect);
+    FSizeGrip.PaintTo(DC, FSizeGrip.Left, FSizeGrip.Top);
   if HorzScrollBar.Visible then
-    acExcludeFromClipRegion(DC, HorzScrollBar.BoundsRect);
+    HorzScrollBar.PaintTo(DC, HorzScrollBar.Left, HorzScrollBar.Top);
   if VertScrollBar.Visible then
-    acExcludeFromClipRegion(DC, VertScrollBar.BoundsRect);
-  inherited;
+    VertScrollBar.PaintTo(DC, VertScrollBar.Left, VertScrollBar.Top);
 end;
 
 procedure TACLCustomScrollingControl.Scroll(
@@ -326,7 +344,14 @@ begin
   TryScroll(dX, HorzScrollBar);
   TryScroll(dY, VertScrollBar);
   if (dX <> 0) or (dY <> 0) then
-    ScrollContent(dX, dY);
+  begin
+    Inc(FZOrderValidationLock);
+    try
+      ScrollContent(dX, dY);
+    finally
+      Dec(FZOrderValidationLock);
+    end;
+  end;
 end;
 
 procedure TACLCustomScrollingControl.ScrollContent(dX, dY: Integer);
@@ -342,6 +367,16 @@ begin
     if HandleAllocated then
       UpdateBorders;
     Realign;
+  end;
+end;
+
+procedure TACLCustomScrollingControl.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
+begin
+  Inc(FZOrderValidationLock);
+  try
+    inherited;
+  finally
+    Dec(FZOrderValidationLock);
   end;
 end;
 
@@ -398,11 +433,13 @@ procedure TACLCustomScrollingControl.WMNCPaint(var Msg: TMessage);
 
   procedure DoDrawBorder(DC: HDC);
   begin
+    Canvas.Lock;
     Canvas.Handle := DC;
     try
       Style.DrawBorder(Canvas, Rect(0, 0, Width, Height), acAllBorders);
     finally
       Canvas.Handle := 0;
+      Canvas.Unlock;
     end;
   end;
 
