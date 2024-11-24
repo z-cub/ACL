@@ -239,9 +239,13 @@ uses
 {$IFDEF ACL_LOG_SHELL}
   ACL.Utils.Logger,
 {$ENDIF}
-{$IFDEF MSWINDOWS}
+{$IF DEFINED(MSWINDOWS)}
   ACL.Utils.Desktop,
-{$ELSE}
+{$ELSEIF DEFINED(LCLGtk2)}
+  gdk2pixbuf,
+  glib2,
+  gtk2,
+  gtk2Def,
   ACL.Utils.FileSystem.GIO,
 {$ENDIF}
   ACL.UI.Dialogs;
@@ -249,6 +253,11 @@ uses
 type
   TACLTreeListNodeAccess = class(TACLTreeListNode);
   TACLTreeListCustomOptionsAccess = class(TACLTreeListCustomOptions);
+
+{$IFDEF LCLGtk2}
+  function gtk_icon_theme_lookup_by_gicon(icon_theme: PGtkIconTheme; icon: PGIcon;
+    size: gint; flags: TGtkIconLookupFlags): PGtkIconInfo; cdecl; external libGtk2;
+{$ENDIF}
 
 { TACLShellImageList }
 
@@ -300,41 +309,82 @@ begin
 const
   RegularFolderImageIndex = 0;
 
-  function AddImageFile(const AFileName: string): Integer;
+  function AddImage(const APixbuf: PGdkPixbuf): Integer;
   var
-    LBitmap: TBitmap;
-    LImage: TACLImage;
+    LBmp: TBitmap;
+    LDib: TACLDib;
   begin
-    if not FCache.TryGetValue(AFileName, Result) then
-    begin
+    LDib := TACLDib.Create;
+    try
+      LDib.Assign(APixBuf);
+      LBmp := TBitmap.Create;
       try
-        LImage := TACLImage.Create(AFileName);
-        try
-          LBitmap := LImage.ToBitmap;
-          try
-            Result := Add(LBitmap, nil);
-          finally
-            LBitmap.Free;
-          end;
-        finally
-          LImage.Free;
-        end;
-      except
-        Result := RegularFolderImageIndex;
+        LDib.AssignTo(LBmp);
+        Result := Add(LBmp, nil);
+      finally
+        LBmp.Free;
       end;
-      FCache.Add(AFileName, Result);
+    finally
+      LDib.Free;
     end;
   end;
 
   function FetchIcon(const APath: string): Integer;
   var
-    LFileName: string;
+    LError: PGError;
+    LFile: PGFile;
+    LFileName: Pgchar;
+    LFlags: TGtkIconLookupFlags;
+    LInfo: PGFileInfo;
+    LIcon: PGIcon;
+    LIconData: PGdkPixbuf;
+    LIconInfo: PGtkIconInfo;
   begin
-    LFileName := gioGetIconFileNameForUri(APath, Width);
-    if LFileName <> '' then
-      Result := AddImageFile(LFileName)
-    else
+    Result := RegularFolderImageIndex;
+    try
+      LFile := g_file_new_for_path(PChar(APath));
+      if LFile <> nil then
+      try
+        LError := nil;
+        LInfo := g_file_query_info(LFile, 'standard::icon', 0, nil, @LError);
+        if LError <> nil then
+          g_error_free(LError);
+        if LInfo <> nil then
+        try
+          LIcon := g_file_info_get_icon(LInfo);
+          if LIcon <> nil then
+          begin
+            LFlags := [GTK_ICON_LOOKUP_USE_BUILTIN, GTK_ICON_LOOKUP_FORCE_SIZE];
+            LIconInfo := gtk_icon_theme_lookup_by_gicon(
+               gtk_icon_theme_get_default, LIcon, Width, LFlags);
+            if LIconInfo <> nil then
+            try
+              LFileName := gtk_icon_info_get_filename(LIconInfo);
+              if (LFileName <> nil) and not FCache.TryGetValue(LFileName, Result) then
+              begin
+                LError := nil;
+                LIconData := gtk_icon_info_load_icon(LIconInfo, @LError);
+                if LError <> nil then
+                  g_error_free(LError);
+                if LIconData <> nil then
+                begin
+                  Result := AddImage(LIconData);
+                  gdk_pixbuf_unref(LIconData);
+                end;
+              end;
+            finally
+              gtk_icon_info_free(LIconInfo);
+            end;
+          end;
+        finally
+          g_object_unref(LInfo);
+        end;
+      finally
+        g_object_unref(LFile);
+      end;
+    except
       Result := RegularFolderImageIndex;
+    end;
   end;
 
 begin

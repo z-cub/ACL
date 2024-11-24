@@ -198,7 +198,6 @@ function g_unix_mounts_changed_since(time: guint64): gboolean; cdecl; external l
 function g_unix_mounts_get(time_read: Pguint64): PGList; cdecl; external libGio2;
 
 function gioErrorToString(Error: PGError): string;
-function gioGetIconFileNameForUri(const FileOrFolder: string; Size: Integer): string;
 function gioTrash(const FileOrFolder: string; out ErrorText: string): HRESULT;
 function gioUntrash(const FileOrFolder: string; out ErrorText: string): HRESULT;
 implementation
@@ -208,9 +207,6 @@ uses
   // ACL
   ACL.Utils.Common,
   ACL.Utils.Strings;
-
-function gtk_icon_theme_lookup_by_gicon(icon_theme: PGtkIconTheme; icon: PGIcon;
-  size: gint; flags: TGtkIconLookupFlags): PGtkIconInfo; cdecl; external libGtk2;
 
 function gioDecodeFileUri(Uri: Pgchar): string;
 var
@@ -255,53 +251,6 @@ begin
     Result := Error^.message + ' (' + IntToStr(Error^.code) + ')'
   else
     Result := 'Error ' + IntToStr(Error^.code);
-end;
-
-function gioGetIconFileNameForUri(const FileOrFolder: string; Size: Integer): string;
-var
-  LError: PGError;
-  LFile: PGFile;
-  LFileName: Pgchar;
-  LFlags: TGtkIconLookupFlags;
-  LInfo: PGFileInfo;
-  LIcon: PGIcon;
-  LIconInfo: PGtkIconInfo;
-begin
-  Result := '';
-  try
-    LFile := g_file_new_for_path(PChar(FileOrFolder));
-    if LFile <> nil then
-    try
-      LError := nil;
-      LInfo := g_file_query_info(LFile, 'standard::icon', 0, nil, @LError);
-      if LError <> nil then
-        g_error_free(LError);
-      if LInfo <> nil then
-      try
-        LIcon := g_file_info_get_icon(LInfo);
-        if LIcon <> nil then
-        begin
-          LFlags := [GTK_ICON_LOOKUP_USE_BUILTIN, GTK_ICON_LOOKUP_FORCE_SIZE];
-          LIconInfo := gtk_icon_theme_lookup_by_gicon(
-             gtk_icon_theme_get_default, LIcon, Size, LFlags);
-          if LIconInfo <> nil then
-          try
-            LFileName := gtk_icon_info_get_filename(LIconInfo);
-            if LFileName <> nil then
-              Result := LFileName;
-          finally
-            gtk_icon_info_free(LIconInfo);
-          end;
-        end;
-      finally
-        g_object_unref(LInfo);
-      end;
-    finally
-      g_object_unref(LFile);
-    end;
-  except
-    // do nothing
-  end;
 end;
 
 function gioTrash(const FileOrFolder: string; out ErrorText: string): HRESULT;
