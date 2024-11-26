@@ -232,10 +232,11 @@ type
     procedure Assign(ASource: TACLDib); overload;
     procedure Assign(ASource: TGraphic); overload;
   {$IFDEF LCLGtk2}
-    procedure Assign(Source: PGdkPixbuf); overload;
+    procedure Assign(ASource: PGdkPixbuf); overload;
   {$ENDIF}
   {$IFDEF FPC}
     procedure Assign(ASource: TRawImage); overload;
+    procedure Assign(ASource: TLazIntfImage); overload;
     procedure AssignTo(ATarget: TRasterImage);
   {$ELSE}
     procedure AssignTo(ATarget: TBitmap);
@@ -1398,23 +1399,29 @@ end;
 //----------------------------------------------------------------------------------------------------------------------
 
 {$IFDEF FPC}
-procedure acRawImageToBits(ABits: PACLPixel32; const ARawImage: TRawImage);
+procedure acRawImageToBits(ABits: PACLPixel32; const AImage: TLazIntfImage); overload;
+var
+  X, Y: Integer;
+begin
+  for Y := 0 to AImage.Height - 1 do
+    for X := 0 to AImage.Width - 1 do
+      with AImage.Colors[x, y] do
+      begin
+        ABits^.A := Alpha shr 8;
+        ABits^.R := Red shr 8;
+        ABits^.G := Green shr 8;
+        ABits^.B := Blue shr 8;
+        Inc(ABits);
+      end;
+end;
+
+procedure acRawImageToBits(ABits: PACLPixel32; const ARawImage: TRawImage); overload;
 var
   LImage: TLazIntfImage;
-  X, Y: Integer;
 begin
   LImage := TLazIntfImage.Create(ARawImage, False);
   try
-    for Y := 0 to LImage.Height - 1 do
-      for X := 0 to LImage.Width - 1 do
-        with LImage.Colors[x, y] do
-        begin
-          ABits^.A := Alpha shr 8;
-          ABits^.R := Red shr 8;
-          ABits^.G := Green shr 8;
-          ABits^.B := Blue shr 8;
-          Inc(ABits);
-        end;
+    acRawImageToBits(ABits, LImage);
   finally
     LImage.Free;
   end;
@@ -2667,14 +2674,14 @@ begin
 end;
 
 {$IFDEF LCLGtk2}
-procedure TACLDib.Assign(Source: PGdkPixbuf);
+procedure TACLDib.Assign(ASource: PGdkPixbuf);
 var
   LImage: TRawImage;
 begin
   LImage.Init;
-  if (Source <> nil) and GTK2WidgetSet.RawImage_DescriptionFromPixbuf(LImage.Description, Source) then
+  if (ASource <> nil) and GTK2WidgetSet.RawImage_DescriptionFromPixbuf(LImage.Description, ASource) then
   begin
-    LImage.Data := gdk_pixbuf_get_pixels(Source);
+    LImage.Data := gdk_pixbuf_get_pixels(ASource);
     LImage.DataSize := LImage.Description.BytesPerLine * LImage.Description.Height;
     Assign(LImage);
   end
@@ -2684,6 +2691,15 @@ end;
 {$ENDIF}
 
 {$IFDEF FPC}
+procedure TACLDib.Assign(ASource: TLazIntfImage);
+var
+  LImage: TLazIntfImage;
+begin
+  Resize(ASource.Width, ASource.Height);
+  if not Empty then
+    acRawImageToBits(PACLPixel32(Colors), ASource);
+end;
+
 procedure TACLDib.Assign(ASource: TRawImage);
 begin
   Resize(ASource.Description.Width, ASource.Description.Height);
