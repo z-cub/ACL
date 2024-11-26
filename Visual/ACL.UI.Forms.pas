@@ -471,15 +471,18 @@ procedure TACLPopupWindow.WndProc(var Message: TMessage);
 begin
   if Visible then
     case Message.Msg of
+      CM_CANCELMODE:
+        if not (fsShowing in FormState) then
+        begin
+          if not ContainsControl(TCMCancelMode(Message).Sender) then
+            ClosePopup;
+        end;
       WM_GETDLGCODE:
         Message.Result := DLGC_WANTARROWS or DLGC_WANTTAB or DLGC_WANTALLKEYS or DLGC_WANTCHARS;
       WM_ACTIVATEAPP:
         ClosePopup;
       WM_CONTEXTMENU, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, CM_MOUSEWHEEL:
         Exit;
-      CM_CANCELMODE:
-        if not ContainsControl(TCMCancelMode(Message).Sender) then
-          ClosePopup;
       WM_ACTIVATE:
         with TWMActivate(Message) do
           if Active = WA_INACTIVE then

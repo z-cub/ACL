@@ -667,7 +667,7 @@ uses
 {$IFDEF MSWINDOWS}
   ACL.Graphics.Ex.Gdip,
 {$ENDIF}
-{$IFDEF ACL_CAIRO_TEXTOUT}
+{$IFDEF ACL_CAIRO}
   ACL.Graphics.Ex.Cairo,
 {$ENDIF}
   ACL.Graphics.TextLayout,
@@ -2818,9 +2818,7 @@ var
 begin
   LSurface := cairo_create_surface(Colors, Width, Height);
   try
-    CairoPainter.BeginPaint(ACairo);
-    CairoPainter.FillSurface(ATargetRect, ASourceRect, LSurface, AAlpha / 255, False);
-    CairoPainter.EndPaint;
+    cairo_fill_surface(ACairo, LSurface, ATargetRect, ASourceRect, NullPoint, AAlpha / 255, False);
   finally
     cairo_surface_destroy(LSurface);
   end;

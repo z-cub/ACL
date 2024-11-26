@@ -253,7 +253,8 @@ end;
 procedure TACLCompoundControl.FocusChanged;
 begin
   inherited FocusChanged;
-  TACLCompoundControlSubClassAccess(SubClass).FocusChanged;
+  if SubClass <> nil then // can be invoked from WM_KillFocus on DestroyWnd
+    TACLCompoundControlSubClassAccess(SubClass).FocusChanged;
 end;
 
 procedure TACLCompoundControl.Loaded;

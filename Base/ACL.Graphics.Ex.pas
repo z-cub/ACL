@@ -278,8 +278,10 @@ type
       Color1, Color2: TAlphaColor; Vertical: Boolean); virtual; abstract;
 
     // Text
+    function MeasureText(const Text: string; Font: TFont;
+      MaxWidth: Integer = -1; WordWrap: Boolean = False): TSize; overload;
     procedure MeasureText(const Text: string; Font: TFont;
-      var Rect: TRect; WordWrap: Boolean); virtual; abstract;
+      var Rect: TRect; WordWrap: Boolean); overload; virtual; abstract;
     procedure DrawText(const Text: string; const R: TRect;
       Color: TAlphaColor; Font: TFont;
       HorzAlign: TAlignment = taLeftJustify;
@@ -1801,6 +1803,16 @@ end;
 procedure TACL2DRender.TranslateWorldTransform(OffsetX, OffsetY: Single);
 begin
   ModifyWorldTransform(TXForm.CreateTranslateMatrix(OffsetX, OffsetY));
+end;
+
+function TACL2DRender.MeasureText(const Text: string; Font: TFont;
+  MaxWidth: Integer = -1; WordWrap: Boolean = False): TSize;
+var
+  LRect: TRect;
+begin
+  LRect := Rect(0, 0, IfThen(MaxWidth > 0, MaxWidth, MaxWord), MaxWord);
+  MeasureText(Text, Font, LRect, WordWrap);
+  Result := LRect.Size;
 end;
 
 function TACL2DRender.ModifyOrigin(DeltaX, DeltaY: Integer): TPoint;

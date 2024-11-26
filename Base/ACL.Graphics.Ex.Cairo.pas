@@ -28,9 +28,10 @@ uses
   Windows,
 {$ENDIF}
 {$IFDEF LCLGtk2}
-  glib2,
-  gdk2,
-  gtk2Def,
+  GLib2,
+  Gdk2,
+  Gtk2Def,
+  Gtk2Proc,
 {$ENDIF}
 {$IFDEF FPC}
   LazUtf8,
@@ -908,7 +909,8 @@ begin
       while I < LGlyphCount do
       begin
         // слово не влезает - откатываемся к ближайшему разделителю
-        if LOffsetX + LGlyphWidths[I] > LWidth then
+        if (LOffsetX + LGlyphWidths[I] > LWidth) and not
+          ((LGlyphs^[I].Index = LGlyphCR) or (LGlyphs^[I].Index = LGlyphLF)) then
         begin
           J := I;
           while (J > LLineStart) and not Contains(LWordBreaks, LGlyphs^[J].Index) do
@@ -1287,6 +1289,8 @@ class procedure TCairoHelper.InitDefaultFont;
 begin
 {$IFDEF FPC}
   FDefaultFontData := GetFontData(GetStockObject(DEFAULT_GUI_FONT));
+  if FDefaultFontData.Name = '' then
+    FDefaultFontData.Name := GetDefaultFontName;
 {$ELSE}
   FDefaultFontData := DefFontData;
 {$ENDIF}
@@ -1340,7 +1344,8 @@ begin
     else
       LDeltaX := -Glyphs^[0].x;
 
-    OffsetGlyphs(Glyphs, GlyphCount, LDeltaX, 0);
+    if LDeltaX <> 0 then
+      OffsetGlyphs(Glyphs, GlyphCount, LDeltaX, 0);
   end;
   if NextLine <> nil then
     NextLine^.Align(ARightBound, AAlignment);

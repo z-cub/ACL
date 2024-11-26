@@ -153,6 +153,13 @@ uses
 
 type
 
+  { TACLInnerScrollBar }
+
+  TACLInnerScrollBar = class(TACLScrollBar)
+  protected
+    procedure UpdateTransparency; override;
+  end;
+
   { TACLSizeGrip }
 
   TACLSizeGrip = class(TACLCustomControl)
@@ -260,7 +267,7 @@ end;
 
 function TACLCustomScrollingControl.CreateScrollBar(AKind: TScrollBarKind): TACLScrollBar;
 begin
-  Result := TACLScrollBar.CreateEx(Self, AKind, Style, soReference);
+  Result := TACLInnerScrollBar.CreateEx(Self, AKind, Style, soReference);
   Result.Align := alCustom;
   Result.OnScroll := Scroll;
   Result.Parent := Self;
@@ -635,6 +642,13 @@ begin
   finally
     LDeferUpdate.Free;
   end;
+end;
+
+{ TACLInnerScrollBar }
+
+procedure TACLInnerScrollBar.UpdateTransparency;
+begin
+  ControlStyle := ControlStyle + [csOpaque];
 end;
 
 end.

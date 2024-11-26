@@ -217,6 +217,8 @@ type
     procedure Resize; override;
     procedure Resizing(State: TWindowState); override;
     procedure Loaded; override;
+    procedure SetClientHeight(Value: Integer);override;
+    procedure SetClientWidth(Value: Integer); override;
     class procedure WSRegisterClass; override;
     property ClientOffsets: TRect read FClientOffsets;
   public
@@ -961,6 +963,20 @@ begin
   FInLoaded := True;
   inherited;
   FInLoaded := False;
+end;
+
+procedure TACLCustomStyledFormImpl.SetClientHeight(Value: Integer);
+begin
+  if not (csReadingState in ControlState) then
+    Inc(Value, 2 * FMetrics.BorderWidth + FMetrics.CaptionHeight);
+  inherited SetClientHeight(Value);
+end;
+
+procedure TACLCustomStyledFormImpl.SetClientWidth(Value: Integer);
+begin
+  if not (csReadingState in ControlState) then
+    Inc(Value, 2 * FMetrics.BorderWidth);
+  inherited SetClientWidth(Value);
 end;
 
 procedure TACLCustomStyledFormImpl.SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer);

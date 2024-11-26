@@ -1293,10 +1293,8 @@ end;
 function TACLStyleMenu.IsBitmapDefined(AItem: TMenuItem): Boolean;
 begin
 {$IFDEF FPC}
-  // В отличие от Delphi, Lazarus инициализирует битмап из имеджлиста при
-  // чтении проперти, единственный вариант без хаков узнать, назначил ли
-  // пользователь картинку - дергуть isStored свойства.
-  Result := IsStoredProp(AItem, 'Bitmap');
+  // Lazarus инициализирует битмап из имеджлиста при чтении проперти
+  Result := (AItem.ImageIndex < 0) or (AItem.GetImageList = nil);
 {$ELSE}
   Result := not AItem.Bitmap.Empty;
 {$ENDIF}

@@ -95,8 +95,6 @@ type
   {$ENDIF}
 
     procedure ApplyColorSchema;
-    procedure SetClientHeight(Value: Integer);
-    procedure SetClientWidth(Value: Integer);
     procedure SetParentFont(Value: Boolean);
     procedure TakeParentFontIfNecessary;
     // IACLCurrentDpi
@@ -137,6 +135,8 @@ type
     procedure InitializeNewForm; {$IFDEF FPC}virtual;{$ELSE}override;{$ENDIF}
     procedure Loaded; override;
     procedure ReadState(Reader: TReader); override;
+    procedure SetClientHeight(Value: Integer); virtual;
+    procedure SetClientWidth(Value: Integer); virtual;
     procedure SetPixelsPerInch(Value: Integer); {$IFDEF DELPHI110ALEXANDRIA}override;{$ENDIF}
     procedure WndProc(var Message: TMessage); override;
 
@@ -757,11 +757,7 @@ begin
   Result := inherited SetFocusedControl(Control);
 {$IFDEF FPC}
   if Result then
-  begin
-    if Control = nil then
-      Control := Self;
-    BroadcastRecursive(CM_FOCUSCHANGED, 0, LParam(Control));
-  end;
+    BroadcastRecursive(CM_FOCUSCHANGED, 0, LParam(ActiveControl));
 {$ENDIF}
 end;
 

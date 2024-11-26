@@ -1183,14 +1183,17 @@ begin
 //        ARectF.Width := ARectF.Width + 2 * APadding;
 //      end;
 
-      AFlags := StringFormatFlagsMeasureTrailingSpaces;
-      if not WordWrap then
-        AFlags := AFlags or StringFormatFlagsNoWrap;
+      if WordWrap then
+        AFlags := 0
+      else
+        AFlags := StringFormatFlagsNoWrap;
 
       GdipCheck(GdipCreateStringFormat(AFlags, 0, AStringFormat));
       try
-        GdipSetStringFormatAlign(AStringFormat, AlignmentToStringAlignment[HorzAlign]);
-        GdipSetStringFormatLineAlign(AStringFormat, VerticalAlignmentToLineAlignment[VertAlign]);
+        GdipSetStringFormatAlign(AStringFormat,
+          AlignmentToStringAlignment[HorzAlign]);
+        GdipSetStringFormatLineAlign(AStringFormat,
+          VerticalAlignmentToLineAlignment[VertAlign]);
         GdipDrawString(NativeHandle, PChar(Text), Length(Text), AFont,
           @ARectF, AStringFormat, TACLGdiplusResourcesCache.BrushGet(Color));
       finally
