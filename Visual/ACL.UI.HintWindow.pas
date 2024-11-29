@@ -282,30 +282,31 @@ end;
 
 procedure TACLHintWindow.ActivateHintData(Rect: TRect; const AHint: string; AData: TCustomData);
 var
-  AMonitor: TACLMonitor;
-  AMonitorBounds: TRect;
-  AHintSize: TSize;
+  LMonitor: TACLMonitor;
+  LMonitorBounds: TRect;
+  LHintSize: TSize;
 begin
   if (AHint <> Caption) or not IsWindowVisible(Handle) then
   begin
-    AMonitor := MonitorGet(Rect.TopLeft);
-    if AMonitor.PixelsPerInch <> FCurrentPPI then
+    LMonitor := MonitorGet(Rect.TopLeft);
+    if LMonitor.PixelsPerInch <> FCurrentPPI then
     begin
-      ScaleForPPI(AMonitor.PixelsPerInch);
+      ScaleForPPI(LMonitor.PixelsPerInch);
       Rect := CalcHintRect(Screen.Width div 3, AHint, AData) + Rect.TopLeft;
     end;
 
     Caption := AHint;
     SetHintData(AHint, AData);
     Inc(Rect.Bottom, HeightCorrection);
-    AHintSize := Rect.Size;
+    LHintSize := Rect.Size;
 
-    AMonitorBounds := AMonitor.BoundsRect;
-    Rect.Top := Min(Rect.Top,  AMonitorBounds.Bottom - AHintSize.cy);
-    Rect.Top := Max(Rect.Top, AMonitorBounds.Top);
-    Rect.Left := Min(Rect.Left, AMonitorBounds.Right - AHintSize.cx);
-    Rect.Left := Max(Rect.Left, AMonitorBounds.Left);
-    Rect.Size := AHintSize;
+    LMonitorBounds := LMonitor.BoundsRect;
+    Rect.Left := Min(Rect.Left, LMonitorBounds.Right - LHintSize.cx);
+    Rect.Left := Max(Rect.Left, LMonitorBounds.Left);
+    if Rect.Top + LHintSize.cy > LMonitorBounds.Bottom then
+      Rect.Top := MouseCursorPos.Y - MouseCursorSize.cy div 2 - LHintSize.cy;
+    Rect.Top := Max(Rect.Top, LMonitorBounds.Top);
+    Rect.Size := LHintSize;
 
   {$IFDEF FPC}
     BoundsRect := Rect;
@@ -314,7 +315,7 @@ begin
   {$ELSE}
     UpdateBoundsRect(Rect);
     SetWindowPos(Handle, HWND_TOPMOST,
-      Rect.Left, Rect.Top, AHintSize.cx, AHintSize.cy, SWP_NOACTIVATE);
+      Rect.Left, Rect.Top, LHintSize.cx, LHintSize.cy, SWP_NOACTIVATE);
     ShowWindow(Handle, SW_SHOWNOACTIVATE);
   {$ENDIF}
     Invalidate;
