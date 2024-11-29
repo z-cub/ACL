@@ -264,6 +264,145 @@ begin
   end;
 end;
 
+{$IFDEF FPC}
+type
+
+  { TWin32ImageList }
+
+  TWin32ImageList = class(TACLBitmap)
+  strict private
+    FImageCount: Integer;
+    FImageSize: TSize;
+    procedure ApplyMask(AImage: TLazIntfImage);
+    function ReadBmp(ATarget: TFPCustomImage;
+      ASource: TStream; AReader: TFPCustomImageReaderClass): TFPCustomImage;
+  public
+    procedure LoadFromStream(AStream: TStream); reintroduce;
+    property ImageCount: Integer read FImageCount;
+    property ImageSize: TSize read FImageSize;
+  end;
+
+  procedure TWin32ImageList.ApplyMask(AImage: TLazIntfImage);
+  const
+    MaxAlpha = High(TFPColor.Alpha);
+
+    function IsMasked(X, Y: Integer): Boolean;
+    var
+      I, J: Integer;
+    begin
+      for I := X to X + ImageSize.cx - 1 do
+      begin
+        for J := Y to Y + ImageSize.cy - 1 do
+          if InRange(AImage.Colors[I, J].Alpha, 1, MaxAlpha - 1) then
+            Exit(False); // Если есть альфа (не 0, и не MaxAlpha) - значит маску игнорируем
+      end;
+      for I := X to X + ImageSize.cx - 1 do
+      begin
+        for J := Y to Y + ImageSize.cy - 1 do
+          if AImage.Masked[I, J] then
+            Exit(True);
+      end;
+      Result := False;
+    end;
+
+    procedure ApplyMaskToFrame(X, Y: Integer);
+    var
+      LColor: TFPColor;
+      I, J: Integer;
+    begin
+      for I := X to X + ImageSize.cx - 1 do
+        for J := Y to Y + ImageSize.cy - 1 do
+        begin
+          LColor := AImage.Colors[I, J];
+          LColor.Alpha := IfThen(AImage.Masked[I, J], 0, MaxAlpha); // маска в IL инвертирована
+          AImage.Colors[I, J] := LColor;
+        end;
+    end;
+
+  var
+    X, Y: Integer;
+  begin
+    X := 0; Y := 0;
+    while Y < AImage.Height do
+    begin
+      while X < AImage.Width do
+      begin
+        if IsMasked(X, Y) then
+          ApplyMaskToFrame(X, Y);
+        Inc(X, ImageSize.cx);
+      end;
+      Inc(Y, ImageSize.cy);
+      X := 0;
+    end;
+  end;
+
+  procedure TWin32ImageList.LoadFromStream(AStream: TStream);
+  var
+    LFlags: Word;
+    LImage: TLazIntfImage;
+    LVersion: Word;
+  begin
+    // Refer to TILFileHeader described in NT\shell\comctl32\v6\image.h
+    if AStream.ReadWord <> $4C49 then // Magic
+      raise EReadError.CreateRes(@SImageReadFail);
+    LVersion := AStream.ReadWord;
+    FImageCount := AStream.ReadWord;
+    AStream.ReadWord; // cAlloc;
+    AStream.ReadWord; // cGrow;
+    FImageSize.cx := AStream.ReadWord;
+    FImageSize.cy := AStream.ReadWord;
+    AStream.ReadInt32; // BkColorRef
+    LFlags := AStream.ReadWord;
+    if LVersion > $101 then
+      AStream.Skip(15 * SizeOf(Word))
+    else
+      AStream.Skip(04 * SizeOf(Word));
+
+    LImage := TLazIntfImage.Create(0, 0, [riqfRGB, riqfAlpha, riqfMask]);
+    try
+      // 1. Images
+      //    TLazReaderBMP, т.к. TFPReaderBMP инвертирует альфу при чтении 32-битных картинок:
+      //       RGBAToFPColor
+      //       138027e, 2 мар 2004 02:46, "Corrected alpha in colormap"
+      //       packages/fcl-image/src/fpreadbmp.pp
+      ReadBmp(LImage, AStream, TLazReaderBMP);
+
+      // 2. Mask
+      if LFlags and {ILC_MASK}1 <> 0 then
+      begin
+        ReadBmp(TLazIntfImageMask.CreateWithImage(LImage), AStream, TFPReaderBMP).Free;
+        if LImage.HasMask then
+          ApplyMask(LImage);
+      end;
+
+      // 3. Convert to 32-bit ARGB bitmap
+      with TACLDib.Create do
+      try
+        Assign(LImage);
+        AssignTo(Self);
+      finally
+        Free;
+      end;
+    finally
+      LImage.Free;
+    end;
+  end;
+
+  function TWin32ImageList.ReadBmp(ATarget: TFPCustomImage;
+    ASource: TStream; AReader: TFPCustomImageReaderClass): TFPCustomImage;
+  var
+    LReader: TFPCustomImageReader;
+  begin
+    LReader := AReader.Create;
+    try
+      Result := ATarget;
+      Result.LoadFromStream(ASource, LReader);
+    finally
+      LReader.Free;
+    end;
+  end;
+{$ENDIF}
+
 { TACLImageList }
 
 function TACLImageList.AddBitmap(ABitmap: TBitmap): Integer;
@@ -575,147 +714,24 @@ end;
 
 procedure TACLImageList.ReadDataWinIL(AStream: TStream);
 {$IFDEF FPC}
-const
-  NUM_OVERLAY   = 15;
-  NUM_OVERLAY_0 = 4;
-type
-  TILFileHeader = packed record // Ref. NT\shell\comctl32\v6\image.h
-    magic, version: Word;
-    cImage, cAlloc, cGrow: SHORT;
-    cx, cy: SHORT;
-    clrBk: TColorRef; flags: SHORT;
-    overlayIndexes: array [0..NUM_OVERLAY - 1] of SHORT;
-  end;
-
-  function IsMasked(Img: TLazIntfImage; X, Y, W, H: Integer): Boolean;
-  var
-    I, J: Integer;
-  begin
-    for I := X to X + W - 1 do
-      for J := Y to Y + H - 1 do
-      begin
-        if Img.Masked[I, J] then
-          Exit(True);
-      end;
-    Result := False;
-  end;
-
-  function ReadImage(const AHeader: TILFileHeader): TACLDib;
-  var
-    LColor: TFPColor;
-    LImage: TLazIntfImage;
-    LReader: TFPCustomImageReader;
-    I, J, X, Y: Integer;
-  begin
-    LImage := TLazIntfImage.Create(0, 0, [riqfRGB, riqfAlpha, riqfMask]);
-    try
-      // TFPReaderBMP инвертирует альфу при чтении 32-битных картинок:
-      //     RGBAToFPColor
-      //     138027e, 2 мар 2004 02:46, "Corrected alpha in colormap"
-      //     packages/fcl-image/src/fpreadbmp.pp
-      // Посему мы тут используем TLazReaderBMP:
-      LReader := TLazReaderBMP.Create;
-      try
-        LImage.LoadFromStream(AStream, LReader);
-      finally
-        LReader.Free;
-      end;
-
-      if AHeader.Flags and {ILC_MASK}1 <> 0 then
-      begin
-        with TLazIntfImageMask.CreateWithImage(LImage) do
-        try
-          LReader := TFPReaderBMP.Create;
-          try
-            LoadFromStream(AStream, LReader);
-          finally
-            LReader.Free;
-          end;
-        finally
-          Free;
-        end;
-
-        if LImage.HasMask then
-        begin
-          // AI, 25.12.2023
-          // Вот тут интересная штука: виндовый ImageList накладывает маску "покадрово":
-          // Если кадр маски имеет хоть один белый пиксель - надо выставлять альфу согласно
-          // маске, в противном случае маски нет, и, скорее всего, у кадра уже правильный альфа-канал
-          X := 0; Y := 0;
-          while Y < LImage.Height do
-          begin
-            while X < LImage.Width do
-            begin
-              if IsMasked(LImage, X, Y, AHeader.cx, AHeader.cy) then
-              begin
-                for I := X to X + AHeader.cx - 1 do
-                  for J := Y to Y + AHeader.cy - 1 do
-                  begin
-                    LColor := LImage.Colors[I, J];
-                    if LImage.Masked[I, J] then // маска в IL инвертирована
-                      LColor.Alpha := Low(LColor.Alpha)
-                    else if LColor.Alpha = 0 then
-                      LColor.Alpha := High(LColor.Alpha);
-                    LImage.Colors[I, J] := LColor;
-                  end;
-              end;
-              Inc(X, AHeader.cx);
-            end;
-            Inc(Y, AHeader.cy);
-            X := 0;
-          end;
-        end;
-      end;
-
-      Result := TACLDib.Create;
-      Result.Assign(LImage);
-    finally
-      LImage.Free;
-    end;
-  end;
-
-const
-  ILFILEHEADER_SIZE0 = SizeOf(TILFileHeader) - SizeOf(Short) * (NUM_OVERLAY - NUM_OVERLAY_0);
 var
-  LBitmap: TACLBitmap;
-  LHeader: TILFileHeader;
-  LImages: TACLDib;
+  LImages: TWin32ImageList;
 begin
   // AI: В принципе, лазарь умеет работать с дельфевыми IL, однако из-за того,
   // что GetDescriptionFromDevice возвращает Depth = 24 в gtk2 в linux-е,
   // он херит альфа канал, а у нас IL строго 32-битный с альфой
-  AStream.ReadBuffer(LHeader{%H-}, ILFILEHEADER_SIZE0);
-  if LHeader.magic <> $4C49 then
-    raise EReadError.CreateRes(@SImageReadFail);
-  if LHeader.Version > $101 then
-    AStream.ReadBuffer(LHeader.overlayIndexes[NUM_OVERLAY_0], SizeOf(LHeader) - ILFILEHEADER_SIZE0);
-
-  LImages := ReadImage(LHeader);
+  LImages := TWin32ImageList.Create;
   try
+    LImages.LoadFromStream(AStream);
     BeginUpdate;
     try
       Clear;
-      SetSize(LHeader.cx, LHeader.cy);
-
-      LBitmap := TACLBitmap.Create;
-      try
-        LImages.AssignTo(LBitmap);
-        //LRect := Rect(0, 0, Width, Height);
-        //while LHeader.cImage > 0 do
-        //begin
-        //  LBitmap.Canvas.CopyRect(LBitmap.ClientRect, LImages.Canvas, LRect);
-        //  Add(LBitmap, nil);
-        //  LRect.Offset(Width, 0);
-        //  if LRect.Left >= LImages.Width then
-        //    LRect.Offset(-LRect.Left, Height);
-        //  Dec(LHeader.cImage);
-        //end;
-        AddSliced(LBitmap, LBitmap.Width div LHeader.cx, LBitmap.Height div LHeader.cy);
-        while Count > LHeader.cImage do
-          Delete(Count - 1);
-      finally
-        LBitmap.Free;
-      end;
+      SetSize(LImages.ImageSize.cx, LImages.ImageSize.cy);
+      AddSliced(LImages,
+        LImages.Width div LImages.ImageSize.cx,
+        LImages.Height div LImages.ImageSize.cy);
+      while Count > LImages.ImageCount do
+        Delete(Count - 1);
     finally
       EndUpdate;
     end;
