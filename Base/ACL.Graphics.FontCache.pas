@@ -114,8 +114,8 @@ type
     class function AsyncFontLoaderEnumProc(var ALogFont: TLogFont;
       ATextMetric: PTextMetric; AFontType: Integer; AData: PCallbackData): Integer; stdcall; static;
     class procedure AsyncFontLoaderFinished;
+    class procedure StartLoaderCore;
   protected
-    class procedure StartLoader;
     class procedure WaitForLoader(ACancel: Boolean = False);
   public
     class constructor Create;
@@ -124,6 +124,7 @@ type
     class function GetInfo(const AName: string; AStyle: TFontStyles;
       AHeight: Integer; ATargetDPI: Integer; AQuality: TFontQuality): TACLFontInfo; overload;
     class function GetInfo(const AFontData: TACLFontData): TACLFontInfo; overload;
+    class procedure StartLoader;
     //# Remap
     class procedure RemapFont(var AName: TFontName; var AHeight: Integer);
     class property RemapFontProc: TACLFontRemapProc read FRemapFontProc write FRemapFontProc;
@@ -168,7 +169,6 @@ var
 begin
   S := TStringList.Create;
   try
-    TACLFontCache.StartLoader;
     TACLFontCache.EnumFonts(
       procedure (const AName: string)
       var
@@ -493,12 +493,11 @@ begin
   FFonts := TACLStringSet.Create(False, 512);
   FFontCache := TACLDictionary<TACLFontData, TACLFontInfo>.Create(
     [doOwnsValues], 64, TACLFontDataComparer.Create);
-  TACLMainThread.RunPostponed(StartLoader);
 end;
 
 class destructor TACLFontCache.Destroy;
 begin
-  TACLMainThread.Unsubscribe(StartLoader);
+  TACLMainThread.Unsubscribe(StartLoaderCore);
   WaitForLoader(True);
   FreeAndNil(FFontCache);
   FreeAndNil(FFonts);
@@ -637,13 +636,22 @@ end;
 class procedure TACLFontCache.StartLoader;
 begin
   if FLoaderHandle = 0 then
+    TACLMainThread.RunPostponed(StartLoaderCore);
+end;
+
+class procedure TACLFontCache.StartLoaderCore;
+begin
+  if FLoaderHandle = 0 then
     FLoaderHandle := TaskDispatcher.Run(AsyncFontLoader, AsyncFontLoaderFinished, tmcmAsync);
 end;
 
 class procedure TACLFontCache.WaitForLoader(ACancel: Boolean);
 begin
-  if (FLoaderHandle = 0) and not ACancel then
-    StartLoader;
+  if FLoaderHandle = 0 then
+  begin
+    if ACancel then Exit;
+    StartLoaderCore;
+  end;
   if FLoaderHandle <> TObjHandle(-1) then
   begin
     if ACancel then

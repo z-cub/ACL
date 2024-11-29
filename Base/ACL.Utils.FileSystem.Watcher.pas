@@ -116,7 +116,7 @@ type
     function FetchTitle: string;
   public
     Path: string;
-    procedure Flush;
+    procedure Init(const APath: string);
     function GetSerial: Cardinal;
     function GetTitle(const ADefault: string = ''): string;
     function GetType: TACLDriveType;
@@ -138,6 +138,7 @@ type
     class procedure Changed(const ADrive: string;
       AMounted: Boolean; AInfo: PACLDriveInfo = nil);
     class function CheckDrivePath(const ADrive: string): string;
+    class procedure EnsureInit;
   public
     class constructor Create;
     class destructor Destroy;
@@ -759,13 +760,6 @@ begin
 {$ENDIF}
 end;
 
-procedure TACLDriveInfo.Flush;
-begin
-  FSerial := DWORD(-1);
-  FTitle := '';
-  FType := dtUnknown;
-end;
-
 function TACLDriveInfo.GetSerial: Cardinal;
 begin
   if FSerial = DWORD(-1) then
@@ -792,6 +786,14 @@ begin
   if FType = dtUnknown then
     FType := FetchDriveType;
   Result := FType;
+end;
+
+procedure TACLDriveInfo.Init(const APath: string);
+begin
+  Path := TACLDriveManager.CheckDrivePath(APath);
+  FSerial := DWORD(-1);
+  FTitle := '';
+  FType := dtUnknown;
 end;
 
 { TACLDriveMonitor }
@@ -832,9 +834,7 @@ begin
       begin
         if not g_unix_mount_is_system_internal(LItem.data) then
         begin
-          LDrive.Flush;
-          LDrive.Path := g_unix_mount_get_mount_path(LItem.data);
-          LDrive.Path := TACLDriveManager.CheckDrivePath(LDrive.Path);
+          LDrive.Init(g_unix_mount_get_mount_path(LItem.data));
           if LPrevState.Remove(LDrive.Path) < 0 then
           begin
             LDrive.FTitle := g_unix_mount_guess_name(LItem.data);
@@ -888,7 +888,7 @@ begin
   Initialize;
   for LDrive in TDirectory.GetLogicalDrives do
   begin
-    LDriveInfo := TACLDriveManager.GetInfo(LDrive);
+    LDriveInfo.Init(LDrive);
     if LDriveInfo.GetType = dtFixed then
       TACLDriveManager.Changed(LDriveInfo.Path, True, @LDriveInfo)
     else
@@ -991,7 +991,6 @@ begin
   FLock := TACLCriticalSection.Create;
   FList := TACLListOf<TACLDriveInfo>.Create;
   FListeners := TACLListOf<TCallback>.Create;
-  FMonitor := TACLDriveMonitor.Create;
 end;
 
 class destructor TACLDriveManager.Destroy;
@@ -1027,8 +1026,11 @@ begin
         end);
     end;
 
-    for LIndex := FListeners.Count - 1 downto 0 do
-      FListeners.List[LIndex](LInfo, AMounted);
+    if FMonitor <> nil then
+    begin
+      for LIndex := FListeners.Count - 1 downto 0 do
+        FListeners.List[LIndex](LInfo, AMounted);
+    end;
   finally
     FLock.Leave;
   end;
@@ -1054,8 +1056,23 @@ begin
 {$ENDIF}
 end;
 
+class procedure TACLDriveManager.EnsureInit;
+begin
+  if FMonitor = nil then
+  begin
+    FLock.Enter;
+    try
+      if FMonitor = nil then
+        FMonitor := TACLDriveMonitor.Create;
+    finally
+      FLock.Leave;
+    end;
+  end;
+end;
+
 class procedure TACLDriveManager.EnsureReady;
 begin
+  EnsureInit;
   TACLDriveMonitor(FMonitor).WaitFor;
 end;
 
@@ -1065,6 +1082,7 @@ var
 begin
   FLock.Enter;
   try
+    EnsureInit;
     for I := 0 to FList.Count - 1 do
       AProc(FList.List[I]);
   finally
@@ -1078,8 +1096,8 @@ var
 begin
   FLock.Enter;
   try
-    Result.Flush;
-    Result.Path := CheckDrivePath(ADrive);
+    EnsureInit;
+    Result.Init(ADrive);
     if SafeFind(Result.Path, LIndex) then
       Result := FList.List[LIndex];
   finally

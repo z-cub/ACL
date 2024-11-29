@@ -157,7 +157,8 @@ type
   protected
     class function ThreadProc(ATask: TACLTask): Integer; stdcall; static;
     procedure Start(ATask: TACLTask);
-    //
+
+    // Properties
     property ActualMaxActiveTasks: Integer read FActualMaxActiveTasks;
   public
     constructor Create;
@@ -183,6 +184,7 @@ type
     function WaitFor(ATaskHandle: TObjHandle): Boolean; overload;
     function WaitFor(ATaskHandle: TObjHandle; AWaitTimeOut: Cardinal): TWaitResult; overload;
 
+    // Properties
     property MaxActiveTasks: Integer read FMaxActiveTasks write SetMaxActiveTasks;
     property UseCpuUsageMonitor: Boolean read GetUseCpuUsageMonitor write SetUseCpuUsageMonitor;
   end;
@@ -503,8 +505,8 @@ begin
   FTasks := TACLObjectListOf<TACLTask>.Create;
   FActiveTasks := TACLListOf<TACLTask>.Create;
   FLock := TACLCriticalSection.Create(Self, 'TaskLock');
-  FCpuUsageMonitor := TACLTimer.CreateEx(HandlerCpuUsageMonitor, CpuUsageMonitorUpdateInterval, True);
   MaxActiveTasks := 4 * CPUCount;
+  UseCpuUsageMonitor := True;
 end;
 
 destructor TACLTaskDispatcher.Destroy;
@@ -577,7 +579,7 @@ end;
 procedure TACLTaskDispatcher.BeforeDestruction;
 begin
   inherited BeforeDestruction;
-  UseCpuUsageMonitor := False;
+  FreeAndNil(FCpuUsageMonitor);
   FActualMaxActiveTasks := 0;
   FMaxActiveTasks := 0;
   CancelAll(True);
@@ -863,7 +865,7 @@ end;
 
 function TACLTaskDispatcher.GetUseCpuUsageMonitor: Boolean;
 begin
-  Result := TACLTimer(FCpuUsageMonitor).Enabled;
+  Result := FCpuUsageMonitor <> nil;
 end;
 
 procedure TACLTaskDispatcher.SetMaxActiveTasks(AValue: Integer);
@@ -877,7 +879,13 @@ procedure TACLTaskDispatcher.SetUseCpuUsageMonitor(AValue: Boolean);
 begin
   if not IsMainThread then
     raise EInvalidOperation.Create('SetUseCpuUsageMonitor');
-  TACLTimer(FCpuUsageMonitor).Enabled := AValue;
+  if UseCpuUsageMonitor <> AValue then
+  begin
+    if AValue then
+      FCpuUsageMonitor := TACLTimer.CreateEx(HandlerCpuUsageMonitor, CpuUsageMonitorUpdateInterval, True)
+    else
+      FreeAndNil(FCpuUsageMonitor);
+  end;
 end;
 
 initialization
