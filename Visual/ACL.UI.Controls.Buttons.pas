@@ -708,6 +708,8 @@ end;
 destructor TACLCustomButtonSubClass.Destroy;
 begin
   AnimationManager.RemoveOwner(Self);
+  if IsPressed then
+    raise EInvalidOperation.Create('Attempt to destroy the Form from OnClick handler');
   inherited Destroy;
 end;
 
