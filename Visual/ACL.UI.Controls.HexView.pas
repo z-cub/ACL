@@ -1452,6 +1452,7 @@ end;
 
 procedure TACLHexViewViewInfo.RecreateSubCells;
 begin
+  inherited;
   FreeAndNil(FBuffer);
 end;
 

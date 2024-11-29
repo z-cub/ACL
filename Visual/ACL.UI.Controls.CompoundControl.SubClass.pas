@@ -1129,10 +1129,7 @@ procedure TACLCompoundControlContainerViewInfo.DoCalculate(AChanges: TIntegerSet
 begin
   inherited DoCalculate(AChanges);
   if cccnStruct in AChanges then
-  begin
-    FChildren.Clear;
     RecreateSubCells;
-  end;
   CalculateSubCells(AChanges);
 end;
 
@@ -1150,14 +1147,14 @@ end;
 
 procedure TACLCompoundControlContainerViewInfo.DoDraw(ACanvas: TCanvas);
 var
-  ASaveIndex: Integer;
+  LRgn: TRegionHandle;
 begin
-  ASaveIndex := acSaveDC(ACanvas);
+  LRgn := acSaveClipRegion(ACanvas.Handle);
   try
     if acIntersectClipRegion(ACanvas.Handle, Bounds) then
       DoDrawCells(ACanvas);
   finally
-    acRestoreDC(ACanvas, ASaveIndex);
+    acRestoreClipRegion(ACanvas.Handle, LRgn);
   end;
 end;
 
@@ -1181,7 +1178,7 @@ end;
 
 procedure TACLCompoundControlContainerViewInfo.RecreateSubCells;
 begin
-  // do nothing
+  FChildren.Clear;
 end;
 
 { TACLCompoundControlDragObject }
@@ -2005,6 +2002,7 @@ end;
 
 procedure TACLCompoundControlScrollBarViewInfo.RecreateSubCells;
 begin
+  inherited;
   FChildren.Add(TACLCompoundControlScrollBarButtonViewInfo.Create(Self, sbpLineDown));
   FChildren.Add(TACLCompoundControlScrollBarButtonViewInfo.Create(Self, sbpLineUp));
   FChildren.Add(TACLCompoundControlScrollBarThumbnailViewInfo.Create(Self, sbpThumbnail));

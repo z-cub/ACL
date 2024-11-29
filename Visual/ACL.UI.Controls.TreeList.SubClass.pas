@@ -1694,6 +1694,7 @@ var
   AColumn: TACLTreeListColumn;
   I: Integer;
 begin
+  inherited;
   for I := 0 to SubClass.Columns.Count - 1 do
   begin
     AColumn := SubClass.Columns.ItemsByDrawingIndex[I];
@@ -2778,6 +2779,7 @@ end;
 
 procedure TACLTreeListContentViewInfo.RecreateSubCells;
 begin
+  inherited;
   ViewItems.Clear;
   ViewItems.Capacity := 10240;
   AbsoluteVisibleNodes.Clear;

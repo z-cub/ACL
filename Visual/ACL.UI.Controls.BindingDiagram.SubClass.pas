@@ -992,6 +992,7 @@ procedure TACLBindingDiagramObjectViewInfo.RecreateSubCells;
 var
   I: Integer;
 begin
+  inherited;
   for I := 0 to &Object.PinCount - 1 do
     FChildren.Add(TACLBindingDiagramObjectPinViewInfo.Create(Self, &Object.Pins[I]));
 end;
@@ -1698,6 +1699,7 @@ var
   AObjectViewInfo: TACLBindingDiagramObjectViewInfo;
   I, J: Integer;
 begin
+  inherited;
   if FLinkColors.Count = 0 then
     UpdateLinkColors;
 

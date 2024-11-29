@@ -167,6 +167,7 @@ type
 
   TACLColorPickerViewInfo = class(TACLCompoundControlContainerViewInfo)
   strict private
+    FCreating: Boolean;
     function GetSubClass: TACLColorPickerSubClass;
   protected
     FEdits: array[TACLColorPickerColorComponent] of TACLColorPickerColorModifierCell;
@@ -256,6 +257,7 @@ type
     procedure SetStyleEditButton(const Value: TACLStyleButton);
     procedure SetStyleHatch(const Value: TACLStyleHatch);
   protected
+    procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     function CreateSubClass: TACLCompoundControlSubClass; override;
     function GetContentOffset: TRect; override;
@@ -874,6 +876,8 @@ procedure TACLColorPickerViewInfo.CalculateAutoSize(var AWidth, AHeight: Integer
   end;
 
 begin
+  if FCreating then Exit;
+
   AWidth := 0;
   AHeight := 0;
 
@@ -994,29 +998,36 @@ end;
 
 procedure TACLColorPickerViewInfo.RecreateSubCells;
 var
-  AComponent: TACLColorPickerColorComponent;
-  AComponents: TACLColorPickerColorComponents;
+  LComponent: TACLColorPickerColorComponent;
+  LComponents: TACLColorPickerColorComponents;
+  LControl: TWinControl;
 begin
-  AddCell(TACLColorPickerPreviewCell.Create(SubClass), FPreview);
-  AddCell(TACLColorPickerGamutCell.Create(SubClass), FGamut);
-  AddCell(TACLColorPickerLightnessSliderCell.Create(SubClass), FSlider1);
-  if SubClass.Options.AllowEditAlpha then
-    AddCell(TACLColorPickerAlphaSliderCell.Create(SubClass), FSlider2)
-  else
-    FSlider2 := nil;
-
-  AComponents := [Low(AComponent)..High(AComponent)];
-  if not SubClass.Options.AllowEditAlpha then
-    Exclude(AComponents, cpccA);
-  for AComponent := Low(AComponent) to High(AComponent) do
-  begin
-    if AComponent in AComponents then
-      AddCell(TACLColorPickerSpinEditCell.Create(SubClass, AComponent), FEdits[AComponent])
+  FCreating := True;
+  try
+    inherited;
+    AddCell(TACLColorPickerPreviewCell.Create(SubClass), FPreview);
+    AddCell(TACLColorPickerGamutCell.Create(SubClass), FGamut);
+    AddCell(TACLColorPickerLightnessSliderCell.Create(SubClass), FSlider1);
+    if SubClass.Options.AllowEditAlpha then
+      AddCell(TACLColorPickerAlphaSliderCell.Create(SubClass), FSlider2)
     else
-      FEdits[AComponent] := nil;
-  end;
+      FSlider2 := nil;
 
-  AddCell(TACLColorPickerHexCodeEditCell.Create(SubClass), FHexCode);
+    LComponents := [Low(LComponent)..High(LComponent)];
+    if not SubClass.Options.AllowEditAlpha then
+      Exclude(LComponents, cpccA);
+    for LComponent := Low(LComponent) to High(LComponent) do
+    begin
+      if LComponent in LComponents then
+        AddCell(TACLColorPickerSpinEditCell.Create(SubClass, LComponent), FEdits[LComponent])
+      else
+        FEdits[LComponent] := nil;
+    end;
+
+    AddCell(TACLColorPickerHexCodeEditCell.Create(SubClass), FHexCode);
+  finally
+    FCreating := False;
+  end;
 end;
 
 function TACLColorPickerViewInfo.GetSubClass: TACLColorPickerSubClass;
@@ -1424,6 +1435,11 @@ begin
   FBorders := acAllBorders;
   FocusOnClick := True;
   AutoSize := True;
+end;
+
+procedure TACLCustomColorPicker.AlignControls(AControl: TControl; var Rect: TRect);
+begin
+  // do nothing
 end;
 
 function TACLCustomColorPicker.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;

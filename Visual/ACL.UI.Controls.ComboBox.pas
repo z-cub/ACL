@@ -423,15 +423,14 @@ var
   LFirstNodeCell: TACLCompoundControlBaseContentCell;
   LLastNode: TACLTreeListNode;
   LLastNodeCell: TACLCompoundControlBaseContentCell;
-  LViewItems: TACLCompoundControlContentCellList;
 begin
   Result := 2;
-  if Control.RootNode.ChildrenCount > 0 then
+  if Control.AbsoluteVisibleNodes.Count > 0 then
   begin
-    LFirstNode := Control.RootNode.Children[0];
-    LLastNode := Control.RootNode.Children[Min(Control.RootNode.ChildrenCount, Owner.DropDownListSize) - 1];
-    LViewItems := Control.SubClass.ContentViewInfo.ViewItems;
-    if LViewItems.Find(LFirstNode, LFirstNodeCell) and LViewItems.Find(LLastNode, LLastNodeCell)
+    LFirstNode := Control.AbsoluteVisibleNodes[0];
+    LLastNode := Control.AbsoluteVisibleNodes[Min(Control.AbsoluteVisibleNodes.Count, Owner.DropDownListSize) - 1];
+    if Control.SubClass.ContentViewInfo.ViewItems.Find(LFirstNode, LFirstNodeCell) and
+       Control.SubClass.ContentViewInfo.ViewItems.Find(LLastNode, LLastNodeCell)
     then
       Result := LLastNodeCell.Bounds.Bottom - LFirstNodeCell.Bounds.Top +
         Control.SubClass.ViewInfo.Bounds.Height -
