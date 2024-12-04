@@ -110,6 +110,7 @@ type
   protected
   {$IFDEF FPC}
     FCurrentPPI: Integer;
+    procedure DoSendShowHideToInterface; override;
   {$ENDIF}
     procedure CreateParams(var Params: TCreateParams); override;
     procedure NCPaint(DC: HDC); {$IFNDEF FPC}override;{$ENDIF}
@@ -342,6 +343,18 @@ begin
   Inc(Result.Bottom, 2 * dpiApply(HintTextIndentV, FCurrentPPI));
   Dec(Result.Bottom, HeightCorrection);
 end;
+
+{$IFDEF FPC}
+procedure TACLHintWindow.DoSendShowHideToInterface;
+var
+  LCapture: TControl;
+begin
+  LCapture := GetCaptureControl;
+  inherited;
+  if LCapture <> nil then
+    SetCaptureControl(LCapture);
+end;
+{$ENDIF}
 
 procedure TACLHintWindow.Hide;
 begin
