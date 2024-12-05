@@ -2125,7 +2125,8 @@ begin
   Message.Result := Ord(
     PtInRect(SubClass.ButtonRect, P) or
     PtInRect(SubClass.FocusRect, P) or
-    PtInRect(SubClass.LineRect, P));
+    PtInRect(SubClass.LineRect, P) or
+    MouseCapture);
 end;
 
 procedure TACLCustomCheckBox.CMTextChanged(var Message: TMessage);
