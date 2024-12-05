@@ -493,17 +493,20 @@ end;
 
 function TACLImageList.AddIconFromResource(AInstance: HINST; const AName: string): Integer;
 var
-  LTmp: TIcon;
+  LIcon: TIcon;
 begin
-  LTmp := TIcon.Create;
+  LIcon := TIcon.Create;
   try
-    LTmp.Handle := LoadIcon(AInstance, PChar(AName));
-    if LTmp.HandleAllocated then
-      Result := AddIcon(LTmp)
-    else
-      Result := -1;
+    Result := -1;
+    try
+      LIcon.LoadFromResourceName(AInstance, AName);
+      if LIcon.HandleAllocated then
+        Result := AddIcon(LIcon);
+    except
+      // ignored
+    end;
   finally
-    LTmp.Free;
+    LIcon.Free;
   end;
 end;
 

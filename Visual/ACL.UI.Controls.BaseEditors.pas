@@ -1376,18 +1376,23 @@ end;
 
 procedure TACLCustomEdit.Localize(const ASection: string);
 var
+  LSection: string;
   I: Integer;
 begin
   inherited Localize(ASection);
 
-  if LangFile.ExistsSection(ASection) then
+  if Buttons.Count > 0 then
   begin
-    Buttons.BeginUpdate;
-    try
-      for I := 0 to Buttons.Count - 1 do
-        Buttons[I].Caption := LangGet(ASection, 'b[' + IntToStr(I) + ']');
-    finally
-      Buttons.EndUpdate;
+    LSection := ASection + '.' + Name;
+    if LangFile.ExistsSection(LSection) then
+    begin
+      Buttons.BeginUpdate;
+      try
+        for I := 0 to Buttons.Count - 1 do
+          Buttons[I].Caption := LangGet(LSection, 'b[' + IntToStr(I) + ']');
+      finally
+        Buttons.EndUpdate;
+      end;
     end;
   end;
 end;

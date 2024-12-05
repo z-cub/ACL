@@ -225,7 +225,8 @@ procedure LangApplyTo(const AParentSection: string; AComponent: TComponent);
 
   function CanLocalizeCaptionAndHint: Boolean;
   begin
-    Result := not (IsActionAssigned(AComponent) or (AComponent is TMenuItem) and TMenuItem(AComponent).IsLine);
+    Result := not (IsActionAssigned(AComponent) or
+      (AComponent is TMenuItem) and TMenuItem(AComponent).IsLine);
   end;
 {$ENDIF}
 
@@ -246,7 +247,9 @@ begin
     if AComponent is TAction then
     begin
       TAction(AComponent).Caption := LangFile.ReadString(AParentSection, AComponent.Name);
-      TAction(AComponent).Hint := IfThenW(LangFile.ReadString(AParentSection, AComponent.Name + '.h'), TAction(AComponent).Caption);
+      TAction(AComponent).Hint := IfThenW(
+        LangFile.ReadString(AParentSection, AComponent.Name + '.h'),
+        TAction(AComponent).Caption);
     end
     else
       if CanLocalizeCaptionAndHint then
@@ -259,7 +262,7 @@ begin
       end;
 
     if Supports(AComponent, IACLLocalizableComponent, AIntf) then
-      AIntf.Localize(AParentSection + '.' + AComponent.Name)
+      AIntf.Localize(AParentSection{ + '.' + AComponent.Name})
     else
       for I := 0 to AComponent.ComponentCount - 1 do
         LangApplyTo(AParentSection, AComponent.Components[I]);
@@ -462,7 +465,8 @@ end;
 
 procedure TACLLocalization.LoadFromFile(const AFileName: string);
 begin
-  inherited LoadFromFile(LangFilePath + AFileName);
+  FileName := LangFilePath + AFileName;
+  inherited LoadFromFile(FileName);
 end;
 
 procedure TACLLocalization.LoadFromStream(AStream: TStream);

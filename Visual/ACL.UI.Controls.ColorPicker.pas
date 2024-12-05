@@ -1000,7 +1000,6 @@ procedure TACLColorPickerViewInfo.RecreateSubCells;
 var
   LComponent: TACLColorPickerColorComponent;
   LComponents: TACLColorPickerColorComponents;
-  LControl: TWinControl;
 begin
   FCreating := True;
   try

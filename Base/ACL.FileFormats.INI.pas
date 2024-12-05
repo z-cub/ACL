@@ -246,7 +246,7 @@ type
   strict private
     function GetBackupFileName: string;
   public
-    constructor Create(const AFileName: string; {%H-}AAutoSave: Boolean = True); override;
+    procedure AfterConstruction; override;
     function UpdateFile: Boolean; override;
   end;
 
@@ -1197,7 +1197,6 @@ begin
   BeginUpdate;
   try
     Clear;
-    FFileName := AFileName;
     if StreamCreateReader(AFileName, AStream) then
     try
       LoadFromStream(AStream);
@@ -1440,33 +1439,27 @@ end;
 
 { TACLSyncSafeIniFile }
 
-constructor TACLSyncSafeIniFile.Create(const AFileName: string; AAutoSave: Boolean);
-var
-  ABackupFileName: string;
+procedure TACLSyncSafeIniFile.AfterConstruction;
 begin
-  inherited Create(AFileName, True);
-
-  if SectionCount = 0 then
-  begin
-    ABackupFileName := GetBackupFileName;
-    if acFileExists(ABackupFileName) then
-    begin
-      LoadFromFile(ABackupFileName);
-      FileName := AFileName;
-    end;
+  try
+    inherited;
+  except
+    Clear;
   end;
+  if (SectionCount = 0) and acFileExists(GetBackupFileName) then
+    LoadFromFile(GetBackupFileName);
 end;
 
 function TACLSyncSafeIniFile.UpdateFile: Boolean;
 var
-  ATempFileName: string;
+  LTempFileName: string;
 begin
   Result := True;
   if Modified then
   begin
-    ATempFileName := FileName + '.new';
-    Result := SaveToFile(ATempFileName, Encoding) and
-      acReplaceFile(ATempFileName, FileName, GetBackupFileName);
+    LTempFileName := FileName + '.new';
+    Result := SaveToFile(LTempFileName, Encoding) and
+      acReplaceFile(LTempFileName, FileName, GetBackupFileName);
     if Result then
       FModified := False;
   end

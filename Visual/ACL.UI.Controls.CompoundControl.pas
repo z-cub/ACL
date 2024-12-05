@@ -207,7 +207,10 @@ end;
 procedure TACLCompoundControl.Localize(const ASection: string);
 begin
   inherited Localize(ASection);
-  SubClass.Localize(ASection);
+  if Name <> '' then
+    SubClass.Localize(ASection + '.' + Name)
+  else
+    SubClass.Localize(ASection);
 end;
 
 procedure TACLCompoundControl.BeginLongOperation;

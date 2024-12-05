@@ -1193,11 +1193,13 @@ end;
 
 procedure TACLTabControl.Localize(const ASection: string);
 var
+  LSection: string;
   I: Integer;
 begin
   inherited;
+  LSection := ASection + '.' + Name;
   for I := 0 to Tabs.Count - 1 do
-    Tabs[I].Caption := LangGet(ASection, 'i[' + IntToStr(I) + ']', Tabs[I].Caption);
+    Tabs[I].Caption := LangGet(LSection, 'i[' + IntToStr(I) + ']', Tabs[I].Caption);
 end;
 
 function TACLTabControl.GetActiveTab: TACLTab;

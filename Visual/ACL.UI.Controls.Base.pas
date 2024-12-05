@@ -612,7 +612,6 @@ type
   strict private
     FAlignOrder: Integer;
     FFocusOnClick: Boolean;
-    FLangSection: string;
     FMargins: TACLMargins;
     FMouseInClient: Boolean;
     FPadding: TACLPadding;
@@ -623,7 +622,6 @@ type
 
     FOnGetHint: TACLGetHintEvent;
 
-    function GetLangSection: string;
     function IsMarginsStored: Boolean;
     function IsPaddingStored: Boolean;
     procedure SetAlignOrder(AValue: Integer);
@@ -704,7 +702,6 @@ type
 
     // Properties
     property FocusOnClick: Boolean read FFocusOnClick write FFocusOnClick default False;
-    property LangSection: string read GetLangSection;
     property MouseInClient: Boolean read FMouseInClient;
     property Padding: TACLPadding read FPadding write SetPadding stored IsPaddingStored;
     property ResourceCollection: TACLCustomResourceCollection read FResourceCollection write SetResourceCollection;
@@ -722,8 +719,7 @@ type
     // IACLColorSchema
     procedure ApplyColorSchema(const ASchema: TACLColorSchema); virtual;
     // IACLLocalizableComponent
-    procedure Localize; overload;
-    procedure Localize(const ASection: string); overload; virtual;
+    procedure Localize(const ASection: string); virtual;
   published
     property Align;
     property AlignOrder: Integer read FAlignOrder write SetAlignOrder default 0;
@@ -2586,14 +2582,8 @@ begin
   acApplyColorSchemaForPublishedProperties(Self, ASchema);
 end;
 
-procedure TACLCustomControl.Localize;
-begin
-  LangApplyTo(Copy(LangSection, 1, acLastDelimiter('.', LangSection)), Self);
-end;
-
 procedure TACLCustomControl.Localize(const ASection: string);
 begin
-  FLangSection := ASection;
 end;
 
 procedure TACLCustomControl.DoFullRefresh;
@@ -3003,13 +2993,6 @@ end;
 function TACLCustomControl.GetContentOffset: TRect;
 begin
   Result := NullRect;
-end;
-
-function TACLCustomControl.GetLangSection: string;
-begin
-  if FLangSection = '' then
-    FLangSection := LangGetComponentPath(Self);
-  Result := FLangSection;
 end;
 
 function TACLCustomControl.IsPaddingStored: Boolean;

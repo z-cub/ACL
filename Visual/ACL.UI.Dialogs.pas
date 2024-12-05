@@ -322,7 +322,7 @@ type
 
   { TACLCustomLanguageDialog }
 
-  TACLLanguageDialogEnumProc = reference to procedure (const ATag: NativeInt);
+  TACLLanguageDialogEnumProc = reference to procedure (ALang: TACLIniFile; ATag: NativeInt);
 
   TACLCustomLanguageDialog = class(TACLForm)
   strict private
@@ -333,8 +333,7 @@ type
     function GetSelectedTag: NativeInt;
     procedure Populate;
   protected
-    procedure EnumLangs(ALangFileBuffer: TACLIniFile;
-      AProc: TACLLanguageDialogEnumProc); virtual; abstract;
+    procedure EnumLangs(AProc: TACLLanguageDialogEnumProc); virtual; abstract;
     procedure SelectDefaultLanguage; virtual;
     //# Properties
     property SelectedTag: NativeInt read GetSelectedTag;
@@ -348,8 +347,7 @@ type
   TACLLanguageDialog = class(TACLCustomLanguageDialog)
   protected
     FLangFiles: TACLStringList;
-    procedure EnumLangs(ALangFileBuffer: TACLIniFile;
-      AProc: TACLLanguageDialogEnumProc); override;
+    procedure EnumLangs(AProc: TACLLanguageDialogEnumProc); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -1403,29 +1401,26 @@ end;
 
 procedure TACLCustomLanguageDialog.Populate;
 var
-  AData: TACLLocalizationInfo;
-  AIcon: TIcon;
-  ALangInfo: TACLIniFile;
+  LIcon: TIcon;
 begin
-  AIcon := TIcon.Create;
-  ALangInfo := TACLIniFile.Create;
+  LIcon := TIcon.Create;
   try
-    EnumLangs(ALangInfo,
-      procedure (const ATag: NativeInt)
+    EnumLangs(
+      procedure (ALang: TACLIniFile; ATag: NativeInt)
       var
-        AIconIndex: Integer;
+        LData: TACLLocalizationInfo;
+        LIconIndex: Integer;
       begin
-        LangGetInfo(ALangInfo, AData, AIcon);
+        LangGetInfo(ALang, LData, LIcon);
         try
-          AIconIndex := FImages.AddIcon(AIcon);
+          LIconIndex := FImages.AddIcon(LIcon);
         except
-          AIconIndex := -1;
+          LIconIndex := -1;
         end;
-        Add(AData, ATag, AIconIndex);
+        Add(LData, ATag, LIconIndex);
       end);
   finally
-    ALangInfo.Free;
-    AIcon.Free;
+    LIcon.Free;
   end;
   SelectDefaultLanguage;
 end;
@@ -1472,14 +1467,20 @@ begin
   end;
 end;
 
-procedure TACLLanguageDialog.EnumLangs(ALangFileBuffer: TACLIniFile; AProc: TACLLanguageDialogEnumProc);
+procedure TACLLanguageDialog.EnumLangs(AProc: TACLLanguageDialogEnumProc);
 var
   I: Integer;
+  LLang: TACLIniFile;
 begin
-  for I := 0 to FLangFiles.Count - 1 do
-  begin
-    ALangFileBuffer.LoadFromFile(FLangFiles[I]);
-    AProc(I);
+  LLang := TACLIniFile.Create;
+  try
+    for I := 0 to FLangFiles.Count - 1 do
+    begin
+      LLang.LoadFromFile(FLangFiles[I]);
+      AProc(LLang, I);
+    end;
+  finally
+    LLang.Free;
   end;
 end;
 

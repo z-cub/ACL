@@ -626,10 +626,9 @@ begin
   LockChanges(True);
   try
     inherited Localize(ASection);
-
     LPrevItemIndex := FItemIndex;
     try
-      LangApplyToItems(ASection, Items);
+      LangApplyToItems(ASection + '.' + Name, Items);
     finally
       ItemIndex := LPrevItemIndex;
     end;

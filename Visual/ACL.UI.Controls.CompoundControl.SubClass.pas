@@ -746,7 +746,6 @@ type
     FHitTest: TACLHitTestInfo;
     FHoveredObject: TObject;
     FHoveredObjectSubPart: NativeInt;
-    FLangSection: string;
     FLockCount: Integer;
     FLongOperationCount: Integer;
     FPressedObject: TObject;
@@ -766,7 +765,6 @@ type
     function GetCurrentDpi: Integer;
     function GetFont: TFont;
     function GetIsDestroying: Boolean; inline;
-    function GetLangSection: string;
     function GetMouseCapture: Boolean;
     procedure SetBounds(const AValue: TRect);
     procedure SetEnabledContent(AValue: Boolean);
@@ -847,8 +845,7 @@ type
     function CalculateAutoSize(var AWidth, AHeight: Integer): Boolean; virtual;
 
     // Localization
-    procedure Localize; overload;
-    procedure Localize(const ASection: string); overload; virtual;
+    procedure Localize(const ASection: string); virtual;
 
     // Drawing
     procedure Draw(ACanvas: TCanvas);
@@ -913,7 +910,6 @@ type
     property HitTest: TACLHitTestInfo read FHitTest;
     property HoveredObject: TObject read FHoveredObject;
     property HoveredObjectSubPart: NativeInt read FHoveredObjectSubPart;
-    property LangSection: string read GetLangSection;
     property MouseCapture: Boolean read GetMouseCapture write SetMouseCapture;
     property PressedObject: TObject read FPressedObject write FPressedObject;
     property ResourceCollection: TACLCustomResourceCollection read GetResourceCollection;
@@ -2705,14 +2701,8 @@ begin
   Result := False;
 end;
 
-procedure TACLCompoundControlSubClass.Localize;
-begin
-  LangApplyTo(Copy(LangSection, 1, acLastDelimiter('.', LangSection)), Self);
-end;
-
 procedure TACLCompoundControlSubClass.Localize(const ASection: string);
 begin
-  FLangSection := ASection;
 end;
 
 procedure TACLCompoundControlSubClass.Draw(ACanvas: TCanvas);
@@ -3267,13 +3257,6 @@ end;
 function TACLCompoundControlSubClass.GetIsDestroying: Boolean;
 begin
   Result := csDestroying in ComponentState;
-end;
-
-function TACLCompoundControlSubClass.GetLangSection: string;
-begin
-  if FLangSection = '' then
-    FLangSection := LangGetComponentPath(Self);
-  Result := FLangSection;
 end;
 
 function TACLCompoundControlSubClass.GetMouseCapture: Boolean;
