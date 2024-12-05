@@ -1668,6 +1668,8 @@ var
 begin
   if AColor = clDefault then
     AColor := ACanvas.Font.Color;
+  if AColor = clDefault then
+    AColor := clWindowText;
   if AColor <> clNone then
   begin
   {$IFDEF MSWINDOWS}
@@ -1675,13 +1677,16 @@ begin
     SetBrushOrgEx(ACanvas.Handle, AOrg.X, AOrg.Y, @APrevOrg);
     try
       ExPainter.BeginPaint(ACanvas);
-      ExPainter.DrawRectangle(R, AColor, 1, ssDot);
+      ExPainter.DrawRectangle(R, TAlphaColor.FromColor(AColor), 1, ssDot);
       ExPainter.EndPaint;
     finally
       SetBrushOrgEx(ACanvas.Handle, APrevOrg.X, APrevOrg.Y, nil);
     end;
   {$ELSE}
-    ACanvas.DrawFocusRect(R);
+    ACanvas.Pen.Color := AColor;
+    ACanvas.Pen.Style := psDot;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Rectangle(R);
   {$ENDIF}
   end;
 end;
