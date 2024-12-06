@@ -18,38 +18,35 @@ unit ACL.Web.Auth;
 interface
 
 uses
+{$IFDEF FPC}
+  fphttpserver,
+{$ELSE}
+  Windows,
+  Winsock2,
+{$ENDIF}
+  // System
   {System.}Classes,
   {System.}Math,
   {System.}Variants,
   {System.}SysUtils,
   {System.}Types,
   System.JSON,
-  // Vcl
-  {Vcl.}Controls,
-  {Vcl.}Forms,
   // ACL
   ACL.Crypto,
-  ACL.Graphics,
-  ACL.Geometry,
-  ACL.Threading,
-  ACL.UI.Controls.BaseEditors,
-  ACL.UI.Controls.TextEdit,
-  ACL.UI.Forms,
   ACL.Utils.Common,
-  ACL.Utils.DPIAware,
-  ACL.Utils.Shell,
   ACL.Utils.Strings,
   ACL.Web,
   ACL.Web.Http;
 
 const
-  sDefaultAuthRedirectURL = 'http://localhost:8090/';
+  acDefaultAuthRedirectURL = 'http://localhost:8090/';
 
 type
   EAuthorizationError = class(EInvalidOperation);
 
   { TAuthToken }
 
+  PAuthToken = ^TAuthToken;
   TAuthToken = record
     AccessToken: string;
     ExpiresIn: Integer; // seconds
@@ -63,54 +60,33 @@ type
     procedure Reset;
   end;
 
-  { IAuthDialog }
+  { TAuthServer }
 
-  IAuthDialog = interface
-  ['{1F04DDCD-C0E9-4503-9E8D-F578C214808D}']
-    function Execute(AOwnerWnd: TWndHandle; out AToken: TAuthToken): Boolean;
-  end;
-
-  { IAuthDialogController }
-
-  IAuthDialogController = interface
-  ['{14F6244B-0C65-4BEB-BFDF-1F50CE520141}']
-    function AuthGetHomeURL: string;
-    function AuthGetRedirectURL: string;
-    function AuthGetRequestURL: string;
-    function AuthProcessAnswer(const AAnswer: string; out AToken: TAuthToken): Boolean;
-  end;
-
-  { TAuthDialog }
-
-  TAuthDialog = class(TACLForm)
-  strict private const
-    DefaultCaption = 'Authorization Master';
-    DefaultMessageText =
-      'Waiting for authorization...' + acCRLF +
-      'Please complete authorization request in your browser.' + acCRLF + acCRLF +
-      'To cancel the operation just close the window.';
-    ContentIndent = 12;
+  TAuthServer = class(TThread)
+  public type
+    THandler = procedure (const UnparsedParams: string) of object;
   strict private
-    FController: IAuthDialogController;
-    FHomeURL: string;
-    FMessageText: string;
-    FRedirectURL: string;
-    FServer: TObject;
-    FToken: TAuthToken;
-    FUrl: TACLEdit;
-
-    function HandlerGet(const UnparsedParams: string): string;
-    procedure SendAuthRequest;
+    FCallback: THandler;
+    FHomeUrl: string;
+  {$IFDEF MSWINDOWS}
+    FPort: Integer;
+    FSocket: TSocket;
+    FWsaData: TWsaData;
+    procedure CheckResult(ACode: Integer);
+  {$ELSE}
+    FHandler: TFPHttpServer;
+    procedure DoRequest(Sender: TObject;
+      var ARequest: TFPHTTPConnectionRequest;
+      var AResponse : TFPHTTPConnectionResponse);
+  {$ENDIF}
+    function GetResponce(const UnparsedParams: string): string;
   protected
-    procedure DblClick; override;
-    procedure DoShow; override;
-    procedure Paint; override;
+    procedure Execute; override;
   public
-    constructor Create(AOwnerWnd: TWndHandle; AController: IAuthDialogController); reintroduce;
+    constructor Create(APort: Integer;
+      const ACallback: THandler;
+      const AHomeUrl: string = '');
     destructor Destroy; override;
-    class function Execute(AOwnerWnd: TWndHandle;
-      const AController: IAuthDialogController; out AToken: TAuthToken;
-      const ACaption: string = ''; const AMessageText: string = ''): Boolean;
   end;
 
   { TOAuth2 }
@@ -148,151 +124,6 @@ type
   end;
 
 implementation
-
-uses
-{$IFDEF FPC}
-  fphttpserver;
-{$ELSE}
-  Windows,
-  Winsock2;
-{$ENDIF}
-
-type
-  THandleProc = function (const AData: string): string of object;
-
-  { TSimpleServer }
-
-  TSimpleServer = class(TThread)
-  strict private
-  {$IFDEF MSWINDOWS}
-    FPort: Integer;
-    FSocket: TSocket;
-    FWsaData: TWsaData;
-
-    procedure CheckResult(ACode: Integer);
-  {$ELSE}
-  strict private
-    FHandler: TFPHttpServer;
-    procedure DoRequest(Sender: TObject;
-      var ARequest: TFPHTTPConnectionRequest;
-      var AResponse : TFPHTTPConnectionResponse);
-  {$ENDIF}
-  protected
-    FProc: THandleProc;
-    procedure Execute; override;
-  public
-    constructor Create(APort: Integer; AProc: THandleProc);
-    destructor Destroy; override;
-  end;
-
-{$IFDEF MSWINDOWS}
-function bind(s: TSocket; name: PSockAddr; namelen: Integer): Integer; stdcall; external 'ws2_32.dll' name 'bind';
-
-{ TSimpleServer }
-
-constructor TSimpleServer.Create(APort: Integer; AProc: THandleProc);
-begin
-  inherited Create(False);
-  FPort := APort;
-  FProc := AProc;
-  CheckResult(WSAStartup(MakeWord(2, 2), FWsaData));
-  FSocket := socket(AF_INET, SOCK_STREAM, 0);
-  if FSocket = INVALID_SOCKET then
-    raise EInvalidOperation.Create('Unable to create socket');
-end;
-
-destructor TSimpleServer.Destroy;
-begin
-  closesocket(FSocket);
-  inherited;
-  WSACleanup;
-end;
-
-procedure TSimpleServer.Execute;
-const
-  AnswerHeader = 'HTTP/1.1 200 OK'#13#10'Content-Type: text/html'#13#10#13#10;
-  BufferLength = 4096;
-  NumberOfConnections = 1;
-var
-  AAddress: TSockAddrIn;
-  ABytes: TBytes;
-  ABytesReceived: Integer;
-  AData: string;
-  ARequest: TSocket;
-  AResponce: TBytes;
-begin
-  SetLength(ABytes, BufferLength);
-
-  ZeroMemory(@AAddress, SizeOf(AAddress));
-  AAddress.sin_addr.S_addr := INADDR_ANY;
-  AAddress.sin_family := AF_INET;
-  AAddress.sin_port := htons(FPort);
-  CheckResult(bind(FSocket, @AAddress, SizeOf(AAddress)));
-
-  CheckResult(listen(FSocket, NumberOfConnections));
-
-  while not Terminated do
-  begin
-    ARequest := accept(FSocket, nil, nil);
-    if ARequest <> INVALID_SOCKET then
-    try
-      ABytesReceived := recv(ARequest, ABytes[0], Length(ABytes), 0);
-      if ABytesReceived > 0 then
-      begin
-        AData := TEncoding.UTF8.GetString(ABytes, 0, ABytesReceived);
-        AData := Copy(AData, 1, Pos(' HTTP/', AData) - 1);
-        AData := AnswerHeader + FProc(AData);
-        AResponce := TEncoding.UTF8.GetBytes(AData);
-        send(ARequest, AResponce[0], Length(AResponce), 0);
-      end;
-    finally
-      closesocket(ARequest);
-    end;
-  end;
-end;
-
-procedure TSimpleServer.CheckResult(ACode: Integer);
-begin
-  if ACode = SOCKET_ERROR then
-    RaiseLastOSError;
-end;
-
-{$ELSE}
-
-type
-  TFPHttpServer2 = class(TFPHttpServer);
-
-{ TSimpleServer }
-
-constructor TSimpleServer.Create(APort: Integer; AProc: THandleProc);
-begin
-  inherited Create(False);
-  FProc := AProc;
-  FHandler := TFPHttpServer.Create(nil);
-  FHandler.OnRequest := DoRequest;
-  FHandler.Port := APort;
-end;
-
-destructor TSimpleServer.Destroy;
-begin
-  TFPHttpServer2(FHandler).Active := False;
-  TFPHttpServer2(FHandler).FreeServerSocket;
-  inherited Destroy;
-  FreeAndNil(FHandler);
-end;
-
-procedure TSimpleServer.DoRequest(Sender: TObject;
-  var ARequest: TFPHTTPConnectionRequest;
-  var AResponse: TFPHTTPConnectionResponse);
-begin
-  AResponse.Content := FProc(ARequest.Query);
-end;
-
-procedure TSimpleServer.Execute;
-begin
-  FHandler.Active := True;
-end;
-{$ENDIF}
 
 { TAuthToken }
 
@@ -356,7 +187,8 @@ begin
     raise EInvalidOperation.Create(AError + acCRLF + ExtractParam(AAnswerURL, 'error_description'));
 end;
 
-class function TOAuth2.ExtractAuthorizationCode(const AAnswerURL: string; const AParamName: string = 'code'): string;
+class function TOAuth2.ExtractAuthorizationCode(
+  const AAnswerURL: string; const AParamName: string = 'code'): string;
 begin
   CheckForError(AAnswerURL);
   Result := ExtractParam(AAnswerURL, AParamName);
@@ -484,105 +316,142 @@ begin
     TObject(Value) := LValue;
 end;
 
-{ TAuthDialog }
+{$IFDEF MSWINDOWS}
+function bind(s: TSocket; name: PSockAddr; namelen: Integer): Integer; stdcall; external 'ws2_32.dll' name 'bind';
 
-constructor TAuthDialog.Create(AOwnerWnd: TWndHandle; AController: IAuthDialogController);
+{ TAuthServer }
+
+constructor TAuthServer.Create(APort: Integer;
+  const ACallback: THandler;
+  const AHomeUrl: string = '');
 begin
-  CreateDialog(AOwnerWnd, True);
-  BorderStyle := bsDialog;
-  Position := poMainFormCenter;
-  SetBounds(Left, Top, 512, 160);
+  inherited Create(False);
+  FCallback := ACallback;
+  FHomeUrl := AHomeUrl;
+  FPort := APort;
 
-  FController := AController;
-  FRedirectURL := FController.AuthGetRedirectURL;
-  FHomeURL := FController.AuthGetHomeURL;
-
-  FUrl := TACLEdit.Create(Self);
-  FUrl.AlignWithMargins := True;
-  FUrl.Align := alBottom;
-  FUrl.Margins.All := ContentIndent;
-  FUrl.ReadOnly := True;
-  FUrl.Parent := Self;
-  FUrl.Visible := False;
-
-  FServer := TSimpleServer.Create(TACLWebURL.ParseHttp(FRedirectURL).Port, HandlerGet);
+  CheckResult(WSAStartup(MakeWord(2, 2), FWsaData));
+  FSocket := socket(AF_INET, SOCK_STREAM, 0);
+  if FSocket = INVALID_SOCKET then
+    raise EInvalidOperation.Create('Unable to create socket');
 end;
 
-destructor TAuthDialog.Destroy;
+destructor TAuthServer.Destroy;
 begin
-  TACLMainThread.Unsubscribe(Self);
-  FreeAndNil(FServer);
+  closesocket(FSocket);
   inherited;
+  WSACleanup;
 end;
 
-procedure TAuthDialog.DblClick;
-begin
-  inherited;
-  FUrl.Visible := True;
-end;
-
-procedure TAuthDialog.DoShow;
-begin
-  inherited;
-  TACLMainThread.RunPostponed(SendAuthRequest, Self);
-end;
-
-procedure TAuthDialog.Paint;
-begin
-  inherited Paint;
-  Canvas.Font := Font;
-  Canvas.Font.Color := Style.ColorText.AsColor;
-  acTextDraw(Canvas, FMessageText,
-    ClientRect.InflateTo(-dpiApply(ContentIndent, FCurrentPPI)),
-    taLeftJustify, taVerticalCenter, False, False, True);
-end;
-
-class function TAuthDialog.Execute(AOwnerWnd: TWndHandle;
-  const AController: IAuthDialogController; out AToken: TAuthToken;
-  const ACaption: string = ''; const AMessageText: string = ''): Boolean;
+procedure TAuthServer.Execute;
+const
+  AnswerHeader = 'HTTP/1.1 200 OK'#13#10'Content-Type: text/html'#13#10#13#10;
+  BufferLength = 4096;
+  NumberOfConnections = 1;
 var
-  ADialog: TAuthDialog;
+  LAddress: TSockAddrIn;
+  LBytes: TBytes;
+  LBytesReceived: Integer;
+  LData: string;
+  LRequest: TSocket;
+  LResponce: TBytes;
 begin
-  ADialog := TAuthDialog.Create(AOwnerWnd, AController);
-  try
-    ADialog.Caption := IfThenW(ACaption, DefaultCaption);
-    ADialog.FMessageText := IfThenW(AMessageText, DefaultMessageText);
-    Result := ADialog.ShowModal = mrOk;
-    if Result then
-      AToken := ADialog.FToken;
-  finally
-    ADialog.Free;
+  SetLength(LBytes, BufferLength);
+
+  ZeroMemory(@LAddress, SizeOf(LAddress));
+  LAddress.sin_addr.S_addr := INADDR_ANY;
+  LAddress.sin_family := AF_INET;
+  LAddress.sin_port := htons(FPort);
+  CheckResult(bind(FSocket, @LAddress, SizeOf(LAddress)));
+
+  CheckResult(listen(FSocket, NumberOfConnections));
+
+  while not Terminated do
+  begin
+    LRequest := accept(FSocket, nil, nil);
+    if LRequest <> INVALID_SOCKET then
+    try
+      LBytesReceived := recv(LRequest, LBytes[0], Length(LBytes), 0);
+      if LBytesReceived > 0 then
+      begin
+        LData := TEncoding.UTF8.GetString(LBytes, 0, LBytesReceived);
+        LData := Copy(LData, 1, Pos(' HTTP/', LData) - 1);
+        LData := AnswerHeader + GetResponce(LData);
+        LResponce := TEncoding.UTF8.GetBytes(LData);
+        send(LRequest, LResponce[0], Length(LResponce), 0);
+      end;
+    finally
+      closesocket(LRequest);
+    end;
   end;
 end;
 
-function TAuthDialog.HandlerGet(const UnparsedParams: string): string;
+procedure TAuthServer.CheckResult(ACode: Integer);
 begin
-  if ModalResult = mrNone then
+  if ACode = SOCKET_ERROR then
+    RaiseLastOSError;
+end;
+
+{$ELSE}
+
+type
+  TFPHttpServer2 = class(TFPHttpServer);
+
+{ TAuthServer }
+
+constructor TAuthServer.Create(APort: Integer;
+  const ACallback: THandler; const AHomeUrl: string = '');
+begin
+  inherited Create(False);
+  FCallback := ACallback;
+  FHomeUrl := AHomeUrl;
+  FHandler := TFPHttpServer2.Create(nil);
+  FHandler.OnRequest := DoRequest;
+  FHandler.Port := APort;
+end;
+
+destructor TAuthServer.Destroy;
+begin
+  TFPHttpServer2(FHandler).Active := False;
+  TFPHttpServer2(FHandler).FreeServerSocket;
+  inherited Destroy;
+  FreeAndNil(FHandler);
+end;
+
+procedure TAuthServer.DoRequest(Sender: TObject;
+  var ARequest: TFPHTTPConnectionRequest;
+  var AResponse: TFPHTTPConnectionResponse);
+begin
+  AResponse.Content := GetResponce(ARequest.Query);
+end;
+
+procedure TAuthServer.Execute;
+begin
+  FHandler.Active := True;
+end;
+{$ENDIF}
+
+function TAuthServer.GetResponce(const UnparsedParams: string): string;
+var
+  LError: string;
+begin
   try
-    if FController.AuthProcessAnswer(UnparsedParams, FToken) then
-      ModalResult := mrOk;
+    FCallback(UnparsedParams);
+    LError := '';
   except
-    // do nothing
+    on E: Exception do
+      LError := E.Message;
   end;
 
-  Result :=
-    '<html>' +
-    '  <head>' +
-    '    <meta http-equiv="refresh" content="3;url=' + FHomeURL + '">' +
-    '  </head>' +
-    '  <body>' +
-    '     Please return to the app.' +
-    '  </body>' +
-    '</html>';
-end;
+  if FHomeUrl <> '' then
+    Result := '<head><meta http-equiv="refresh" content="3;url=' + FHomeUrl + '"></head>'
+  else
+    Result := '';
 
-procedure TAuthDialog.SendAuthRequest;
-var
-  LUrl: string;
-begin
-  LUrl := FController.AuthGetRequestURL;
-  FUrl.Text := LUrl;
-  ShellExecuteURL(LUrl);
+  if LError <> '' then
+    LError := '<font color="red">' + LError + '</font><br/><br/>';
+
+  Result := '<html>' + Result + '<body>' + LError + 'Please return to the app</body></html>';
 end;
 
 end.
