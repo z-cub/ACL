@@ -342,8 +342,13 @@ procedure TACLProgressBox.ShowProgressBox;
 begin
   BringToFront;
   Align := alClient;
-  FCancelButton.Enabled := pboAllowCancel in Options;
   Visible := True;
+  FCancelButton.Enabled := pboAllowCancel in Options;
+  if FCancelButton.Enabled then
+  begin
+    FCancelButton.Cancel := FCancelButton.Enabled;
+    acSafeSetFocus(FCancelButton);
+  end;
 end;
 
 procedure TACLProgressBox.Cancel(AWaitForStop: Boolean);
@@ -373,7 +378,6 @@ begin
   begin
     if FProgress.WaitingMode and TACLThread.IsTimeout(FLastUpdateTime, 500) then
     begin
-      FCancelled := FCancelled or (GetKeyState(VK_ESCAPE) < 0);
       FLastUpdateTime := TACLThread.Timestamp;
       InvalidateTextBox;
       Application.ProcessMessages;

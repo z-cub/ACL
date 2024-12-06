@@ -356,6 +356,7 @@ type
     // Messages
     procedure CMDialogKey(var Message: TCMDialogKey); message {%H-}CM_DIALOGKEY;
     procedure CMFocusChanged(var Message: TMessage); message CM_FOCUSCHANGED;
+    procedure CMWantSpecialKey(var Message: TCMWantSpecialKey); message CM_WANTSPECIALKEY;
   protected
     procedure ActionChange(Sender: TObject; CheckDefaults: Boolean); override;
     function CreateStyle: TACLStyleButton; override;
@@ -1403,6 +1404,17 @@ begin
     SubClass.IsDefault := Default;
 
   inherited;
+end;
+
+procedure TACLSimpleButton.CMWantSpecialKey(var Message: TCMWantSpecialKey);
+begin
+  if (Message.CharCode = VK_ESCAPE) and Cancel and Focused then
+  begin
+    PerformClick;
+    Message.Result := 1
+  end
+  else
+    inherited;
 end;
 
 function TACLSimpleButton.CreateStyle: TACLStyleButton;

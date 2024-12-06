@@ -701,9 +701,14 @@ end;
 
 procedure TACLCustomInplaceContainer.GetTabOrderList(List: TTabOrderList);
 begin
+{$IFDEF FPC}
+  // CN_KEYDOWN из редактора обрабатывает контейнер, и именно он будет
+  // выступать инвокером для обработки TabOrderList
+{$ELSE}
   inherited;
   if (FEditor <> nil) and (List.IndexOf(FEditor) >= 0) then
     List.Remove(Self);
+{$ENDIF}
 end;
 
 procedure TACLCustomInplaceContainer.HandlerEditorMouseDown(
@@ -1191,19 +1196,22 @@ end;
 
 procedure TACLCustomEdit.CalculateButtons(var R: TRect);
 var
-  AIndent: Integer;
-  AIndex: Integer;
-  ARect: TRect;
+  I: Integer;
+  LButton: TACLEditButton;
+  LIndent: Integer;
+  LRect: TRect;
 begin
-  AIndent := dpiApply(ButtonsIndent, FCurrentPPI);
-  ARect := R;
-  ARect.Inflate(-AIndent);
-  for AIndex := Buttons.Count - 1 downto 0 do
+  LIndent := dpiApply(ButtonsIndent, FCurrentPPI);
+  LRect := R;
+  LRect.Inflate(-LIndent);
+  for I := Buttons.Count - 1 downto 0 do
   begin
-    Buttons.Items[AIndex].Calculate(ARect);
-    Dec(ARect.Right, AIndent);
+    LButton := Buttons.Items[I];
+    LButton.Calculate(LRect);
+    if LButton.Visible then
+      Dec(LRect.Right, LIndent);
   end;
-  R.Right := ARect.Right + AIndent;
+  R.Right := LRect.Right + LIndent;
 end;
 
 procedure TACLCustomEdit.CalculateContent(const R: TRect);

@@ -235,6 +235,11 @@ begin
   Result := wrError;
   if IsMainThread then
   begin
+    // Exit immediatelly if event is already signaled, don't process queue messages!
+    // It may lead to premature WM_COPYDATA message processing.
+    if WaitForSingleObject(AHandle, 0) = WAIT_OBJECT_0 then
+      Exit(wrSignaled);
+
     AHandles[0] := AHandle;
     AHandles[1] := SyncEvent;
     AStartWaitTime := TACLThread.GetTickCount;
