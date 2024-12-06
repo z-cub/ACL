@@ -285,13 +285,14 @@ type
 
   TACLSubControlOptions = class(TPersistent)
   strict private
+    FAutoSizeCache: TRect;
     FAlign: TACLBoolean;
     FControl: TControl;
     FOwner: TControl;
     FPosition: TACLBorder;
     FPrevWndProc: TWndMethod;
 
-    function GetActualIndentBetweenElements: Integer;
+    function ActualIndentBetweenElements: Integer;
     function Validate: Boolean;
     procedure SetAlign(AValue: TACLBoolean);
     procedure SetControl(AValue: TControl);
@@ -300,10 +301,10 @@ type
     procedure Changed; virtual;
     procedure WindowProc(var Message: TMessage); virtual;
     // Called from the Owner
-    procedure AfterAutoSize(var AWidth, AHeight: Integer); virtual;
+    procedure AfterAutoSize(var AWidth, AHeight: Integer);
     procedure AlignControl(var AClientRect: TRect); virtual;
-    procedure BeforeAutoSize(var AWidth, AHeight: Integer); virtual;
-    procedure Notification(AComponent: TComponent; AOperation: TOperation); virtual;
+    procedure BeforeAutoSize(var AWidth, AHeight: Integer);
+    procedure Notification(AComponent: TComponent; AOperation: TOperation);
     function TrySetFocus: Boolean;
     procedure UpdateVisibility; virtual;
     //# Properties
@@ -312,6 +313,7 @@ type
     constructor Create(AOwner: TControl);
     destructor Destroy; override;
     procedure Assign(Source: TPersistent); override;
+    class function TryGet(ACtrl: TControl): TACLSubControlOptions;
   published
     property Align: TACLBoolean read FAlign write SetAlign default TACLBoolean.Default;
     property Position: TACLBorder read FPosition write SetPosition default mRight;
@@ -505,8 +507,8 @@ type
   {$IFDEF FPC}
     FCurrentPPI: Integer;
 
-    procedure CalculatePreferredSize(var W, H: Integer; X: Boolean); override;
     procedure DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy; const X, Y: Double); override;
+    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override;
   {$ELSE}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override; final;
   {$ENDIF}
@@ -620,6 +622,7 @@ type
     FScaleChangeState: TObject;
     FTransparent: Boolean;
 
+    FOnBoundsChanged: TNotifyEvent;
     FOnGetHint: TACLGetHintEvent;
 
     function IsMarginsStored: Boolean;
@@ -660,9 +663,9 @@ type
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     procedure BoundsChanged; {$IFDEF FPC}override;{$ELSE}virtual;{$ENDIF}
   {$IFDEF FPC}
-    procedure CalculatePreferredSize(var W, H: Integer; X: Boolean); override; final;
     function DoAlignChildControls(AAlign: TAlign; AControl: TControl;
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
+    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override; final;
     procedure InitializeWnd; override;
   {$ENDIF}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
@@ -743,6 +746,7 @@ type
     property TabOrder;
     property Visible;
     //# Events
+    property OnBoundsChanged: TNotifyEvent read FOnBoundsChanged write FOnBoundsChanged;
     property OnClick;
     property OnContextPopup;
     property OnDragDrop;
@@ -781,14 +785,12 @@ type
     procedure SetStyle(AValue: TACLStyleBackground);
   protected
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
-    function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     function CreateStyle: TACLStyleBackground; virtual;
     function GetContentOffset: TRect; override;
 
     procedure Paint; override;
     procedure SetAutoSize(Value: Boolean); override;
     procedure SetTargetDPI(AValue: Integer); override;
-    function SmartAutoSize(var AWidth, AHeight: Integer): Boolean;
     procedure UpdateTransparency; override;
     //# Properties
     property Borders: TACLBorders read FBorders write SetBorders default acAllBorders;
@@ -842,6 +844,7 @@ type
     class procedure ScaleChanging(AControl: TWinControl; var AState: TObject);
     class procedure ScaleChanged(AControl: TWinControl; var AState: TObject);
     // Margins
+    class procedure SetAlignWithMargins(AControl: TControl; AEnabled: Boolean);
     class procedure UpdateMargins(AControl: TControl;
       AUseMargins: Boolean; AMargins: TACLPadding; ACurrentDpi: Integer); overload;
     class procedure UpdateMargins(AControl: TControl; const AMargins: TRect); overload;
@@ -1378,10 +1381,10 @@ begin
     //  not using rounding up, because size of
     //  content will be too large and scroll bars will appeared
     AValue := ATargetDpi / acDefaultDpi;
-    Result.Bottom := Trunc(Margins.Bottom * AValue);
-    Result.Left := Trunc(Margins.Left * AValue);
-    Result.Right := Trunc(Margins.Right * AValue);
-    Result.Top := Trunc(Margins.Top * AValue);
+    Result.Bottom := Trunc(Bottom * AValue);
+    Result.Left := Trunc(Left * AValue);
+    Result.Right := Trunc(Right * AValue);
+    Result.Top := Trunc(Top * AValue);
   end
   else
     Result := Margins;
@@ -1528,53 +1531,79 @@ begin
   FPrevWndProc(Message);
 end;
 
+function TACLSubControlOptions.ActualIndentBetweenElements: Integer;
+begin
+  if Position in [mRight, mLeft] then
+    Result := dpiApply(acIndentBetweenElements, acGetCurrentDpi(FOwner))
+  else
+    Result := dpiApply(2, acGetCurrentDpi(FOwner));
+end;
+
 procedure TACLSubControlOptions.AlignControl(var AClientRect: TRect);
 var
+  LAutoSize: TRect;
   LBounds: TRect;
 begin
-  if Validate then
-  begin
-    LBounds := AClientRect;
-    LBounds.Offset(FOwner.Left, FOwner.Top);
-    case Position of
-      mLeft:
-        begin
-          LBounds.Width := Control.ControlWidth;
-          if Align <> acTrue then
-            LBounds.CenterVert(Control.ControlHeight);
-          Inc(AClientRect.Left, GetActualIndentBetweenElements);
-          Inc(AClientRect.Left, Control.ControlWidth);
-        end;
+  if not Validate then Exit;
 
-      mRight:
-        begin
-          LBounds := LBounds.Split(srRight, Control.ControlWidth);
-          if Align <> acTrue then
-            LBounds.CenterVert(Control.ControlHeight);
-          Dec(AClientRect.Right, GetActualIndentBetweenElements);
-          Dec(AClientRect.Right, Control.ControlWidth);
-        end;
+  LBounds := AClientRect;
+  LBounds.Offset(FOwner.Left, FOwner.Top);
+  case Position of
+    mLeft:
+      begin
+        LBounds.Width := Control.Width;
+        if Align <> acTrue then
+          LBounds.CenterVert(Control.Height);
+        Inc(AClientRect.Left, ActualIndentBetweenElements);
+        Inc(AClientRect.Left, LBounds.Width);
+      end;
 
-      mTop:
-        begin
-          LBounds.Height := Control.ControlHeight;
-          if Align = acFalse then
-            LBounds.Width := Control.ControlWidth;
-          Inc(AClientRect.Top, GetActualIndentBetweenElements);
-          Inc(AClientRect.Top, Control.ControlHeight);
-        end;
+    mRight:
+      begin
+        LBounds := LBounds.Split(srRight, Control.Width);
+        if Align <> acTrue then
+          LBounds.CenterVert(Control.Height);
+        Dec(AClientRect.Right, ActualIndentBetweenElements);
+        Dec(AClientRect.Right, LBounds.Width);
+      end;
 
-      mBottom:
-        begin
-          LBounds := LBounds.Split(srBottom, Control.ControlHeight);
-          if Align = acFalse then
-            LBounds.Width := Control.ControlWidth;
-          Dec(AClientRect.Bottom, GetActualIndentBetweenElements);
-          Dec(AClientRect.Bottom, Control.ControlHeight);
-        end;
-    end;
-    TACLControls.AlignControl(Control, LBounds);
+    mTop:
+      begin
+        LBounds.Height := Control.Height;
+        if Align = acFalse then
+          LBounds.Width := Control.Width;
+        Inc(AClientRect.Top, ActualIndentBetweenElements);
+        Inc(AClientRect.Top, LBounds.Height);
+      end;
+
+    mBottom:
+      begin
+        LBounds := LBounds.Split(srBottom, Control.Height);
+        if Align = acFalse then
+          LBounds.Width := Control.Width;
+        Dec(AClientRect.Bottom, ActualIndentBetweenElements);
+        Dec(AClientRect.Bottom, LBounds.Height);
+      end;
   end;
+
+  if TControlAccess(Control).AutoSize then
+  begin
+    LAutoSize := Bounds(LBounds.Width, LBounds.Height, 0, 0);
+  {$IFDEF FPC}
+    TControlAccess(Control).GetPreferredSize(LAutoSize.Right, LAutoSize.Bottom);
+  {$ELSE}
+    if TControlAccess(Control).CanAutoSize(LAutoSize.Right, LAutoSize.Bottom) then
+  {$ENDIF}
+    if LAutoSize <> FAutoSizeCache then
+    begin
+      FAutoSizeCache := LAutoSize;
+      LBounds.Height := LAutoSize.Bottom;
+      LBounds.Width := LAutoSize.Right;
+      TACLMainThread.RunPostponed(Changed, Self);
+    end;
+  end;
+
+  TACLControls.AlignControl(Control, LBounds);
 end;
 
 procedure TACLSubControlOptions.AfterAutoSize(var AWidth, AHeight: Integer);
@@ -1583,15 +1612,15 @@ begin
   begin
     if Position in [mRight, mLeft] then
     begin
-      AHeight := Max(AHeight, Control.ControlHeight);
-      Inc(AWidth, GetActualIndentBetweenElements);
-      Inc(AWidth, Control.ControlWidth);
+      AHeight := Max(AHeight, Control.Height);
+      Inc(AWidth, ActualIndentBetweenElements);
+      Inc(AWidth, Control.Width);
     end
     else
     begin
-      AWidth := Max(AWidth, Control.ControlWidth);
-      Inc(AHeight, GetActualIndentBetweenElements);
-      Inc(AHeight, Control.ControlHeight);
+      AWidth := Max(AWidth, Control.Width);
+      Inc(AHeight, ActualIndentBetweenElements);
+      Inc(AHeight, Control.Height);
     end;
   end;
 end;
@@ -1602,13 +1631,13 @@ begin
   begin
     if Position in [mRight, mLeft] then
     begin
-      Dec(AWidth, GetActualIndentBetweenElements);
-      Dec(AWidth, Control.ControlWidth);
+      Dec(AWidth, ActualIndentBetweenElements);
+      Dec(AWidth, Control.Width);
     end
     else
     begin
-      Dec(AHeight, GetActualIndentBetweenElements);
-      Dec(AHeight, Control.ControlHeight);
+      Dec(AHeight, ActualIndentBetweenElements);
+      Dec(AHeight, Control.Height);
     end;
   end;
 end;
@@ -1617,6 +1646,11 @@ procedure TACLSubControlOptions.Notification(AComponent: TComponent; AOperation:
 begin
   if AComponent = Control then
     Control := nil;
+end;
+
+class function TACLSubControlOptions.TryGet(ACtrl: TControl): TACLSubControlOptions;
+begin
+  Result := TRTTI.TryGetPropObject<TACLSubControlOptions>(ACtrl, 'SubControl');
 end;
 
 function TACLSubControlOptions.TrySetFocus: Boolean;
@@ -1632,24 +1666,14 @@ begin
     Control.Visible := Owner.Visible;
 end;
 
-function TACLSubControlOptions.GetActualIndentBetweenElements: Integer;
-begin
-  if Position in [mRight, mLeft] then
-    Result := dpiApply(acIndentBetweenElements, acGetCurrentDpi(FOwner))
-  else
-    Result := dpiApply(2, acGetCurrentDpi(FOwner));
-end;
-
 function TACLSubControlOptions.Validate: Boolean;
 begin
   if (Control <> nil) and (Control.Parent <> FOwner.Parent) then
     Control := nil;
   if (Control <> nil) and (Control.Align <> alNone) then
     Control.Align := alNone; // alCustom disables auto-size feature
-{$IFNDEF FPC}
-  if (Control <> nil) and (Control.AlignWithMargins) then
-    Control.AlignWithMargins := False;
-{$ENDIF}
+  if (Control <> nil) then
+    TACLControls.SetAlignWithMargins(Control, False);
   Result := Control <> nil;
 end;
 
@@ -2127,7 +2151,6 @@ begin
 {$IFDEF FPC}
   FCurrentPPI := acDefaultDpi;
 {$ENDIF}
-  ControlStyle := ControlStyle + [csCaptureMouse];
   FDefaultSize := TSize.Create(200, 30);
   FMargins := TACLMargins.Create(TACLMargins.DefaultValue);
   FMargins.OnChanged := MarginsChangeHandler;
@@ -2187,8 +2210,12 @@ end;
 
 procedure TACLGraphicControl.AdjustSize;
 begin
+  inherited;
+{$IFDEF FPC}
+  InvalidatePreferredSize;
+{$ELSE}
   //#AI:
-  //# Set the Visible to True will not call the RequestRealign method if adjusted size of a control is equal to current
+  //# Set the Visible to True will not call the RequestAlign method if adjusted size of a control is equal to current
   //#
   //#  procedure TControl.SetVisible(Value: Boolean);
   //#  ...
@@ -2197,15 +2224,13 @@ begin
   //#    else
   //#      RequestAlign;
   //#
-  inherited;
-{$IFNDEF FPC}
   if AutoSize then
     RequestAlign;
 {$ENDIF}
 end;
 
 {$IFDEF FPC}
-procedure TACLGraphicControl.CalculatePreferredSize(var W, H: Integer; X: Boolean);
+procedure TACLGraphicControl.GetPreferredSize(var W, H: Integer; R1, R2: Boolean);
 begin
   H := Height;
   W := Width;
@@ -2923,10 +2948,18 @@ begin
       Invalidate;
   end;
 {$ENDIF}
+  CallNotifyEvent(Self, OnBoundsChanged);
 end;
 
 {$IFDEF FPC}
-procedure TACLCustomControl.CalculatePreferredSize(var W, H: Integer; X: Boolean);
+function TACLCustomControl.DoAlignChildControls(AAlign: TAlign;
+  AControl: TControl; AList: TTabOrderList; var ARect: TRect): Boolean;
+begin
+  TACLOrderedAlign.List(Self, [AAlign], AList);
+  Result := False;
+end;
+
+procedure TACLCustomControl.GetPreferredSize(var W, H: Integer; R1, R2: Boolean);
 begin
   H := Height;
   W := Width;
@@ -2935,13 +2968,6 @@ begin
   if csAcceptsControls in ControlStyle then
     inherited;
   CanAutoSize(W, H);
-end;
-
-function TACLCustomControl.DoAlignChildControls(AAlign: TAlign;
-  AControl: TControl; AList: TTabOrderList; var ARect: TRect): Boolean;
-begin
-  TACLOrderedAlign.List(Self, [AAlign], AList);
-  Result := False;
 end;
 
 procedure TACLCustomControl.InitializeWnd;
@@ -3074,11 +3100,6 @@ begin
     inherited;
 end;
 
-function TACLContainer.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
-begin
-  Result := SmartAutoSize(NewWidth, NewHeight) or inherited;
-end;
-
 procedure TACLContainer.CMShowingChanged(var Message: TMessage);
 begin
   inherited;
@@ -3142,75 +3163,6 @@ procedure TACLContainer.SetTargetDPI(AValue: Integer);
 begin
   inherited SetTargetDPI(AValue);
   Style.SetTargetDPI(AValue);
-end;
-
-function TACLContainer.SmartAutoSize(var AWidth, AHeight: Integer): Boolean;
-var
-  I: Integer;
-  LCtrl: TControlAccess;
-  LCtrlSize: TSize;
-  LExtents: TRect;
-  LHorz, LVert: TPoint;
-  LIgnored: TList;
-  LMargins: TSize;
-  LSubCtrl: TACLSubControlOptions;
-begin
-  LIgnored := nil;
-  LHorz := NullPoint; // left, right, client
-  LVert := NullPoint; // top, bottom
-  for I := 0 to ControlCount - 1 do
-  begin
-    LCtrl := TControlAccess(Controls[I]);
-    if (LIgnored <> nil) and LIgnored.Contains(LCtrl) then
-      Continue;
-    if LCtrl.Visible or
-      (csDesigning in LCtrl.ComponentState) and not
-      (csNoDesignVisible in LCtrl.ControlStyle) then
-    begin
-      LMargins.cx := LCtrl.ControlWidth - LCtrl.Width;
-      LMargins.cy := LCtrl.ControlHeight - LCtrl.Height;
-      if LCtrl.AutoSize then
-      begin
-        LSubCtrl := TRTTI.TryGetPropObject<TACLSubControlOptions>(LCtrl, 'SubControl');
-        if (LSubCtrl <> nil) and (LSubCtrl.Control <> nil) then
-        begin
-          if LIgnored = nil then
-            LIgnored := TList.Create;
-          LIgnored.Add(LSubCtrl.Control);
-        end;
-      end;
-      case LCtrl.Align of
-        alTop, alBottom:
-          begin
-            LCtrlSize := TSize.Create(LCtrl.Width, LCtrl.Height);
-            if LCtrl.AutoSize then
-              LCtrl.CanAutoSize(LCtrlSize.cx, LCtrlSize.cy);
-            LVert.X := Max(LVert.X, LCtrlSize.cx + LMargins.cx);
-            LVert.Y := LVert.Y + LCtrlSize.cy + LMargins.cy;
-          end;
-        alLeft, alRight, alClient:
-          begin
-            LCtrlSize := TSize.Create(LCtrl.Width, LCtrl.Constraints.MinHeight);
-            if LCtrl.AutoSize then
-              LCtrl.CanAutoSize(LCtrlSize.cx, LCtrlSize.cy);
-            LHorz.X := LHorz.X + LCtrlSize.cx + LMargins.cx;
-            LHorz.Y := Max(LHorz.Y, LCtrlSize.cy + LMargins.cy);
-          end;
-      else
-        LIgnored.Free;
-        Exit(False);
-      end;
-    end;
-  end;
-
-  LExtents := NullRect;
-  AdjustClientRect(LExtents);
-  if Align in [alNone, alLeft, alRight] then
-    AWidth := Max(LHorz.X, LVert.X) + LExtents.Left - LExtents.Right;
-  if Align in [alNone, alTop, alBottom] then
-    AHeight := LHorz.Y + LVert.Y + LExtents.Top - LExtents.Bottom;
-  LIgnored.Free;
-  Result := True;
 end;
 
 procedure TACLContainer.UpdateTransparency;
@@ -3372,6 +3324,20 @@ begin
   TWinControlAccess(AControl).EnableAlign;
 end;
 
+class procedure TACLControls.SetAlignWithMargins(AControl: TControl; AEnabled: Boolean);
+begin
+{$IFDEF FPC}
+  if AControl is TACLGraphicControl then
+    TACLGraphicControl(AControl).AlignWithMargins := AEnabled
+  else if AControl is TACLCustomControl then
+    TACLCustomControl(AControl).AlignWithMargins := AEnabled
+  else if not AEnabled then
+    UpdateMargins(AControl, NullRect);
+{$ELSE}
+  AControl.AlignWithMargins := AEnabled;
+{$ENDIF}
+end;
+
 class function TACLControls.WndProc(ACaller: TWinControl; var Message: TMessage): Boolean;
 {$IFDEF FPC}
 var
@@ -3426,6 +3392,9 @@ begin
   with TControlAccess(AControl).Margins do
 {$ENDIF}
   begin
+  {$IFDEF FPC}
+    Around := 0;
+  {$ENDIF}
     Left := AMargins.Left;
     Top := AMargins.Top;
     Right := AMargins.Right;

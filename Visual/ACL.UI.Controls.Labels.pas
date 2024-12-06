@@ -124,8 +124,8 @@ type
     function CreateStyle: TACLStyleLabel; virtual;
     function CreateSubControlOptions: TACLLabelSubControlOptions; virtual;
 
-    procedure Calculate(const R: TRect); overload; virtual;
     procedure Calculate; overload;
+    procedure Calculate(const R: TRect); overload; virtual;
     procedure Click; override;
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
@@ -452,9 +452,8 @@ end;
 
 procedure TACLLabel.Loaded;
 begin
-  inherited Loaded;
-  if AutoSize then
-    AdjustSize;
+  inherited;
+  Perform(CM_TEXTCHANGED, 0, 0);
 end;
 
 procedure TACLLabel.MouseEnter;
@@ -674,9 +673,7 @@ end;
 procedure TACLLabel.CMFontChanged(var Message: TMessage);
 begin
   inherited;
-  Calculate;
-  if AutoSize then
-    AdjustSize;
+  Perform(CM_TEXTCHANGED, 0, 0);
 end;
 
 procedure TACLLabel.CMHitTest(var Message: TCMHitTest);
@@ -689,9 +686,10 @@ end;
 procedure TACLLabel.CMTextChanged(var Message: TMessage);
 begin
   inherited;
-  Calculate;
   if AutoSize then
     AdjustSize
+  else
+    Calculate;
 end;
 
 procedure TACLLabel.CMVisibleChanged(var Message: TMessage);

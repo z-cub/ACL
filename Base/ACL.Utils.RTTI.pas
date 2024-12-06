@@ -489,11 +489,13 @@ class function TRTTI.TryGetPropObject(AObject: TObject;
 var
   LPropInfo: PPropInfo;
 begin
-  LPropInfo := TypInfo.GetPropInfo(AObject, AName, [tkClass]);
-  if LPropInfo <> nil then
-    Result := GetObjectProp(AObject, LPropInfo, AMinClass)
-  else
-    Result := nil;
+  Result := nil;
+  if AObject <> nil then
+  begin
+    LPropInfo := TypInfo.GetPropInfo(AObject, AName, [tkClass]);
+    if LPropInfo <> nil then
+      Result := GetObjectProp(AObject, LPropInfo, AMinClass);
+  end;
 end;
 
 { HiddenAttribute }

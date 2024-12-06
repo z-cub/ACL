@@ -2075,7 +2075,7 @@ end;
 function TACLCustomCheckBox.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
 begin
   NewHeight := -1;
-  if (Align in [alNone, alLeft, alRight]) and not (WordWrap or ShowLine) then
+  if not ((Align in [alTop, alBottom, alClient]) or WordWrap or ShowLine) then
     NewWidth := -1;
   SubControl.BeforeAutoSize(NewWidth, NewHeight);
   SubClass.CalculateAutoSize(NewWidth, NewHeight);

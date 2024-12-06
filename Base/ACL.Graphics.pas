@@ -1118,6 +1118,8 @@ function acTextSizeMultiline(ACanvas: TCanvas; const AText: string; AMaxWidth: I
 var
   LTextRect: TRect;
 begin
+  if AMaxWidth <= 0 then
+    AMaxWidth := MaxWord;
   LTextRect := Rect(0, 0, AMaxWidth, 2);
   acSysDrawText(ACanvas, LTextRect, AText, DT_CALCRECT or DT_WORDBREAK);
   Result := LTextRect.Size;

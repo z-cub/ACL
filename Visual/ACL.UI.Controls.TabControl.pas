@@ -1360,13 +1360,18 @@ procedure TACLPageControl.UpdatePagesVisibility;
 var
   I: Integer;
 begin
-  if not (csDesigning in ComponentState) then
+  if csDesigning in ComponentState then
   begin
+    if ActivePage <> nil then
+      ActivePage.BringToFront;
+  end
+  else
+  begin
+    if ActivePage <> nil then
+      ActivePage.Visible := True;
     for I := 0 to PageCount - 1 do
-      Pages[I].Visible := IsTabVisible(I);
+      Pages[I].Visible := IsTabVisible(I) and (I = ActiveIndex);
   end;
-  if ActivePage <> nil then
-    ActivePage.BringToFront;
 end;
 
 function TACLPageControl.GetActivePage: TACLPageControlPage;

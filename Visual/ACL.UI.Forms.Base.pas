@@ -701,6 +701,8 @@ begin
     Exit;
 {$ENDIF}
 
+  HandleNeeded;
+
   LScaling.Start(Self);
   try
     LPrevDPI := FCurrentPPI;
