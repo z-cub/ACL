@@ -173,7 +173,7 @@ type
     function Run(ATask: TACLTask): TObjHandle; overload;
     function Run(ATask: TACLTask; ACompleteEvent: TThreadMethod;
       ACompleteEventCallMode: TACLThreadMethodCallMode): TObjHandle; overload;
-    function RunInCurrentThread(ATask: TACLTask): TObjHandle;
+    class function RunInCurrentThread(ATask: TACLTask): TObjHandle;
 
     function Cancel(ATaskHandle: TObjHandle; AWaitFor: Boolean = False): Boolean; overload;
     function Cancel(ATaskHandle: TObjHandle; AWaitTimeOut: Cardinal): TWaitResult; overload;
@@ -562,7 +562,7 @@ begin
   Result := Run(TACLSimpleTask.Create(AProc), ACompleteEvent, ACompleteEventCallMode);
 end;
 
-function TACLTaskDispatcher.RunInCurrentThread(ATask: TACLTask): TObjHandle;
+class function TACLTaskDispatcher.RunInCurrentThread(ATask: TACLTask): TObjHandle;
 begin
   Result := 0;
   try
@@ -878,7 +878,7 @@ end;
 procedure TACLTaskDispatcher.SetUseCpuUsageMonitor(AValue: Boolean);
 begin
   if not IsMainThread then
-    raise EInvalidOperation.Create('SetUseCpuUsageMonitor');
+    raise EInvalidOperation.Create('SetUseCpuUsageMonitor must be called from MainThread');
   if UseCpuUsageMonitor <> AValue then
   begin
     if AValue then

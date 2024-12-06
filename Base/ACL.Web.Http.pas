@@ -1312,7 +1312,7 @@ end;
 
 function TACLHttp.RunNoThread: TACLWebErrorInfo;
 begin
-  TaskDispatcher.RunInCurrentThread(TACLHttpRequestTask.Create(Self));
+  TACLTaskDispatcher.RunInCurrentThread(TACLHttpRequestTask.Create(Self));
   Result := FResult;
 end;
 
