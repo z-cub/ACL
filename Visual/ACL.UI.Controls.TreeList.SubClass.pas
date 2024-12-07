@@ -1455,17 +1455,14 @@ procedure TACLTreeListColumnViewInfo.DoDraw(ACanvas: TCanvas);
 var
   ASavedClipRegion: TRegionHandle;
 begin
-  ASavedClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, Bounds, ASavedClipRegion) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, Bounds) then
-    begin
-      SubClass.StylePrepareFont(ACanvas, TACLStyleTreeList.IndexColumnHeaderFont);
-      SubClass.Style.DrawHeader(ACanvas, Bounds, Borders);
-      SubClass.Style.DrawCheckMark(ACanvas, CheckBoxRect, CheckBoxState, CheckState);
-      acDrawImage(ACanvas, ImageRect, OptionsColumns.Images, Column.ImageIndex);
-      acTextDraw(ACanvas, Column.Caption, TextRect, Column.TextAlign, taVerticalCenter, True);
-      DoDrawSortMark(ACanvas);
-    end;
+    SubClass.StylePrepareFont(ACanvas, TACLStyleTreeList.IndexColumnHeaderFont);
+    SubClass.Style.DrawHeader(ACanvas, Bounds, Borders);
+    SubClass.Style.DrawCheckMark(ACanvas, CheckBoxRect, CheckBoxState, CheckState);
+    acDrawImage(ACanvas, ImageRect, OptionsColumns.Images, Column.ImageIndex);
+    acTextDraw(ACanvas, Column.Caption, TextRect, Column.TextAlign, taVerticalCenter, True);
+    DoDrawSortMark(ACanvas);
   finally
     acRestoreClipRegion(ACanvas.Handle, ASavedClipRegion);
   end;
@@ -2129,10 +2126,9 @@ begin
   begin
     if Node <> nil then
     begin
-      ASaveIndex := acSaveClipRegion(ACanvas.Handle);
+      if acStartClippedDraw(ACanvas.Handle, R, ASaveIndex) then
       try
-        if acIntersectClipRegion(ACanvas.Handle, R) then
-          DoDrawCellContent(ACanvas, R, AColumnViewInfo);
+        DoDrawCellContent(ACanvas, R, AColumnViewInfo);
       finally
         acRestoreClipRegion(ACanvas.Handle, ASaveIndex);
       end;

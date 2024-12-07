@@ -2090,10 +2090,9 @@ procedure TACLResourceTexture.DrawClipped(ACanvas: TCanvas;
 var
   AClipRegion: TRegionHandle;
 begin
-  AClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, AClipRect, AClipRegion) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, AClipRect) then
-      Draw(ACanvas, R, AFrameIndex, True, AAlpha);
+    Draw(ACanvas, R, AFrameIndex, True, AAlpha);
   finally
     acRestoreClipRegion(ACanvas.Handle, AClipRegion);
   end;

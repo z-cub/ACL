@@ -2241,7 +2241,7 @@ end;
 
 class procedure TACLSkinImageRenderer.doAlphaBlendTile(const R, SrcR: TRect);
 var
-  AClipRgn: Integer;
+  AClipRgn: TRegionHandle;
   ALayer: TACLDib;
   R1: TRect;
   W, H: Integer;
@@ -2266,10 +2266,8 @@ begin
     end;
   end
   else
-  begin
-    AClipRgn := acSaveClipRegion(FDstCanvas.Handle);
+    if acStartClippedDraw(FDstCanvas.Handle, R, AClipRgn) then
     try
-      acIntersectClipRegion(FDstCanvas.Handle, R);
       for Y := 1 to YCount do
       begin
         R1.Left := R.Left;
@@ -2286,7 +2284,6 @@ begin
     finally
       acRestoreClipRegion(FDstCanvas.Handle, AClipRgn);
     end;
-  end;
 end;
 
 class procedure TACLSkinImageRenderer.doWinDraw(const ATarget, ASource: TRect; ATile: Boolean);

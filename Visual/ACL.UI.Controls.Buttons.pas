@@ -724,20 +724,16 @@ procedure TACLCustomButtonSubClass.Draw(ACanvas: TCanvas);
 var
   AClipRgn: TRegionHandle;
 begin
-  if acRectVisible(ACanvas, Bounds) then
-  begin
+  if acStartClippedDraw(ACanvas.Handle, Bounds, AClipRgn) then
+  try
     ACanvas.Font := Font;
-    AClipRgn := acSaveClipRegion(ACanvas.Handle);
-    try
-      acIntersectClipRegion(ACanvas.Handle, Bounds);
-      if not AnimationManager.Draw(Self, ACanvas, ButtonRect) then
-        DrawBackground(ACanvas, ButtonRect);
-      if IsFocused then
-        DrawFocusRect(ACanvas);
-      DrawContent(ACanvas);
-    finally
-      acRestoreClipRegion(ACanvas.Handle, AClipRgn);
-    end;
+    if not AnimationManager.Draw(Self, ACanvas, ButtonRect) then
+      DrawBackground(ACanvas, ButtonRect);
+    if IsFocused then
+      DrawFocusRect(ACanvas);
+    DrawContent(ACanvas);
+  finally
+    acRestoreClipRegion(ACanvas.Handle, AClipRgn);
   end;
 end;
 

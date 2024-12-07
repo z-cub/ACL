@@ -908,14 +908,11 @@ var
   LRect2: TRect;
   LSaveRgn: TRegionHandle;
 begin
-  LSaveRgn := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, R, LSaveRgn) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, R) then
-    begin
-      Animator.Calculate(Progress, FFrame1.Size, R, LRect1, LRect2, LAlpha1, LAlpha2);
-      FFrame1.DrawBlend(ACanvas, LRect1, LAlpha1);
-      FFrame2.DrawBlend(ACanvas, LRect2, LAlpha2);
-    end;
+    Animator.Calculate(Progress, FFrame1.Size, R, LRect1, LRect2, LAlpha1, LAlpha2);
+    FFrame1.DrawBlend(ACanvas, LRect1, LAlpha1);
+    FFrame2.DrawBlend(ACanvas, LRect2, LAlpha2);
   finally
     acRestoreClipRegion(ACanvas.Handle, LSaveRgn);
   end;

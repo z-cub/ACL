@@ -796,9 +796,8 @@ var
   AClipRgn: TRegionHandle;
   AElement: TACLSelectionFrameElement;
 begin
-  AClipRgn := acSaveClipRegion(DC);
+  if acStartClippedDraw(DC, Bounds, AClipRgn) then
   try
-    acIntersectClipRegion(DC, Bounds);
     acExcludeFromClipRegion(DC, Bounds.InflateTo(-FFrameSize));
     for AElement := High(AElement) downto Low(AElement) do
     begin

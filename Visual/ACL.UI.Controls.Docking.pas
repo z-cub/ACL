@@ -3114,9 +3114,8 @@ begin
     Style.DrawBorder(Canvas, ClientRect.Split(GetOuterPadding), acAllBorders);
     Style.DrawHeader(Canvas, FCaptionRect);
     Style.DrawHeaderText(Canvas, FCaptionTextRect, Caption);
-    AClipRgn := acSaveClipRegion(Canvas.Handle);
+    if acStartClippedDraw(ACanvas.Handle, FCaptionRect, AClipRgn) then
     try
-      acIntersectClipRegion(Canvas.Handle, FCaptionRect);
       for I := Low(FCaptionButtons) to High(FCaptionButtons) do
       begin
         Style.HeaderButton.Draw(Canvas, FCaptionButtons[I], GetCaptionButtonState(I));

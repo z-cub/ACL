@@ -1410,33 +1410,30 @@ begin
   ACanvas.Brush.Style := bsClear;
   ACanvas.Font := SubClass.Font;
 
-  AClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, FClientBounds, AClipRegion) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, FClientBounds) then
+    ARowRect := FClientBounds;
+    ARowRect.Height := FHeaderHeight;
+    Dec(ARowRect.Left, ViewportX);
+    FHeaderViewInfo.Draw(ACanvas, ARowRect.TopLeft, @HexHeaderData[0], Length(HexHeaderData));
+    acExcludeFromClipRegion(ACanvas.Handle, ARowRect);
+
+    ADataOffset := 0;
+    ARowsArea := RowsArea;
+
+    HexSelection.Draw(ACanvas, ARowsArea.TopLeft);
+    TextSelection.Draw(ACanvas, ARowsArea.TopLeft);
+
+    ARowRect := ARowsArea;
+    ARowRect.Height := FRowHeight;
+    while (ARowRect.Top < FClientBounds.Bottom) and (ADataOffset < FBuffer.Used) do
     begin
-      ARowRect := FClientBounds;
-      ARowRect.Height := FHeaderHeight;
-      Dec(ARowRect.Left, ViewportX);
-      FHeaderViewInfo.Draw(ACanvas, ARowRect.TopLeft, @HexHeaderData[0], Length(HexHeaderData));
-      acExcludeFromClipRegion(ACanvas.Handle, ARowRect);
-
-      ADataOffset := 0;
-      ARowsArea := RowsArea;
-
-      HexSelection.Draw(ACanvas, ARowsArea.TopLeft);
-      TextSelection.Draw(ACanvas, ARowsArea.TopLeft);
-
-      ARowRect := ARowsArea;
-      ARowRect.Height := FRowHeight;
-      while (ARowRect.Top < FClientBounds.Bottom) and (ADataOffset < FBuffer.Used) do
-      begin
-        AData := @FBuffer.DataArr^[ADataOffset];
-        ADataSize := MinMax(FBuffer.Used - ADataOffset, 0, acHexViewBytesPerRow);
-        FRowViewInfo.LabelText := IntToHex(FBufferPosition + ADataOffset, 8);
-        FRowViewInfo.Draw(ACanvas, ARowRect.TopLeft, AData, ADataSize);
-        ARowRect.Offset(0, FRowHeight);
-        Inc(ADataOffset, acHexViewBytesPerRow);
-      end;
+      AData := @FBuffer.DataArr^[ADataOffset];
+      ADataSize := MinMax(FBuffer.Used - ADataOffset, 0, acHexViewBytesPerRow);
+      FRowViewInfo.LabelText := IntToHex(FBufferPosition + ADataOffset, 8);
+      FRowViewInfo.Draw(ACanvas, ARowRect.TopLeft, AData, ADataSize);
+      ARowRect.Offset(0, FRowHeight);
+      Inc(ADataOffset, acHexViewBytesPerRow);
     end;
   finally
     acRestoreClipRegion(ACanvas.Handle, AClipRegion);

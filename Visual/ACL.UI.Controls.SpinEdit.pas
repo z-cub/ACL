@@ -339,16 +339,13 @@ var
   LInnerBounds: TRect;
   LPrevClip: TRegionHandle;
 begin
-  LPrevClip := acSaveClipRegion(ACanvas.Handle);
+  LInnerBounds := ClientRect;
+  if Borders then
+    LInnerBounds.Inflate(-1);
+  if acStartClippedDraw(ACanvas.Handle, LInnerBounds, LPrevClip) then
   try
-    LInnerBounds := ClientRect;
-    if Borders then
-      LInnerBounds.Inflate(-1, -1);
-    if acIntersectClipRegion(ACanvas.Handle, LInnerBounds) then
-    begin
-      ButtonLeft.Draw(ACanvas);
-      ButtonRight.Draw(ACanvas);
-    end;
+    ButtonLeft.Draw(ACanvas);
+    ButtonRight.Draw(ACanvas);
   finally
     acRestoreClipRegion(ACanvas.Handle, LPrevClip);
   end;

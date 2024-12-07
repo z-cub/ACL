@@ -1218,11 +1218,8 @@ var
   AImages: TCustomImageList;
   AIntf: IACLGlyph;
 begin
-  if not acRectVisible(ACanvas, ARect) then Exit;
-
-  AClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, ARect, AClipRegion) then
   try
-    acIntersectClipRegion(ACanvas.Handle, ARect);
     // DPI aware Glyph
     if Supports(AItem, IACLGlyph, AIntf) and not AIntf.GetGlyph.Empty then
     begin
@@ -1342,9 +1339,8 @@ var
   APrevTargetDPI: Integer;
   ATexture: TACLResourceTexture;
 begin
-  AClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, R, AClipRegion) then
   try
-    acIntersectClipRegion(ACanvas.Handle, R);
     // for backward compatibility with skins for AIMP3.
     if TextureGutter.FrameCount = 2 then
     begin

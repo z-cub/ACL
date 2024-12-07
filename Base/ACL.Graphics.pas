@@ -586,6 +586,7 @@ function acIntersectClipRegion(DC: HDC; ARegion: TRegionHandle; AConsiderWindowO
 function acRectVisible(ACanvas: TCanvas; const R: TRect): Boolean;
 procedure acRestoreClipRegion(DC: HDC; ARegion: TRegionHandle);
 function acSaveClipRegion(DC: HDC): TRegionHandle;
+function acStartClippedDraw(DC: HDC; const R: TRect; out PrevRegion: TRegionHandle): Boolean;
 
 // Regions
 function acRegionClone(ARegion: TRegionHandle): TRegionHandle;
@@ -901,6 +902,17 @@ begin
   end;
 end;
 
+function acStartClippedDraw(DC: HDC; const R: TRect; out PrevRegion: TRegionHandle): Boolean;
+begin
+{$IFDEF MSWINDOWS} // под Linux это не имеет смысла, т.к. там идет такая же работа с регионом, как ниже
+  if not RectVisible(DC, R) then Exit(False);
+{$ENDIF}
+  PrevRegion := acSaveClipRegion(DC);
+  Result := IntersectClipRect(DC, R.Left, R.Top, R.Right, R.Bottom) <> NULLREGION;
+  if not Result then
+    acRestoreClipRegion(DC, PrevRegion);
+end;
+
 //----------------------------------------------------------------------------------------------------------------------
 // Regions
 //----------------------------------------------------------------------------------------------------------------------
@@ -1205,16 +1217,13 @@ begin
       acRestoreClipRegion(ACanvas.Handle, LSaveRgn);
     end;
 
-    LSaveRgn := acSaveClipRegion(ACanvas.Handle);
+    if acStartClippedDraw(ACanvas.Handle, LHighlightRect, LSaveRgn) then
     try
-      if acIntersectClipRegion(ACanvas.Handle, LHighlightRect) then
-      begin
-        acFillRect(ACanvas, LHighlightRect, AHighlightColor);
-        LPrevTextColor := ACanvas.Font.Color;
-        ACanvas.Font.Color := AHighlightTextColor;
-        acTextOut(ACanvas, LTextOffset.X, LTextOffset.Y, LText, @R);
-        ACanvas.Font.Color := LPrevTextColor;
-      end;
+      acFillRect(ACanvas, LHighlightRect, AHighlightColor);
+      LPrevTextColor := ACanvas.Font.Color;
+      ACanvas.Font.Color := AHighlightTextColor;
+      acTextOut(ACanvas, LTextOffset.X, LTextOffset.Y, LText, @R);
+      ACanvas.Font.Color := LPrevTextColor;
     finally
       acRestoreClipRegion(ACanvas.Handle, LSaveRgn);
     end;
@@ -1808,9 +1817,8 @@ begin
     XCount := acCalcPatternCount(ADest.Right - ADest.Left, W);
     YCount := acCalcPatternCount(ADest.Bottom - ADest.Top, H);
 
-    AClipRgn := acSaveClipRegion(DC);
+    if acStartClippedDraw(DC, ADest, AClipRgn) then
     try
-      acIntersectClipRegion(DC, ADest);
       for Y := 1 to YCount do
       begin
         R.Left := ADest.Left;

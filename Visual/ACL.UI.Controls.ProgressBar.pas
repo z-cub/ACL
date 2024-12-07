@@ -210,13 +210,11 @@ begin
   if Enabled then
   begin
     LClipRgn := acSaveClipRegion(Canvas.Handle);
+    if acStartClippedDraw(Canvas.Handle, ProgressAreaRect, LClipRgn) then
     try
-      if acIntersectClipRegion(Canvas.Handle, ProgressAreaRect) then
-      begin
-        CalculateProgressRect(R1, R2);
-        Style.DrawProgress(Canvas, R1);
-        Style.DrawProgress(Canvas, R2);
-      end;
+      CalculateProgressRect(R1, R2);
+      Style.DrawProgress(Canvas, R1);
+      Style.DrawProgress(Canvas, R2);
     finally
       acRestoreClipRegion(Canvas.Handle, LClipRgn);
     end;

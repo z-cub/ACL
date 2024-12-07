@@ -3571,20 +3571,16 @@ var
   LClipRegion: TRegionHandle;
   LRender: TACLTextLayoutRender;
 begin
-  if acRectVisible(ACanvas, AClipRect) then
-  begin
-    LClipRegion := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, AClipRect, LClipRegion) then
+  try
+    LRender := GetDefaultRender.Create(ACanvas);
     try
-      acIntersectClipRegion(ACanvas.Handle, AClipRect);
-      LRender := GetDefaultRender.Create(ACanvas);
-      try
-        Draw(LRender);
-      finally
-        LRender.Free;
-      end;
+      Draw(LRender);
     finally
-      acRestoreClipRegion(ACanvas.Handle, LClipRegion);
+      LRender.Free;
     end;
+  finally
+    acRestoreClipRegion(ACanvas.Handle, LClipRegion);
   end;
 end;
 

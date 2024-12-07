@@ -1145,10 +1145,9 @@ procedure TACLCompoundControlContainerViewInfo.DoDraw(ACanvas: TCanvas);
 var
   LRgn: TRegionHandle;
 begin
-  LRgn := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, Bounds, LRgn) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, Bounds) then
-      DoDrawCells(ACanvas);
+    DoDrawCells(ACanvas);
   finally
     acRestoreClipRegion(ACanvas.Handle, LRgn);
   end;
@@ -1739,13 +1738,10 @@ var
   ASaveIndex: TRegionHandle;
   I: Integer;
 begin
-  ASaveIndex := acSaveClipRegion(ACanvas.Handle);
+  if acStartClippedDraw(ACanvas.Handle, GetClipRect, ASaveIndex) then
   try
-    if acIntersectClipRegion(ACanvas.Handle, GetClipRect) then
-    begin
-      for I := FirstVisible to LastVisible do
-        List[I].Draw(ACanvas);
-    end;
+    for I := FirstVisible to LastVisible do
+      List[I].Draw(ACanvas);
   finally
     acRestoreClipRegion(ACanvas.Handle, ASaveIndex);
   end;

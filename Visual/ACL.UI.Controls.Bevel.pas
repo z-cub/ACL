@@ -117,9 +117,8 @@ begin
 
     bbsRounded:
       begin
-        AClipRgn := acSaveClipRegion(ACanvas.Handle);
+        if acStartClippedDraw(ACanvas.Handle, R, AClipRgn) then
         try
-          acIntersectClipRegion(ACanvas.Handle, R);
           R.Inflate(Rect(5, 5, 5, 5), acAllBorders - Borders);
           ACanvas.Pen.Color := ColorBorder1.AsColor;
           ACanvas.Brush.Style := bsClear;
