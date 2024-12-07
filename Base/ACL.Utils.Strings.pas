@@ -3021,7 +3021,7 @@ end;
 
 function TACLStringBuilder.ToTrimmedString: string;
 var
-  S, L: Integer;
+  S, L, LCount: Integer;
 begin
   S := 0;
   L := FDataLength - 1;
@@ -3029,7 +3029,11 @@ begin
     Inc(S);
   while (L >= 1) and (FData[L] <= ' ') do
     Dec(L);
-  Result := ToString(S, L - S + 1);
+  LCount := L - S + 1;
+  if LCount > 0 then
+    Result := ToString(S, LCount)
+  else
+    Result := '';
 end;
 
 function TACLStringBuilder.ToString(AStartIndex, ACount: Integer): string;
