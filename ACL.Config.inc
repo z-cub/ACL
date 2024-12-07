@@ -96,5 +96,5 @@
 {$ENDIF}
 
 {$IFDEF LINUX}
-  {$DEFINE ACL_USE_SKINNED_FORM} // Experimental!
+  {.$DEFINE ACL_USE_SKINNED_FORM} // Experimental!
 {$ENDIF}

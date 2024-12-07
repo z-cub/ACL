@@ -237,8 +237,7 @@ type
       const AWidgetInfo: PWidgetInfo); override;
     class procedure SetFormBorderStyle(const AForm: TCustomForm;
       const AFormBorderStyle: TFormBorderStyle); override;
-    class procedure SetWindowCapabities(
-      AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
+    class procedure SetWindowCapabities(AForm: TCustomForm; AWidget: PGtkWidget);
     class procedure ShowHide(const AWinControl: TWinControl); override;
   end;
 
@@ -750,14 +749,14 @@ class function TACLWSCustomStyledForm.CreateHandle(
   const AWinControl: TWinControl; const AParams: TCreateParams): TLCLHandle;
 begin
   Result := inherited;
-  SetWindowCapabities(TACLCustomStyledForm(AWinControl), PGtkWidget(Result));
+  SetWindowCapabities(TCustomForm(AWinControl), PGtkWidget(Result));
 end;
 
 class function TACLWSCustomStyledForm.DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl;
 begin
   // таким образом пытаемся добраться до метода RealizeAccelerator
   Result := gtkRealizeCB(Widget, Data);
-  SetWindowCapabities(TACLCustomStyledForm(Data), Widget);
+  SetWindowCapabities(TCustomForm(Data), Widget);
 end;
 
 class procedure TACLWSCustomStyledForm.SetCallbacks(
@@ -795,12 +794,12 @@ begin
     RecreateWnd(AForm)
   else
   begin
-    SetWindowCapabities(TACLCustomStyledForm(AForm), LWidget);
+    SetWindowCapabities(AForm, LWidget);
     LWidgetInfo^.FormBorderStyle := Ord(AFormBorderStyle);
   end;
 end;
 
-class procedure TACLWSCustomStyledForm.SetWindowCapabities(AForm: TACLCustomStyledForm; AWidget: PGtkWidget);
+class procedure TACLWSCustomStyledForm.SetWindowCapabities(AForm: TCustomForm; AWidget: PGtkWidget);
 var
   LWnd: PGdkWindow;
 begin
@@ -817,7 +816,7 @@ end;
 
 class procedure TACLWSCustomStyledForm.ShowHide(const AWinControl: TWinControl);
 var
-  LForm: TACLCustomStyledForm absolute AWinControl;
+  LForm: TCustomForm absolute AWinControl;
   LGtkWindow: PGtkWindow;
 begin
   if (fsModal in LForm.FormState) and LForm.HandleObjectShouldBeVisible then
