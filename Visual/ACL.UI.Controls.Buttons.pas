@@ -21,6 +21,7 @@ uses
 {$IFDEF FPC}
   LCLIntf,
   LCLType,
+  LMessages,
 {$ELSE}
   {Winapi.}Windows,
 {$ENDIF}

@@ -1303,7 +1303,8 @@ begin
   Result.Parent := AParent;
   Result.BoundsRect := R;
   Result.Align := AAlign;
-  Result.Anchors := AAnchors;
+  if AAlign = alNone then // for FPC
+    Result.Anchors := AAnchors;
 end;
 
 procedure CreateControl(out Obj; AClass: TControlClass; AParent: TWinControl;

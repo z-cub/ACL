@@ -794,7 +794,7 @@ procedure TACLBasicForm.InitializeNewForm;
 begin
   //#AI:
   // В TCustomForm.InitializeNewForm сначала выставляются дефолтные размеры
-  // формы, а уже потом Visible в False. На Wine зз-за этого форма на секунду
+  // формы, а уже потом Visible в False. На Wine из-за этого форма на секунду
   // становится видимой в нулевых координатах.
   Visible := False;
   inherited;
@@ -803,7 +803,17 @@ begin
     FCurrentPPI := PixelsPerInch;
 {$ENDIF}
   if not ParentFont then
-    Font.Height := acGetFontHeight(FCurrentPPI, Font.Size);
+  begin
+  {$IFDEF FPC}
+    if Font.Height = 0 then
+    begin
+      Font.ResolveHeight;
+      Font.Height := MulDiv(Font.Height, FCurrentPPI, acGetSystemDpi);
+    end
+    else
+  {$ENDIF}
+      Font.Height := acGetFontHeight(FCurrentPPI, Font.Size);
+  end;
 {$IFDEF DELPHI120}
   Font.IsDPIRelated := True;
   Font.PixelsPerInch := PixelsPerInch;
