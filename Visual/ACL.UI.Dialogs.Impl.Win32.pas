@@ -36,6 +36,8 @@ uses
   Vcl.Controls,
   Vcl.Dialogs,
   Vcl.Forms,
+  Vcl.Graphics,
+
   // ACL
   ACL.Classes.StringList,
   ACL.UI.Dialogs,
@@ -135,10 +137,33 @@ type
     constructor Create(const AMessage, ACaption: string; AFlags: Integer); reintroduce;
   end;
 
+function LoadDialogIcon(ATarget: TPicture; ADialogType: TMsgDlgType): Boolean;
 implementation
 
 type
   TACLFileDialogAccess = class(TACLFileDialog);
+
+function LoadDialogIcon(ATarget: TPicture; ADialogType: TMsgDlgType): Boolean;
+const
+  MapOld: array[TMsgDlgType] of PChar = (IDI_EXCLAMATION, IDI_HAND, IDI_ASTERISK, IDI_QUESTION, nil);
+  MapNew: array[TMsgDlgType] of string = ('MSG_WARNING', 'MSG_ERROR', 'MSG_INFO', 'MSG_INFO', '');
+begin
+  if TOSVersion.Check(6, 2) then
+  begin
+    Result := MapNew[ADialogType] <> '';
+    if Result then
+    begin
+      ATarget.WICImage.LoadFromResourceName(HInstance, MapNew[ADialogType]);
+      ATarget.WICImage.InterpolationMode := wipmHighQualityCubic;
+    end;
+  end
+  else
+  begin
+    Result := MapOld[ADialogType] <> nil;
+    if Result then
+      ATarget.Icon.Handle := LoadIcon(0, MapOld[ADialogType]);
+  end;
+end;
 
 { TACLFileDialogOldImpl }
 
@@ -619,9 +644,7 @@ begin
   Result := mtCustom;
 end;
 
-{$IFDEF MSWINDOWS}
-initialization
-  if acOSCheckVersion(6, 1) then
-    TACLExceptionMessageDialog.Register;
-{$ENDIF}
+//initialization
+//  if acOSCheckVersion(6, 1) then
+//    TACLExceptionMessageDialog.Register;
 end.

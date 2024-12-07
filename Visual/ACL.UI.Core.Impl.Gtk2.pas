@@ -30,6 +30,7 @@ uses
   Gtk2,
   Glib2,
   Gdk2,
+  Gdk2pixbuf,
   Gtk2Int,
   Gtk2Proc,
   Gtk2Def,
@@ -40,7 +41,11 @@ uses
   // System
   Classes,
   Generics.Collections,
+  Math,
   SysUtils,
+  Types,
+  // ACL
+  ACL.Graphics,
   // VCL
   Controls,
   Forms;
@@ -103,6 +108,7 @@ type
   end;
 
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
+function GdkLoadStockIcon(AWidget: PGtkWidget; AName: PChar; ASize: Integer): TACLDib;
 implementation
 
 uses
@@ -128,6 +134,56 @@ type
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 begin
   Result := TGtk2Controls.CheckStartDrag(AControl, X, Y, AThreshold);
+end;
+
+function GdkLoadStockIcon(AWidget: PGtkWidget; AName: PChar; ASize: Integer): TACLDib;
+var
+  LBestScore: Integer;
+  LBestSize: TGtkIconSize;
+  LBuffer: PGdkPixbuf;
+  LIconSet: PGtkIconSet;
+  LScore: Integer;
+  LSizes: PGtkIconSize;
+  LSizesCount: Integer;
+  LHeight: Integer;
+  LWidth: Integer;
+  I: Integer;
+begin
+  Result := nil;
+
+  LIconSet := gtk_icon_factory_lookup_default(AName);
+  if LIconSet = nil then
+    Exit;
+
+  LBestScore := MaxInt;
+  LBestSize := GTK_ICON_SIZE_INVALID;
+  gtk_icon_set_get_sizes(LIconSet, @LSizes, @LSizesCount);
+  try
+    for I := 0 to LSizesCount - 1 do
+    begin
+      gtk_icon_size_lookup(LSizes[I], @LWidth, @LHeight);
+      LScore := Max(Abs(LWidth - ASize), Abs(LHeight - ASize));
+      if (LBestSize = GTK_ICON_SIZE_INVALID) or (LScore < LBestScore) then
+      begin
+        LBestSize := LSizes[I];
+        LBestScore := LScore;
+      end;
+    end;
+  finally
+    g_free(LSizes);
+  end;
+
+  if LBestSize <> GTK_ICON_SIZE_INVALID then
+  begin
+    LBuffer := gtk_widget_render_icon(AWidget, AName, LBestSize, nil);
+    if LBuffer <> nil then
+    try
+      Result := TACLDib.Create;
+      Result.Assign(LBuffer);
+    finally
+      gdk_pixbuf_unref(LBuffer);
+    end;
+  end;
 end;
 
 function WidgetSet: TGtk2WidgetSetAccess;

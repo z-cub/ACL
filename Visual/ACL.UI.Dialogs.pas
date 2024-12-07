@@ -34,6 +34,7 @@ uses
   {System.}SysUtils,
   {System.}Types,
   {System.}Variants,
+  System.UITypes,
   // Vcl
   {Vcl.}ActnList,
   {Vcl.}Controls,
@@ -84,7 +85,6 @@ type
     ButtonWidth = 96;
   protected
     function CanApply: Boolean; virtual;
-    procedure CreateParams(var Params: TCreateParams); override;
     function DialogChar(var Message: TWMKey): Boolean; override;
     procedure DoApply(Sender: TObject = nil); virtual;
   public
@@ -288,6 +288,8 @@ type
 
 {$ENDREGION}
 
+{$REGION ' ProgressDialog '}
+
   { TACLProgressDialog }
 
   TACLProgressDialog = class(TACLForm)
@@ -320,10 +322,13 @@ type
     property OnCancel: TNotifyEvent read FOnCancel write FOnCancel;
   end;
 
+{$ENDREGION}
+
+{$REGION ' LanguageDialog '}
+
   { TACLCustomLanguageDialog }
 
   TACLLanguageDialogEnumProc = reference to procedure (ALang: TACLIniFile; ATag: NativeInt);
-
   TACLCustomLanguageDialog = class(TACLForm)
   strict private
     FEditor: TACLImageComboBox;
@@ -354,6 +359,33 @@ type
     class procedure Execute(AParentWnd: HWND);
   end;
 
+{$ENDREGION}
+
+{$REGION ' MessageDialog '}
+
+  { TACLMessageDialog }
+
+  TACLMessageDialog = class(TACLCustomInputDialog)
+  strict private
+    FDlgType: TMsgDlgType;
+    FImage: TImage;
+    FMessage: TACLLabel;
+    function GetImageSize: Integer;
+    procedure LoadImage;
+  protected
+    procedure AfterFormCreate; override;
+    procedure CreateControls; override;
+    procedure DoShow; override;
+    procedure PlaceControls(var R: TRect); override;
+  public
+    procedure Initialize(AFlags: LongWord);
+    //# Properties
+    property DlgType: TMsgDlgType read FDlgType write FDlgType;
+    property Message: TACLLabel read FMessage;
+  end;
+
+{$ENDREGION}
+
   { TACLDialogsStrs }
 
   TACLDialogsStrs = class
@@ -376,6 +408,7 @@ const
   // Ремапы, чтобы не использовать if-def на более высоком уровне
   ID_CANCEL           = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.ID_CANCEL;
   ID_OK               = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.ID_OK;
+  ID_NO               = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.ID_NO;
   ID_YES              = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.ID_YES;
   MB_OK               = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_OK;
   MB_OKCANCEL         = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_OKCANCEL;
@@ -388,20 +421,22 @@ const
   MB_YESNOCANCEL      = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_YESNOCANCEL;
   MB_SYSTEMMODAL      = {$IFDEF FPC}      0{$ELSE}Windows.MB_SYSTEMMODAL{$ENDIF};
 
-
-procedure asMessageBeep(AType: TMsgDlgType);
-function acMessageBox(AHandle: HWND; const AMessage, ACaption: string; AFlags: Integer): Integer;
+procedure acMessageBeep(AType: TMsgDlgType);
+function acMessageBox(AOwnerWnd: HWND; const AMessage, ACaption: string; AFlags: Integer): Integer;
+procedure acShowMessage(const AMessage: string);
 implementation
 
-{$IFDEF MSWINDOWS}
 uses
+{$IF DEFINED(MSWINDOWS)}
   ACL.UI.Dialogs.Impl.Win32;
+{$ELSEIF DEFINED(LCLGtk2)}
+  ACL.UI.Core.Impl.Gtk2;
 {$ENDIF}
 
 type
   TControlAccess = class(TControl);
 
-procedure asMessageBeep(AType: TMsgDlgType);
+procedure acMessageBeep(AType: TMsgDlgType);
 {$IFNDEF FPC}
 const
   Map: array[TMsgDlgType] of Integer = (
@@ -415,32 +450,176 @@ begin
 {$ENDIF}
 end;
 
-function acMessageBox(AHandle: HWND; const AMessage, ACaption: string; AFlags: Integer): Integer;
+function acMessageBox(AOwnerWnd: HWND; const AMessage, ACaption: string; AFlags: Integer): Integer;
 begin
-  if AHandle = 0 then
-    AHandle := Application.MainFormHandle;
+  if AOwnerWnd = 0 then
+    AOwnerWnd := Application.MainFormHandle;
 
-  Application.ModalStarted;
+  with TACLMessageDialog.CreateDialog(AOwnerWnd, True) do
   try
-  {$IFDEF MSWINDOWS}
-    if acOSCheckVersion(6, 1) and UseLatestCommonDialogs then
-    begin
-      with TACLMessageTaskDialog.Create(AMessage, ACaption, AFlags) do
-      try
-        if Execute(AHandle) then
-          Exit(ModalResult);
-      finally
-        Free;
-      end;
-    end;
-  {$ENDIF}
-    Result := MessageBox(AHandle, PChar(AMessage), PChar(ACaption), AFlags);
+    Caption := ACaption;
+    Message.Caption := AMessage;
+    Initialize(AFlags);
+    Result := ShowModal;
   finally
-    Application.ModalFinished;
+    Free;
+  end;
+
+//  Application.ModalStarted;
+//  try
+//  {$IFDEF MSWINDOWS}
+//    if acOSCheckVersion(6, 1) and UseLatestCommonDialogs then
+//    begin
+//      with TACLMessageTaskDialog.Create(AMessage, ACaption, AFlags) do
+//      try
+//        if Execute(AOwnerWnd) then
+//          Exit(ModalResult);
+//      finally
+//        Free;
+//      end;
+//    end;
+//  {$ENDIF}
+//    Result := MessageBox(AOwnerWnd, PChar(AMessage), PChar(ACaption), AFlags);
+//  finally
+//    Application.ModalFinished;
+//  end;
+end;
+
+procedure acShowMessage(const AMessage: string);
+var
+  LForm: TForm;
+begin
+  LForm := Screen.ActiveForm;
+  if LForm <> nil then
+    acMessageBox(LForm.Handle, AMessage, LForm.Caption, MB_OK)
+  else
+    acMessageBox(0, AMessage, Application.Title, MB_OK);
+end;
+
+{ TACLCustomDialog }
+
+procedure TACLCustomDialog.AfterConstruction;
+begin
+  inherited;
+  Position := poOwnerFormCenter;
+  PopupParent := GetParentForm(TWinControl(Owner));
+end;
+
+function TACLCustomDialog.CanApply: Boolean;
+begin
+  Result := True;
+end;
+
+procedure TACLCustomDialog.DoApply(Sender: TObject);
+begin
+  // do nothing
+end;
+
+function TACLCustomDialog.DialogChar(var Message: TWMKey): Boolean;
+begin
+  case Message.CharCode of
+    VK_ESCAPE:
+      begin
+        ModalResult := mrCancel;
+        Exit(True);
+      end;
+
+    VK_RETURN:
+      if CanApply then
+      begin
+        DoApply;
+        ModalResult := mrOk;
+        Exit(True);
+      end;
+  end;
+  Result := inherited;
+end;
+
+function TACLCustomDialog.IsShortCut(var Message: TWMKey): Boolean;
+begin
+  Result := inherited IsShortCut(Message);
+  case Message.CharCode of
+    VK_ESCAPE:
+      ModalResult := mrCancel;
+
+    VK_RETURN:
+      if CanApply then
+      begin
+        if KeyDataToShiftState(Message.KeyData) * [ssAlt, ssCtrl, ssShift] = [ssCtrl] then
+        begin
+          DoApply;
+          ModalResult := mrOk;
+        end;
+      end;
   end;
 end;
 
-{$REGION 'FileDialogs'}
+{ TACLDialogsStrs }
+
+class constructor TACLDialogsStrs.Create;
+begin
+  ResetLocalization;
+end;
+
+class procedure TACLDialogsStrs.ApplyLocalization;
+var
+  AButton: TMsgDlgBtn;
+  AType: TMsgDlgType;
+  AValue: string;
+begin
+  ResetLocalization;
+
+  FolderBrowserCaption := LangGet(LangSection, 'L1', FolderBrowserCaption);
+  FolderBrowserRecursive := LangGet(LangSection, 'L2', FolderBrowserRecursive);
+  FolderBrowserNewFolder := LangGet(LangSection, 'B3', FolderBrowserNewFolder);
+  ButtonApply := LangGet(LangSection, 'B4', ButtonApply);
+
+  AValue := LangGet(LangSection, 'BS');
+  for AButton := Low(AButton) to High(AButton) do
+    MsgDlgButtons[AButton] := IfThenW(LangExtractPart(AValue, Ord(AButton)), MsgDlgButtons[AButton]);
+
+  AValue := LangGet(LangSection, 'MsgBoxCaptions');
+  for AType := Low(AType) to High(AType) do
+    MsgDlgCaptions[AType] := IfThenW(LangExtractPart(AValue, Ord(AType)), MsgDlgCaptions[AType]);
+
+  AValue := LangGet(LangSection, 'SizePrefixes');
+  acLangSizeSuffixB  := IfThenW(LangExtractPart(AValue, 0), acLangSizeSuffixB);
+  acLangSizeSuffixKB := IfThenW(LangExtractPart(AValue, 1), acLangSizeSuffixKB);
+  acLangSizeSuffixMB := IfThenW(LangExtractPart(AValue, 2), acLangSizeSuffixMB);
+  acLangSizeSuffixGB := IfThenW(LangExtractPart(AValue, 3), acLangSizeSuffixGB);
+end;
+
+class procedure TACLDialogsStrs.ResetLocalization;
+const
+  StdButtons: array[TMsgDlgBtn] of string = (
+    '&Yes', '&No', 'OK', 'Cancel', '&Abort', '&Retry', '&Ignore',
+    '&All', 'N&o to All', 'Yes to &All', '&Help', '&Close'
+  );
+  StdCaptions: array[TMsgDlgType] of string = (
+    'Warning', 'Error', 'Information', 'Confirm', ''
+  );
+var
+  AButton: TMsgDlgBtn;
+  AType: TMsgDlgType;
+begin
+  ButtonApply := 'Apply';
+
+  FolderBrowserCaption := 'Browse Folder';
+  FolderBrowserNewFolder := 'New folder';
+  FolderBrowserRecursive := 'Include sub-folders';
+
+  for AButton := Low(AButton) to High(AButton) do
+    MsgDlgButtons[AButton] := StdButtons[AButton];
+  for AType := Low(AType) to High(AType) do
+    MsgDlgCaptions[AType] := StdCaptions[AType];
+
+  acLangSizeSuffixB  := 'B';
+  acLangSizeSuffixKB := 'KB';
+  acLangSizeSuffixMB := 'MB';
+  acLangSizeSuffixGB := 'GB';
+end;
+
+{$REGION ' FileDialogs '}
 
 { TACLFileDialog }
 
@@ -628,76 +807,6 @@ begin
 end;
 {$ENDREGION}
 
-{ TACLCustomDialog }
-
-procedure TACLCustomDialog.AfterConstruction;
-begin
-  inherited;
-  Position := poOwnerFormCenter;
-end;
-
-function TACLCustomDialog.IsShortCut(var Message: TWMKey): Boolean;
-begin
-  Result := inherited IsShortCut(Message);
-  case Message.CharCode of
-    VK_ESCAPE:
-      ModalResult := mrCancel;
-
-    VK_RETURN:
-      if CanApply then
-      begin
-        if KeyDataToShiftState(Message.KeyData) * [ssAlt, ssCtrl, ssShift] = [ssCtrl] then
-        begin
-          DoApply;
-          ModalResult := mrOk;
-        end;
-      end;
-  end;
-end;
-
-function TACLCustomDialog.CanApply: Boolean;
-begin
-  Result := True;
-end;
-
-procedure TACLCustomDialog.CreateParams(var Params: TCreateParams);
-var
-  AForm: TCustomForm;
-begin
-  inherited CreateParams(Params);
-  if Owner is TWinControl then
-  begin
-    AForm := GetParentForm(TWinControl(Owner));
-    if AForm <> nil then
-      Params.WndParent := AForm.Handle;
-  end;
-end;
-
-procedure TACLCustomDialog.DoApply(Sender: TObject);
-begin
-  // do nothing
-end;
-
-function TACLCustomDialog.DialogChar(var Message: TWMKey): Boolean;
-begin
-  case Message.CharCode of
-    VK_ESCAPE:
-      begin
-        ModalResult := mrCancel;
-        Exit(True);
-      end;
-
-    VK_RETURN:
-      if CanApply then
-      begin
-        DoApply;
-        ModalResult := mrOk;
-        Exit(True);
-      end;
-  end;
-  Result := inherited;
-end;
-
 {$REGION ' InputDialogs '}
 
 { TACLCustomInputDialog }
@@ -733,11 +842,9 @@ begin
   FButtonCancel.Caption := TACLDialogsStrs.MsgDlgButtons[mbCancel];
   FButtonCancel.OnClick := DoCancel;
   FButtonCancel.ModalResult := mrCancel;
-  FButtonCancel.Cursor := crHandPoint;
 
   CreateControl(FButtonApply, TACLButton, Self, NullRect, alCustom);
   FButtonApply.Caption := TACLDialogsStrs.ButtonApply;
-  FButtonApply.Cursor := crHandPoint;
   FButtonApply.OnClick := DoApply;
   FButtonApply.Visible := False;
 end;
@@ -786,27 +893,27 @@ end;
 
 procedure TACLCustomInputDialog.PlaceControls(var R: TRect);
 var
-  AButtonIndent: Integer;
-  AButtonRect: TRect;
+  LBtnIndent: Integer;
+  LBtnRect: TRect;
 begin
   R.Bottom := R.Top + dpiApply(ButtonHeight, FCurrentPPI);
 
-  AButtonRect := R.Split(srRight, dpiApply(ButtonWidth, FCurrentPPI));
-  AButtonIndent := dpiApply(6, FCurrentPPI) + dpiApply(ButtonWidth, FCurrentPPI);
+  LBtnRect := R.Split(srRight, dpiApply(ButtonWidth, FCurrentPPI));
+  LBtnIndent := dpiApply(6, FCurrentPPI) + dpiApply(ButtonWidth, FCurrentPPI);
 
   if ButtonApply.Visible then
   begin
-    ButtonApply.BoundsRect := AButtonRect;
-    AButtonRect.Offset(-AButtonIndent, 0);
+    ButtonApply.BoundsRect := LBtnRect;
+    LBtnRect.Offset(-LBtnIndent, 0);
   end;
 
   if ButtonCancel.Visible then
   begin
-    ButtonCancel.BoundsRect := AButtonRect;
-    AButtonRect.Offset(-AButtonIndent, 0);
+    ButtonCancel.BoundsRect := LBtnRect;
+    LBtnRect.Offset(-LBtnIndent, 0);
   end;
 
-  ButtonOK.BoundsRect := AButtonRect;
+  ButtonOK.BoundsRect := LBtnRect;
 end;
 
 procedure TACLCustomInputDialog.Resize;
@@ -1185,6 +1292,8 @@ end;
 
 {$ENDREGION}
 
+{$REGION ' ProgressDialog '}
+
 { TACLProgressDialog }
 
 constructor TACLProgressDialog.Create(AOwner: TComponent);
@@ -1262,70 +1371,9 @@ begin
     HandlerCancel(nil);
 end;
 
-{ TACLDialogsStrs }
+{$ENDREGION}
 
-class constructor TACLDialogsStrs.Create;
-begin
-  ResetLocalization;
-end;
-
-class procedure TACLDialogsStrs.ApplyLocalization;
-var
-  AButton: TMsgDlgBtn;
-  AType: TMsgDlgType;
-  AValue: string;
-begin
-  ResetLocalization;
-
-  FolderBrowserCaption := LangGet(LangSection, 'L1', FolderBrowserCaption);
-  FolderBrowserRecursive := LangGet(LangSection, 'L2', FolderBrowserRecursive);
-  FolderBrowserNewFolder := LangGet(LangSection, 'B3', FolderBrowserNewFolder);
-  ButtonApply := LangGet(LangSection, 'B4', ButtonApply);
-
-  AValue := LangGet(LangSection, 'BS');
-  for AButton := Low(AButton) to High(AButton) do
-    MsgDlgButtons[AButton] := IfThenW(LangExtractPart(AValue, Ord(AButton)), MsgDlgButtons[AButton]);
-
-  AValue := LangGet(LangSection, 'MsgBoxCaptions');
-  for AType := Low(AType) to High(AType) do
-    MsgDlgCaptions[AType] := IfThenW(LangExtractPart(AValue, Ord(AType)), MsgDlgCaptions[AType]);
-
-  AValue := LangGet(LangSection, 'SizePrefixes');
-  acLangSizeSuffixB  := IfThenW(LangExtractPart(AValue, 0), acLangSizeSuffixB);
-  acLangSizeSuffixKB := IfThenW(LangExtractPart(AValue, 1), acLangSizeSuffixKB);
-  acLangSizeSuffixMB := IfThenW(LangExtractPart(AValue, 2), acLangSizeSuffixMB);
-  acLangSizeSuffixGB := IfThenW(LangExtractPart(AValue, 3), acLangSizeSuffixGB);
-end;
-
-class procedure TACLDialogsStrs.ResetLocalization;
-const
-  StdButtons: array[TMsgDlgBtn] of string = (
-    '&Yes', '&No', 'OK', 'Cancel', '&Abort', '&Retry', '&Ignore',
-    '&All', 'N&o to All', 'Yes to &All', '&Help', '&Close'
-  );
-  StdCaptions: array[TMsgDlgType] of string = (
-    'Warning', 'Error', 'Information', 'Confirm', ''
-  );
-var
-  AButton: TMsgDlgBtn;
-  AType: TMsgDlgType;
-begin
-  ButtonApply := 'Apply';
-
-  FolderBrowserCaption := 'Browse Folder';
-  FolderBrowserNewFolder := 'New folder';
-  FolderBrowserRecursive := 'Include sub-folders';
-
-  for AButton := Low(AButton) to High(AButton) do
-    MsgDlgButtons[AButton] := StdButtons[AButton];
-  for AType := Low(AType) to High(AType) do
-    MsgDlgCaptions[AType] := StdCaptions[AType];
-
-  acLangSizeSuffixB  := 'B';
-  acLangSizeSuffixKB := 'KB';
-  acLangSizeSuffixMB := 'MB';
-  acLangSizeSuffixGB := 'GB';
-end;
+{$REGION ' LanguageDialog '}
 
 { TACLCustomLanguageDialog }
 
@@ -1483,5 +1531,156 @@ begin
     LLang.Free;
   end;
 end;
+
+{$ENDREGION}
+
+{$REGION ' MessageDialog '}
+
+{ TACLMessageDialog }
+
+procedure TACLMessageDialog.AfterFormCreate;
+begin
+  inherited;
+  CreateControls;
+end;
+
+procedure TACLMessageDialog.CreateControls;
+begin
+  inherited;
+  // ModalResults only!
+  ButtonCancel.OnClick := nil;
+  ButtonApply.OnClick := nil;
+  ButtonOK.OnClick := nil;
+
+  CreateControl(FImage, TImage, Self, NullRect, alCustom);
+  FImage.Proportional := True;
+  FImage.Stretch := True;
+
+  CreateControl(FMessage, TACLLabel, Self, NullRect, alCustom);
+  FMessage.AutoSize := True;
+  FMessage.Style.WordWrap := True;
+end;
+
+procedure TACLMessageDialog.DoShow;
+begin
+  LoadImage;
+  inherited;
+  acMessageBeep(DlgType);
+end;
+
+procedure TACLMessageDialog.Initialize(AFlags: LongWord);
+
+  procedure InitButtons(
+    const Buttons: array of TMsgDlgBtn;
+    const Results: array of TModalResult);
+
+    procedure InitButton(AButton: TACLButton; AIndex: Integer);
+    const
+      DefMap: array[0..2] of Integer = (MB_DEFBUTTON1, MB_DEFBUTTON2, MB_DEFBUTTON3);
+    begin
+      AButton.Visible := AIndex < Length(Buttons);
+      if AButton.Visible then
+      begin
+        AButton.Caption := TACLDialogsStrs.MsgDlgButtons[Buttons[AIndex]];
+        AButton.Cancel := Buttons[AIndex] = mbCancel;
+        AButton.Default := AFlags and DefMap[AIndex] <> 0;
+        AButton.ModalResult := Results[AIndex];
+        if AButton.Default then
+          ActiveControl := AButton;
+      end;
+    end;
+
+  begin
+    if (Length(Buttons) = 0) or (Length(Buttons) > 3) then
+      raise EInvalidArgument.Create('MsgDlg: button limit has been exceed');
+    InitButton(ButtonOK, 0);
+    InitButton(ButtonCancel, 1);
+    InitButton(ButtonApply, 2);
+  end;
+
+begin
+  SetHasChanges(True);
+
+  if AFlags and MB_ICONINFORMATION = MB_ICONINFORMATION then
+    DlgType := TMsgDlgType.mtInformation
+  else if AFlags and MB_ICONWARNING = MB_ICONWARNING then
+    DlgType := TMsgDlgType.mtWarning
+  else if AFlags and MB_ICONQUESTION = MB_ICONQUESTION then
+    DlgType := TMsgDlgType.mtConfirmation
+  else if AFlags and MB_ICONERROR = MB_ICONERROR then
+    DlgType := TMsgDlgType.mtError
+  else
+    DlgType := TMsgDlgType.mtCustom;
+
+  if AFlags and MB_ABORTRETRYIGNORE = MB_ABORTRETRYIGNORE then
+    InitButtons([mbAbort, mbRetry, mbIgnore], [mrAbort, mrRetry, mrIgnore])
+  else if AFlags and MB_RETRYCANCEL = MB_RETRYCANCEL then
+    InitButtons([mbRetry, mbCancel], [mrRetry, mrCancel])
+  else if AFlags and MB_YESNOCANCEL = MB_YESNOCANCEL then
+    InitButtons([mbYes, mbNo, mbCancel], [mrYes, mrNo, mrCancel])
+  else if AFlags and MB_YESNO = MB_YESNO then
+    InitButtons([mbYes, mbNo], [mrYes, mrNo])
+  else if AFlags and MB_OKCANCEL = MB_OKCANCEL then
+    InitButtons([mbOk, mbCancel], [mrOk, mrCancel])
+  else
+    InitButtons([mbOk], [mrOk]);
+
+  if Caption = '' then
+    Caption := TACLDialogsStrs.MsgDlgCaptions[DlgType];
+end;
+
+function TACLMessageDialog.GetImageSize: Integer;
+begin
+  Result := dpiApply(32, CurrentDpi);
+end;
+
+procedure TACLMessageDialog.LoadImage;
+{$IFDEF MSWINDOWS}
+begin
+  FImage.Visible := LoadDialogIcon(FImage.Picture, DlgType);
+{$ELSE}
+const
+  Map: array[TMsgDlgType] of PChar = (
+    'gtk-dialog-warning', 'gtk-dialog-error', 'gtk-dialog-info', 'gtk-dialog-question', ''
+  );
+var
+  LIcon: TACLDib;
+begin
+  LIcon := GdkLoadStockIcon(Pointer(Handle), Map[DlgType], GetImageSize);
+  FImage.Visible := LIcon <> nil;
+  if LIcon <> nil then
+  try
+    LIcon.AssignTo(FImage.Picture.Bitmap);
+  finally
+    LIcon.Free;
+  end;
+{$ENDIF}
+end;
+
+procedure TACLMessageDialog.PlaceControls(var R: TRect);
+var
+  LIndent: Integer;
+  LImageRect: TRect;
+  LMessage: TRect;
+begin
+  LImageRect := R;
+  LImageRect.Size := TSize.Create(IfThen(FImage.Visible, GetImageSize));
+  FImage.BoundsRect := LImageRect;
+  LIndent := dpiApply(Padding.Left, CurrentDpi);
+
+  LMessage := R;
+  LMessage.Left := LImageRect.Right + IfThen(FImage.Visible, LIndent);
+  LMessage.Size := FMessage.MeasureSize(LMessage.Width);
+  LMessage.Width := Min(LMessage.Width, Screen.Width div 2);
+  FMessage.BoundsRect := LMessage;
+
+  LMessage := FMessage.BoundsRect;
+  R.Right := Max(R.Right, LMessage.Right);
+  R.Top := Max(LImageRect.Bottom, LMessage.Bottom) + LIndent * 2;
+
+  inherited;
+end;
+
+{$ENDREGION}
 
 end.
