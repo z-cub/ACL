@@ -3114,7 +3114,7 @@ begin
     Style.DrawBorder(Canvas, ClientRect.Split(GetOuterPadding), acAllBorders);
     Style.DrawHeader(Canvas, FCaptionRect);
     Style.DrawHeaderText(Canvas, FCaptionTextRect, Caption);
-    if acStartClippedDraw(ACanvas.Handle, FCaptionRect, AClipRgn) then
+    if acStartClippedDraw(Canvas.Handle, FCaptionRect, AClipRgn) then
     try
       for I := Low(FCaptionButtons) to High(FCaptionButtons) do
       begin
