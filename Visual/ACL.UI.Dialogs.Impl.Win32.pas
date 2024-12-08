@@ -25,6 +25,7 @@ uses
   Winapi.ActiveX,
   Winapi.CommDlg,
   Winapi.Messages,
+  Winapi.ShellApi,
   Winapi.ShlObj,
   Winapi.Windows,
   // System
@@ -40,6 +41,7 @@ uses
 
   // ACL
   ACL.Classes.StringList,
+  ACL.Graphics,
   ACL.UI.Dialogs,
   ACL.Utils.Common,
   ACL.Utils.FileSystem,
@@ -143,26 +145,40 @@ implementation
 type
   TACLFileDialogAccess = class(TACLFileDialog);
 
-function LoadDialogIcon(ATarget: TPicture; ADialogType: TMsgDlgType): Boolean;
+function LoadDialogIcon(AOwnerWnd: HWND; AType: TMsgDlgType; ASize: Integer): TACLDib;
+
+  function ToDib(Icon: HICON): TACLDib;
+  var
+    LIcon: TIcon;
+  begin
+    LIcon := TIcon.Create;
+    try
+      LIcon.Handle := Icon;
+      Result := TACLDib.Create(LIcon.Width, LIcon.Height);
+      Result.Reset;
+      Result.Canvas.Draw(0, 0, LIcon);
+    finally
+      LIcon.Free;
+    end;
+  end;
+
 const
   MapOld: array[TMsgDlgType] of PChar = (IDI_EXCLAMATION, IDI_HAND, IDI_ASTERISK, IDI_QUESTION, nil);
-  MapNew: array[TMsgDlgType] of string = ('MSG_WARNING', 'MSG_ERROR', 'MSG_INFO', 'MSG_INFO', '');
+  MapNew: array[TMsgDlgType] of Integer = (SIID_WARNING, SIID_ERROR, SIID_INFO, SIID_INFO, 0);
+var
+  LIconInfo: TSHStockIconInfo;
 begin
   if TOSVersion.Check(6, 2) then
   begin
-    Result := MapNew[ADialogType] <> '';
-    if Result then
-    begin
-      ATarget.WICImage.LoadFromResourceName(HInstance, MapNew[ADialogType]);
-      ATarget.WICImage.InterpolationMode := wipmHighQualityCubic;
-    end;
-  end
-  else
-  begin
-    Result := MapOld[ADialogType] <> nil;
-    if Result then
-      ATarget.Icon.Handle := LoadIcon(0, MapOld[ADialogType]);
+    if MapNew[AType] = 0 then Exit(nil);
+    LIconInfo.cbSize := SizeOf(LIconInfo);
+    if Succeeded(SHGetStockIconInfo(MapNew[AType], SHGSI_ICON, LIconInfo)) then
+      Exit(ToDib(LIconInfo.hIcon));
   end;
+  if MapOld[AType] <> nil then
+    Result := ToDib(LoadIcon(0, MapOld[AType]))
+  else
+    Result := nil;
 end;
 
 { TACLFileDialogOldImpl }

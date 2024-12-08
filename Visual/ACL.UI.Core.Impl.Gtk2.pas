@@ -42,11 +42,14 @@ uses
   Classes,
   Generics.Collections,
   Math,
+  System.UITypes,
   SysUtils,
   Types,
   // ACL
   ACL.Graphics,
+  ACL.Utils.Common,
   // VCL
+  Graphics,
   Controls,
   Forms;
 
@@ -109,6 +112,8 @@ type
 
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 function GdkLoadStockIcon(AWidget: PGtkWidget; AName: PChar; ASize: Integer): TACLDib;
+
+function LoadDialogIcon(AOwnerWnd: TWndHandle; AType: TMsgDlgType; ASize: Integer): TACLDib;
 implementation
 
 uses
@@ -134,6 +139,15 @@ type
 function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 begin
   Result := TGtk2Controls.CheckStartDrag(AControl, X, Y, AThreshold);
+end;
+
+function LoadDialogIcon(AOwnerWnd: TWndHandle; AType: TMsgDlgType; ASize: Integer): TACLDib;
+const
+  Map: array[TMsgDlgType] of PChar = (
+    'gtk-dialog-warning', 'gtk-dialog-error', 'gtk-dialog-info', 'gtk-dialog-question', ''
+  );
+begin
+  Result := GdkLoadStockIcon(Pointer(AOwnerWnd), Map[AType], ASize);
 end;
 
 function GdkLoadStockIcon(AWidget: PGtkWidget; AName: PChar; ASize: Integer): TACLDib;

@@ -368,7 +368,8 @@ type
   TACLMessageDialog = class(TACLCustomInputDialog)
   strict private
     FDlgType: TMsgDlgType;
-    FImage: TImage;
+    FImage: TACLDib;
+    FImageBox: TRect;
     FMessage: TACLLabel;
     function GetImageSize: Integer;
     procedure LoadImage;
@@ -376,6 +377,7 @@ type
     procedure AfterFormCreate; override;
     procedure CreateControls; override;
     procedure DoShow; override;
+    procedure Paint; override;
     procedure PlaceControls(var R: TRect); override;
   public
     procedure Initialize(AFlags: LongWord);
@@ -1552,10 +1554,6 @@ begin
   ButtonApply.OnClick := nil;
   ButtonOK.OnClick := nil;
 
-  CreateControl(FImage, TImage, Self, NullRect, alCustom);
-  FImage.Proportional := True;
-  FImage.Stretch := True;
-
   CreateControl(FMessage, TACLLabel, Self, NullRect, alCustom);
   FMessage.AutoSize := True;
   FMessage.Style.WordWrap := True;
@@ -1635,48 +1633,39 @@ begin
 end;
 
 procedure TACLMessageDialog.LoadImage;
-{$IFDEF MSWINDOWS}
 begin
-  FImage.Visible := LoadDialogIcon(FImage.Picture, DlgType);
-{$ELSE}
-const
-  Map: array[TMsgDlgType] of PChar = (
-    'gtk-dialog-warning', 'gtk-dialog-error', 'gtk-dialog-info', 'gtk-dialog-question', ''
-  );
-var
-  LIcon: TACLDib;
-begin
-  LIcon := GdkLoadStockIcon(Pointer(Handle), Map[DlgType], GetImageSize);
-  FImage.Visible := LIcon <> nil;
-  if LIcon <> nil then
   try
-    LIcon.AssignTo(FImage.Picture.Bitmap);
-  finally
-    LIcon.Free;
+    FImage := LoadDialogIcon(Handle, DlgType, GetImageSize);
+  except
+    FImage := nil;
   end;
-{$ENDIF}
+end;
+
+procedure TACLMessageDialog.Paint;
+begin
+  inherited;
+  if FImage <> nil then
+    FImage.DrawBlend(Canvas, FImageBox, 255, True);
 end;
 
 procedure TACLMessageDialog.PlaceControls(var R: TRect);
 var
   LIndent: Integer;
-  LImageRect: TRect;
   LMessage: TRect;
 begin
-  LImageRect := R;
-  LImageRect.Size := TSize.Create(IfThen(FImage.Visible, GetImageSize));
-  FImage.BoundsRect := LImageRect;
+  FImageBox := R;
+  FImageBox.Size := TSize.Create(IfThen(FImage <> nil, GetImageSize));
   LIndent := dpiApply(Padding.Left, CurrentDpi);
 
   LMessage := R;
-  LMessage.Left := LImageRect.Right + IfThen(FImage.Visible, LIndent);
+  LMessage.Left := FImageBox.Right + IfThen(FImage <> nil, LIndent);
   LMessage.Size := FMessage.MeasureSize(LMessage.Width);
   LMessage.Width := Min(LMessage.Width, Screen.Width div 2);
   FMessage.BoundsRect := LMessage;
 
   LMessage := FMessage.BoundsRect;
   R.Right := Max(R.Right, LMessage.Right);
-  R.Top := Max(LImageRect.Bottom, LMessage.Bottom) + LIndent * 2;
+  R.Top := Max(FImageBox.Bottom, LMessage.Bottom) + LIndent * 2;
 
   inherited;
 end;
