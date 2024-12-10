@@ -380,6 +380,7 @@ type
     procedure Paint; override;
     procedure PlaceControls(var R: TRect); override;
   public
+    destructor Destroy; override;
     procedure Initialize(AFlags: LongWord);
     //# Properties
     property DlgType: TMsgDlgType read FDlgType write FDlgType;
@@ -1539,6 +1540,12 @@ end;
 {$REGION ' MessageDialog '}
 
 { TACLMessageDialog }
+
+destructor TACLMessageDialog.Destroy;
+begin
+  FreeAndNil(FImage);
+  inherited;
+end;
 
 procedure TACLMessageDialog.AfterFormCreate;
 begin

@@ -108,38 +108,38 @@ type
 
   { TACLExceptionMessageDialog }
 
-  // Provides per-monitor dpi support for Exception Messages
-  TACLExceptionMessageDialog = class
-  protected
-    class procedure ShowException(E: Exception);
-  public
-    class destructor Destroy;
-    class procedure Register;
-  end;
+//  // Provides per-monitor dpi support for Exception Messages
+//  TACLExceptionMessageDialog = class
+//  protected
+//    class procedure ShowException(E: Exception);
+//  public
+//    class destructor Destroy;
+//    class procedure Register;
+//  end;
+//
+//  { TACLMessageTaskDialog }
+//
+//  // Provides per-monitor dpi support
+//  TACLMessageTaskDialog = class(TTaskDialog)
+//  strict private const
+//    IconMap: array[TMsgDlgType] of TTaskDialogIcon = (
+//      tdiWarning, tdiError, tdiInformation, tdiInformation, tdiNone
+//    );
+//    ModalResults: array[TMsgDlgBtn] of Integer = (
+//      mrYes, mrNo, mrOk, mrCancel, mrAbort, mrRetry, mrIgnore,
+//      mrAll, mrNoToAll, mrYesToAll, -1, mrClose
+//    );
+//  strict private type
+//    TMsgDlgBtns = array of TMsgDlgBtn;
+//  strict private
+//    function FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
+//    function FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
+//    function FlagsToDialogType(AFlags: Integer): TMsgDlgType;
+//  public
+//    constructor Create(const AMessage, ACaption: string; AFlags: Integer); reintroduce;
+//  end;
 
-  { TACLMessageTaskDialog }
-
-  // Provides per-monitor dpi support
-  TACLMessageTaskDialog = class(TTaskDialog)
-  strict private const
-    IconMap: array[TMsgDlgType] of TTaskDialogIcon = (
-      tdiWarning, tdiError, tdiInformation, tdiInformation, tdiNone
-    );
-    ModalResults: array[TMsgDlgBtn] of Integer = (
-      mrYes, mrNo, mrOk, mrCancel, mrAbort, mrRetry, mrIgnore,
-      mrAll, mrNoToAll, mrYesToAll, -1, mrClose
-    );
-  strict private type
-    TMsgDlgBtns = array of TMsgDlgBtn;
-  strict private
-    function FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
-    function FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
-    function FlagsToDialogType(AFlags: Integer): TMsgDlgType;
-  public
-    constructor Create(const AMessage, ACaption: string; AFlags: Integer); reintroduce;
-  end;
-
-function LoadDialogIcon(ATarget: TPicture; ADialogType: TMsgDlgType): Boolean;
+function LoadDialogIcon(AOwnerWnd: HWND; AType: TMsgDlgType; ASize: Integer): TACLDib;
 implementation
 
 type
@@ -550,115 +550,115 @@ begin
   end;
 end;
 
-{ TACLExceptionMessageDialog }
-
-class procedure TACLExceptionMessageDialog.Register;
-begin
-  ApplicationShowException := ShowException;
-end;
-
-class destructor TACLExceptionMessageDialog.Destroy;
-begin
-  ApplicationShowException := nil;
-end;
-
-class procedure TACLExceptionMessageDialog.ShowException(E: Exception);
-var
-  AMessage: string;
-  ASubException: Exception;
-  AWndHandle: TWndHandle;
-begin
-  AMessage := E.Message;
-  while True do
-  begin
-    ASubException := E.GetBaseException;
-    if ASubException <> E then
-    begin
-      E := ASubException;
-      if E.Message <> '' then
-        AMessage := E.Message;
-    end
-    else
-      Break;
-  end;
-  AWndHandle := Application.ActiveFormHandle;
-  if AWndHandle = 0 then
-    AWndHandle := Application.MainFormHandle;
-  acMessageBox(AWndHandle, AMessage, Application.Title, MB_OK or MB_ICONSTOP);
-end;
-
-{ TACLMessageTaskDialog }
-
-constructor TACLMessageTaskDialog.Create(const AMessage, ACaption: string; AFlags: Integer);
-var
-  AButton: TTaskDialogBaseButtonItem;
-  AButtons: TMsgDlgBtns;
-  ADefaultButton: TMsgDlgBtn;
-  ADialogType: TMsgDlgType;
-  I: Integer;
-begin
-  inherited Create(nil);
-
-  CommonButtons := [];
-  ADialogType := FlagsToDialogType(AFlags);
-  MainIcon := IconMap[ADialogType];
-  Caption := IfThenW(ACaption, TACLDialogsStrs.MsgDlgCaptions[ADialogType]);
-  Text := AMessage;
-
-  AButtons := FlagsToButtons(AFlags);
-  ADefaultButton := FlagsToDefaultButton(AFlags, AButtons);
-  for I := Low(AButtons) to High(AButtons) do
-  begin
-    AButton := Buttons.Add;
-    AButton.Caption := TACLDialogsStrs.MsgDlgButtons[AButtons[I]];
-    AButton.Default := AButtons[I] = ADefaultButton;
-    AButton.ModalResult := ModalResults[AButtons[I]];
-  end;
-end;
-
-function TACLMessageTaskDialog.FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
-begin
-  if AFlags and MB_RETRYCANCEL = MB_RETRYCANCEL then
-    Result := [mbRetry, mbCancel]
-  else if AFlags and MB_YESNO = MB_YESNO then
-    Result := [mbYes, mbNo]
-  else if AFlags and MB_YESNOCANCEL = MB_YESNOCANCEL then
-    Result := [mbYes, mbNo, mbCancel]
-  else if AFlags and MB_ABORTRETRYIGNORE = MB_ABORTRETRYIGNORE then
-    Result := [mbAbort, mbRetry, mbIgnore]
-  else if AFlags and MB_OKCANCEL = MB_OKCANCEL then
-    Result := [mbOK, mbCancel]
-  else
-    Result := [mbOK];
-end;
-
-function TACLMessageTaskDialog.FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
-const
-  Masks: array[0..3] of Integer = (MB_DEFBUTTON1, MB_DEFBUTTON2, MB_DEFBUTTON3, MB_DEFBUTTON4);
-var
-  I: Integer;
-begin
-  for I := Min(High(Masks), High(AButtons)) downto 0 do
-  begin
-    if AFlags and Masks[I] <> 0 then
-      Exit(AButtons[I]);
-  end;
-  Result := AButtons[0];
-end;
-
-function TACLMessageTaskDialog.FlagsToDialogType(AFlags: Integer): TMsgDlgType;
-const
-  Map: array[TMsgDlgType] of Integer = (MB_ICONWARNING, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, 0);
-var
-  AIndex: TMsgDlgType;
-begin
-  for AIndex := Low(AIndex) to High(AIndex) do
-  begin
-    if AFlags and Map[AIndex] = Map[AIndex] then
-      Exit(AIndex);
-  end;
-  Result := mtCustom;
-end;
+//{ TACLExceptionMessageDialog }
+//
+//class procedure TACLExceptionMessageDialog.Register;
+//begin
+//  ApplicationShowException := ShowException;
+//end;
+//
+//class destructor TACLExceptionMessageDialog.Destroy;
+//begin
+//  ApplicationShowException := nil;
+//end;
+//
+//class procedure TACLExceptionMessageDialog.ShowException(E: Exception);
+//var
+//  AMessage: string;
+//  ASubException: Exception;
+//  AWndHandle: TWndHandle;
+//begin
+//  AMessage := E.Message;
+//  while True do
+//  begin
+//    ASubException := E.GetBaseException;
+//    if ASubException <> E then
+//    begin
+//      E := ASubException;
+//      if E.Message <> '' then
+//        AMessage := E.Message;
+//    end
+//    else
+//      Break;
+//  end;
+//  AWndHandle := Application.ActiveFormHandle;
+//  if AWndHandle = 0 then
+//    AWndHandle := Application.MainFormHandle;
+//  acMessageBox(AWndHandle, AMessage, Application.Title, MB_OK or MB_ICONSTOP);
+//end;
+//
+//{ TACLMessageTaskDialog }
+//
+//constructor TACLMessageTaskDialog.Create(const AMessage, ACaption: string; AFlags: Integer);
+//var
+//  AButton: TTaskDialogBaseButtonItem;
+//  AButtons: TMsgDlgBtns;
+//  ADefaultButton: TMsgDlgBtn;
+//  ADialogType: TMsgDlgType;
+//  I: Integer;
+//begin
+//  inherited Create(nil);
+//
+//  CommonButtons := [];
+//  ADialogType := FlagsToDialogType(AFlags);
+//  MainIcon := IconMap[ADialogType];
+//  Caption := IfThenW(ACaption, TACLDialogsStrs.MsgDlgCaptions[ADialogType]);
+//  Text := AMessage;
+//
+//  AButtons := FlagsToButtons(AFlags);
+//  ADefaultButton := FlagsToDefaultButton(AFlags, AButtons);
+//  for I := Low(AButtons) to High(AButtons) do
+//  begin
+//    AButton := Buttons.Add;
+//    AButton.Caption := TACLDialogsStrs.MsgDlgButtons[AButtons[I]];
+//    AButton.Default := AButtons[I] = ADefaultButton;
+//    AButton.ModalResult := ModalResults[AButtons[I]];
+//  end;
+//end;
+//
+//function TACLMessageTaskDialog.FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
+//begin
+//  if AFlags and MB_RETRYCANCEL = MB_RETRYCANCEL then
+//    Result := [mbRetry, mbCancel]
+//  else if AFlags and MB_YESNO = MB_YESNO then
+//    Result := [mbYes, mbNo]
+//  else if AFlags and MB_YESNOCANCEL = MB_YESNOCANCEL then
+//    Result := [mbYes, mbNo, mbCancel]
+//  else if AFlags and MB_ABORTRETRYIGNORE = MB_ABORTRETRYIGNORE then
+//    Result := [mbAbort, mbRetry, mbIgnore]
+//  else if AFlags and MB_OKCANCEL = MB_OKCANCEL then
+//    Result := [mbOK, mbCancel]
+//  else
+//    Result := [mbOK];
+//end;
+//
+//function TACLMessageTaskDialog.FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
+//const
+//  Masks: array[0..3] of Integer = (MB_DEFBUTTON1, MB_DEFBUTTON2, MB_DEFBUTTON3, MB_DEFBUTTON4);
+//var
+//  I: Integer;
+//begin
+//  for I := Min(High(Masks), High(AButtons)) downto 0 do
+//  begin
+//    if AFlags and Masks[I] <> 0 then
+//      Exit(AButtons[I]);
+//  end;
+//  Result := AButtons[0];
+//end;
+//
+//function TACLMessageTaskDialog.FlagsToDialogType(AFlags: Integer): TMsgDlgType;
+//const
+//  Map: array[TMsgDlgType] of Integer = (MB_ICONWARNING, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, 0);
+//var
+//  AIndex: TMsgDlgType;
+//begin
+//  for AIndex := Low(AIndex) to High(AIndex) do
+//  begin
+//    if AFlags and Map[AIndex] = Map[AIndex] then
+//      Exit(AIndex);
+//  end;
+//  Result := mtCustom;
+//end;
 
 //initialization
 //  if acOSCheckVersion(6, 1) then
