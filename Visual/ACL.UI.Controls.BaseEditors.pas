@@ -334,7 +334,7 @@ type
     destructor Destroy; override;
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
   published
     property AutoSize default True;
@@ -1382,16 +1382,16 @@ begin
     Result := Cursor;
 end;
 
-procedure TACLCustomEdit.Localize(const ASection: string);
+procedure TACLCustomEdit.Localize(const ASection, AName: string);
 var
   LSection: string;
   I: Integer;
 begin
-  inherited Localize(ASection);
+  inherited;
 
   if Buttons.Count > 0 then
   begin
-    LSection := ASection + '.' + Name;
+    LSection := LangSubSection(ASection, AName);
     if LangFile.ExistsSection(LSection) then
     begin
       Buttons.BeginUpdate;

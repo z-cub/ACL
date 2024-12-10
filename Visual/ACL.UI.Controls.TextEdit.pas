@@ -125,7 +125,7 @@ type
     //# Events
     property OnCustomDraw: TACLTextEditCustomDrawEvent read FOnCustomDraw write FOnCustomDraw;
   public
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     procedure SelectAll;
     //# Properties
     property InnerEdit: TACLInnerEdit read GetInnerEdit;
@@ -201,9 +201,9 @@ begin
     Changed;
 end;
 
-procedure TACLCustomTextEdit.Localize(const ASection: string);
+procedure TACLCustomTextEdit.Localize(const ASection, AName: string);
 begin
-  inherited Localize(ASection);
+  inherited;
   TextHint := LangGet(ASection, 'th', TextHint);
 end;
 

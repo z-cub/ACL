@@ -279,7 +279,7 @@ type
   strict private
     function GetActiveTab: TACLTab;
   public
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     //# Properties
     property ActiveTab: TACLTab read GetActiveTab;
   published
@@ -1191,13 +1191,13 @@ end;
 
 { TACLTabControl }
 
-procedure TACLTabControl.Localize(const ASection: string);
+procedure TACLTabControl.Localize(const ASection, AName: string);
 var
   LSection: string;
   I: Integer;
 begin
   inherited;
-  LSection := ASection + '.' + Name;
+  LSection := LangSubSection(ASection, AName);
   for I := 0 to Tabs.Count - 1 do
     Tabs[I].Caption := LangGet(LSection, 'i[' + IntToStr(I) + ']', Tabs[I].Caption);
 end;

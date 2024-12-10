@@ -722,7 +722,7 @@ type
     // IACLColorSchema
     procedure ApplyColorSchema(const ASchema: TACLColorSchema); virtual;
     // IACLLocalizableComponent
-    procedure Localize(const ASection: string); virtual;
+    procedure Localize(const ASection, AName: string); virtual;
   published
     property Align;
     property AlignOrder: Integer read FAlignOrder write SetAlignOrder default 0;
@@ -2608,7 +2608,7 @@ begin
   acApplyColorSchemaForPublishedProperties(Self, ASchema);
 end;
 
-procedure TACLCustomControl.Localize(const ASection: string);
+procedure TACLCustomControl.Localize(const ASection, AName: string);
 begin
 end;
 

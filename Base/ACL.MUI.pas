@@ -70,7 +70,7 @@ type
 
   IACLLocalizableComponent = interface
   ['{41434C4D-5549-436F-6D70-6F6E656E7400}']
-    procedure Localize(const ASection: string);
+    procedure Localize(const ASection, AName: string);
   end;
 
   { IACLLocalizableComponentRoot }
@@ -155,6 +155,8 @@ procedure LangGetFiles(AList: TACLStringList);
 function LangGet(const ASection, AItemName: string; const ADefaultValue: string = ''): string;
 function LangGetMsg(ID: Integer): string;
 function LangGetMsgPart(ID, APart: Integer): string;
+
+function LangSubSection(const ASection, AName: string): string;
 
 {$IFNDEF ACL_BASE_NOVCL}
 function LangGetInfo(const ALangFile: TACLIniFile;
@@ -262,7 +264,7 @@ begin
       end;
 
     if Supports(AComponent, IACLLocalizableComponent, AIntf) then
-      AIntf.Localize(AParentSection{ + '.' + AComponent.Name})
+      AIntf.Localize(AParentSection, AComponent.Name)
     else
       for I := 0 to AComponent.ComponentCount - 1 do
         LangApplyTo(AParentSection, AComponent.Components[I]);
@@ -346,7 +348,7 @@ begin
   AList.SortLogical;
 end;
 
-function LangGet(const ASection, AItemName: string; const ADefaultValue: string = ''): string;
+function LangGet(const ASection, AItemName, ADefaultValue: string): string;
 begin
   Result := LangFile.ReadString(ASection, AItemName, ADefaultValue);
 end;
@@ -359,6 +361,14 @@ end;
 function LangGetMsgPart(ID, APart: Integer): string;
 begin
   Result := LangExtractPart(LangGetMsg(ID), APart);
+end;
+
+function LangSubSection(const ASection, AName: string): string;
+begin
+  if AName <> '' then
+    Result := ASection + '.' + AName
+  else
+    Result := ASection;
 end;
 
 {$IFNDEF ACL_BASE_NOVCL}

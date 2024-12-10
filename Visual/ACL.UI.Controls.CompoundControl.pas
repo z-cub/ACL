@@ -138,7 +138,7 @@ type
     destructor Destroy; override;
     procedure AfterConstruction; override;
     function Focused: Boolean; override;
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     // HourGlass notify
     procedure BeginLongOperation;
     procedure EndLongOperation;
@@ -204,13 +204,10 @@ begin
   SubClass.FullRefresh;
 end;
 
-procedure TACLCompoundControl.Localize(const ASection: string);
+procedure TACLCompoundControl.Localize(const ASection, AName: string);
 begin
-  inherited Localize(ASection);
-  if Name <> '' then
-    SubClass.Localize(ASection + '.' + Name)
-  else
-    SubClass.Localize(ASection);
+  inherited;
+  SubClass.Localize(LangSubSection(ASection, AName));
 end;
 
 procedure TACLCompoundControl.BeginLongOperation;

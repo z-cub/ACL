@@ -647,7 +647,7 @@ type
     procedure CheckShortCut(var Msg: TWMKey; var Handled: Boolean);
     procedure Rebuild;
     // IACLLocalizableComponent
-    procedure Localize(const ASection: string);
+    procedure Localize(const ASection, AName: string);
   published
     property Menu: TACLPopupMenu read FMenu write SetMenu;
     property Style: TACLStyleMenu read FStyle write SetStyle;
@@ -2997,7 +2997,7 @@ begin
     inherited;
 end;
 
-procedure TACLMainMenu.Localize(const ASection: string);
+procedure TACLMainMenu.Localize(const ASection, AName: string);
 begin
   if Menu <> nil then
     TACLMainThread.RunPostponed(Rebuild, Self);

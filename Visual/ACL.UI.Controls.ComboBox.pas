@@ -247,7 +247,7 @@ type
     procedure AddItem(const S: string; AObject: TObject = nil);
     function IndexOf(const S: string): Integer;
     function IndexOfObject(AObject: TObject): Integer;
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     //# Properties
     property HasSelection: Boolean read GetHasSelection;
     property SelectedObject: TObject read GetSelectedObject;
@@ -619,16 +619,16 @@ begin
     Result := nil;
 end;
 
-procedure TACLComboBox.Localize(const ASection: string);
+procedure TACLComboBox.Localize(const ASection, AName: string);
 var
   LPrevItemIndex: Integer;
 begin
   LockChanges(True);
   try
-    inherited Localize(ASection);
+    inherited;
     LPrevItemIndex := FItemIndex;
     try
-      LangApplyToItems(ASection + '.' + Name, Items);
+      LangApplyToItems(LangSubSection(ASection, AName), Items);
     finally
       ItemIndex := LPrevItemIndex;
     end;
