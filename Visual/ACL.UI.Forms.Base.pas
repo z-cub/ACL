@@ -764,15 +764,27 @@ begin
 end;
 
 procedure TACLBasicForm.InitPopupMode(AControl: TWinControl);
+var
+  LForm: TCustomForm;
 begin
-  if AControl <> nil then
-  begin
-    PopupParent := GetParentForm(AControl); // выставит pmExplicit автоматом
-    if PopupParent = nil then
-      PopupMode := pmAuto;
-  end
+  if AControl = nil then
+    PopupMode := pmNone
   else
-    PopupMode := pmNone;
+  begin
+    LForm := GetParentForm(AControl);
+    if LForm = nil then
+      PopupMode := pmAuto
+    else
+    {$IFDEF LCLGtk2}
+      // Мы должны попасть в ветку "Showing a non modal form with bsNone
+      // above a modal form" TGtk2WSCustomForm.ShowHide. Иначе элементы формы
+      // не будут получать input.
+      if (fsModal in LForm.FormState) and (BorderStyle = bsNone) then
+        PopupMode := pmAuto
+      else
+    {$ENDIF}
+        PopupParent := LForm; // pmExplicit
+  end;
 end;
 
 function TACLBasicForm.DialogChar(var Message: TWMKey): Boolean;
@@ -1176,8 +1188,6 @@ begin
   begin
     if ShowInTaskBar = stAlways then
       Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
-    if (Application.MainForm <> nil) and Application.MainForm.HandleAllocated then
-      Params.WndParent := Application.MainFormHandle;
     if FOwnerHandle <> 0 then
       Params.WndParent := FOwnerHandle;
   end;

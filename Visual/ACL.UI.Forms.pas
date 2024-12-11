@@ -293,8 +293,6 @@ begin
 {$IFDEF FPC}
   KeyPreview := True;
   ShowInTaskBar := stNever;
-//{$ELSE}
-//  FormStyle := fsStayOnTop;
 {$ENDIF}
   Scaled := False; // manual control
   InitScaling;

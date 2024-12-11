@@ -505,7 +505,7 @@ procedure TACLCustomDialog.AfterConstruction;
 begin
   inherited;
   Position := poOwnerFormCenter;
-  PopupParent := GetParentForm(TWinControl(Owner));
+  InitPopupMode(Safe.CastOrNil<TWinControl>(Owner));
 end;
 
 function TACLCustomDialog.CanApply: Boolean;
