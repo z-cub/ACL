@@ -361,7 +361,7 @@ type
     procedure ConfigSave(AConfig: TACLIniFile; const ASection, AItem: string); inline;
     procedure ExecutePropertyEditor(const AProperyName: string);
     function FindItem(const AProperyName: string): TACLObjectInspectorNode;
-    procedure Localize(const ASection: string); override;
+    procedure Localize(const ASection, AName: string); override;
     procedure ReloadData;
     //# Properties
     property FocusedNode: TACLObjectInspectorNode read GetFocusedNode write SetFocusedNode;
@@ -1253,9 +1253,9 @@ begin
   Result := SubClass.FindItem(AProperyName);
 end;
 
-procedure TACLObjectInspector.Localize(const ASection: string);
+procedure TACLObjectInspector.Localize(const ASection, AName: string);
 begin
-  inherited Localize(ASection);
+  inherited;
   SearchBoxTextHint := LangGet(ASection, 'th');
 end;
 
