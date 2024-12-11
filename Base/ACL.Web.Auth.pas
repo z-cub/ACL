@@ -53,9 +53,8 @@ type
     RefreshToken: string;
     Secret: string;
 
-    constructor Create(const AAccessToken, ARefreshToken: string); overload;
-    constructor Create(const AAccessToken, ARefreshToken, ASecret: string); overload;
-    constructor CreateFromString(const AStr: string);
+    class function Create(const AAccessToken, ARefreshToken, ASecret: string): TAuthToken; static;
+    class function CreateFromString(const AStr: string): TAuthToken; static;
     function ToString: string;
     procedure Reset;
   end;
@@ -127,34 +126,29 @@ implementation
 
 { TAuthToken }
 
-constructor TAuthToken.Create(const AAccessToken, ARefreshToken: string);
+class function TAuthToken.Create(const AAccessToken, ARefreshToken, ASecret: string): TAuthToken;
 begin
-  Create(AAccessToken, ARefreshToken, '');
+  Result.AccessToken := AAccessToken;
+  Result.RefreshToken := ARefreshToken;
+  Result.Secret := ASecret;
+  Result.ExpiresIn := 0;
 end;
 
-constructor TAuthToken.Create(const AAccessToken, ARefreshToken, ASecret: string);
-begin
-  Reset;
-  AccessToken := AAccessToken;
-  RefreshToken := ARefreshToken;
-  Secret := ASecret;
-end;
-
-constructor TAuthToken.CreateFromString(const AStr: string);
+class function TAuthToken.CreateFromString(const AStr: string): TAuthToken;
 var
   LData: UnicodeString;
   LParts: TStringDynArray;
 begin
-  Reset;
+  Result.Reset;
   LData := TEncoding.UTF8.GetString(TACLMimecode.DecodeBytes(AStr));
   acCryptStringXOR(LData, 'TAuthToken');
   acExplodeString(acString(LData), #9, LParts);
   if Length(LParts) > 3 then
   begin
-    AccessToken := LParts[0];
-    RefreshToken := LParts[1];
-    Secret := LParts[2];
-    ExpiresIn := StrToIntDef(LParts[3], 0);
+    Result.AccessToken := LParts[0];
+    Result.RefreshToken := LParts[1];
+    Result.Secret := LParts[2];
+    Result.ExpiresIn := StrToIntDef(LParts[3], 0);
   end;
 end;
 

@@ -369,14 +369,25 @@ class function TACLWebURL.Parse(S: string; const AProtocol: string): TACLWebURL;
 var
   ADelimPos: Integer;
 begin
-  ADelimPos := acPos(acCRLF, S);
+  ADelimPos := acPos(sLineBreak, S);
   if ADelimPos > 0 then
   begin
-    Result.CustomHeaders := Copy(S, ADelimPos + Length(acCRLF), MaxInt);
+    Result.CustomHeaders := Copy(S, ADelimPos + Length(sLineBreak), MaxInt);
     S := Copy(S, 1, ADelimPos - 1);
   end
   else
-    Result.CustomHeaders := '';
+  begin
+  {$IFNDEF MSWINDOWS} // backward compatibility
+    ADelimPos := acPos(acCRLF, S);
+    if ADelimPos > 0 then
+    begin
+      Result.CustomHeaders := Copy(S, ADelimPos + Length(acCRLF), MaxInt);
+      S := Copy(S, 1, ADelimPos - 1);
+    end
+    else
+  {$ENDIF}
+      Result.CustomHeaders := '';
+  end;
 
   // Protocol
   ADelimPos := acPos(acProtocolDelimiter, S);

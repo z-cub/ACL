@@ -606,6 +606,7 @@ var
   LClient: TLazHttpClient;
   LCookieValue: string;
   LStream: TStream;
+  LUrl: TACLWebURL;
 begin
   LClient := TLazHttpClient.Create(nil);
   try
@@ -623,9 +624,11 @@ begin
     try
       LStream := LClient.TStreamAdapter.Create(AOnReceive);
       try
+        LUrl := URL;
+        LUrl.CustomHeaders := '';
         LClient.RequestHeaders.Text := AHeaders;
         LClient.RequestBody := APostData;
-        LClient.HttpMethod(AMethod, URL.ToString, LStream, []);
+        LClient.HttpMethod(AMethod, LUrl.ToString, LStream, []);
       finally
         LStream.Free;
       end;
