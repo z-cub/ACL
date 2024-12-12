@@ -124,14 +124,13 @@ type
     function CreateStyle: TACLStyleLabel; virtual;
     function CreateSubControlOptions: TACLLabelSubControlOptions; virtual;
 
-    procedure Calculate; overload;
-    procedure Calculate(const R: TRect); overload; virtual;
+    procedure BoundsChanged; override;
+    procedure Calculate(const R: TRect); virtual;
     procedure Click; override;
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
     procedure MouseEnter; override;
     procedure MouseLeave; override;
-    procedure Resize; override;
     procedure SetTargetDPI(AValue: Integer); override;
     procedure UpdateTransparency; override;
 
@@ -148,7 +147,6 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function MeasureSize(AWidth: Integer = 0): TSize; virtual;
-    procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
   published
     property Alignment: TAlignment read FAlignment write SetAlignment default taLeftJustify;
     property AlignmentVert: TVerticalAlignment read FAlignmentVert write SetAlignmentVert default taVerticalCenter;
@@ -330,6 +328,16 @@ begin
   inherited Destroy;
 end;
 
+procedure TACLLabel.BoundsChanged;
+var
+  R: TRect;
+begin
+  inherited;
+  R := ClientRect;
+  SubControl.AlignControl(R);
+  Calculate(R);
+end;
+
 function TACLLabel.CanAutoSize(var ANewWidth, ANewHeight: Integer): Boolean;
 var
   ASize: TSize;
@@ -351,15 +359,6 @@ begin
     ANewWidth := ASize.cx;
     ANewHeight := ASize.cy;
   end;
-end;
-
-procedure TACLLabel.Calculate;
-var
-  R: TRect;
-begin
-  R := ClientRect;
-  SubControl.AlignControl(R);
-  Calculate(R);
 end;
 
 procedure TACLLabel.Calculate(const R: TRect);
@@ -475,12 +474,6 @@ begin
   inherited;
   if SubControl <> nil then
     SubControl.Notification(AComponent, AOperation);
-end;
-
-procedure TACLLabel.Resize;
-begin
-  inherited Resize;
-  Calculate;
 end;
 
 procedure TACLLabel.DrawBackground(ACanvas: TCanvas);
@@ -603,7 +596,7 @@ begin
   if AValue <> FAlignment then
   begin
     FAlignment := AValue;
-    Calculate;
+    BoundsChanged;
     Invalidate;
   end;
 end;
@@ -613,16 +606,9 @@ begin
   if AValue <> FAlignmentVert then
   begin
     FAlignmentVert := AValue;
-    Calculate;
+    BoundsChanged;
     Invalidate;
   end;
-end;
-
-procedure TACLLabel.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
-begin
-  inherited;
-  if SubControl.Control <> nil then
-    Calculate;
 end;
 
 procedure TACLLabel.SetStyle(AValue: TACLStyleLabel);
@@ -657,7 +643,7 @@ begin
         Cursor := crDefault;
     end;
     FURL := AValue;
-    Calculate;
+    BoundsChanged;
     Invalidate;
   end;
 end;
@@ -689,7 +675,7 @@ begin
   if AutoSize then
     AdjustSize
   else
-    Calculate;
+    BoundsChanged;
 end;
 
 procedure TACLLabel.CMVisibleChanged(var Message: TMessage);

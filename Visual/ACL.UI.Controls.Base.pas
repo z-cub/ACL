@@ -512,9 +512,11 @@ type
   {$ELSE}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override; final;
   {$ENDIF}
+    procedure BoundsChanged; {$IFDEF FPC}override;{$ELSE}virtual;{$ENDIF}
     procedure DoGetHint(const P: TPoint; var AHint: string); virtual;
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure Resize; override;
     procedure SetTargetDPI(AValue: Integer); virtual;
     procedure UpdateTransparency; virtual;
 
@@ -2182,6 +2184,14 @@ begin
   AnimationManager.RemoveOwner(Self);
 end;
 
+procedure TACLGraphicControl.BoundsChanged;
+begin
+{$IFDEF FPC}
+  inherited;
+{$ENDIF}
+  CallNotifyEvent(Self, OnBoundsChanged);
+end;
+
 procedure TACLGraphicControl.SetAlignOrder(AValue: Integer);
 begin
   AValue := Max(AValue, 0);
@@ -2195,7 +2205,7 @@ end;
 procedure TACLGraphicControl.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
 begin
   inherited SetBounds(ALeft, ATop, AWidth, AHeight);
-  CallNotifyEvent(Self, OnBoundsChanged);
+  BoundsChanged;
 end;
 
 procedure TACLGraphicControl.SetParent(NewParent: TWinControl);
@@ -2398,6 +2408,15 @@ begin
   if Sender = ResourceCollection then
     ResourceCollectionChanged;
   ResourceChanged;
+end;
+
+procedure TACLGraphicControl.Resize;
+begin
+  inherited;
+{$IFNDEF FPC}
+  if not (csDestroying in ComponentState) then
+    BoundsChanged;
+{$ENDIF}
 end;
 
 procedure TACLGraphicControl.ResourceChanged;

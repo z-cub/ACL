@@ -330,6 +330,7 @@ type
   protected
     procedure AlignControls(AControl: TControl; var ARect: TRect); override;
     procedure DoActiveIndexChanged; override;
+    procedure DoFullRefresh; override;
     procedure PageAdded(APage: TACLPageControlPage);
     procedure PageRemoving(APage: TACLPageControlPage);
     procedure ResourceChanged; override;
@@ -1322,11 +1323,16 @@ begin
   inherited DoActiveIndexChanged;
 end;
 
+procedure TACLPageControl.DoFullRefresh;
+begin
+  inherited;
+  UpdatePagesVisibility;
+end;
+
 procedure TACLPageControl.PageAdded(APage: TACLPageControlPage);
 begin
   APage.FTab := Tabs.Add('', APage);
   FullRefresh;
-  UpdatePagesVisibility;
 end;
 
 procedure TACLPageControl.PageRemoving(APage: TACLPageControlPage);
