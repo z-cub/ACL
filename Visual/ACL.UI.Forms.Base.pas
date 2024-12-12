@@ -223,7 +223,7 @@ type
     procedure PaddingChangeHandler(Sender: TObject);
     procedure UpdateNonClientColors;
   protected
-    FOwnerHandle: TWndHandle;
+    FOwnerWnd: TWndHandle;
     FRecreateWndLockCount: Integer;
 
     procedure AdjustClientRect(var Rect: TRect); override;
@@ -1109,8 +1109,8 @@ constructor TACLCustomForm.CreateDialog(AOwnerHandle: TWndHandle; ANew: Boolean 
 var
   LOwner: TComponent;
 begin
-  FOwnerHandle := AOwnerHandle;
-  LOwner := FindControl(FOwnerHandle);
+  FOwnerWnd := AOwnerHandle;
+  LOwner := FindControl(FOwnerWnd);
   if LOwner is TCustomForm then
     LOwner := GetParentForm(TCustomForm(LOwner)); // to make a poOwnerFormCenter works correctly
   if LOwner = nil then
@@ -1188,8 +1188,14 @@ begin
   begin
     if ShowInTaskBar = stAlways then
       Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
-    if FOwnerHandle <> 0 then
-      Params.WndParent := FOwnerHandle;
+    if FOwnerWnd <> 0 then
+      Params.WndParent := FOwnerWnd
+    else
+      if (Params.WndParent = Application.Handle) and
+         (Application.MainForm <> nil) and
+         (Application.MainForm.HandleAllocated) {and Application.MainForm.StayOnTop}
+      then
+        Params.WndParent := Application.MainFormHandle;
   end;
 end;
 
