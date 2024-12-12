@@ -854,9 +854,11 @@ begin
   end;
 end;
 
-function TACLCustomTabControl.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+function TACLCustomTabControl.DoMouseWheel(
+  Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
 begin
-  Result := acUIMouseWheelSwitchesTabs and PtInRect(FTabAreaRect, ScreenToClient(MousePos));
+  Result := acUIMouseWheelSwitchesTabs and
+    FTabAreaRect.Contains({$IFNDEF LCLGtk2}ScreenToClient{$ENDIF}(MousePos));
   if Result then
     ActiveIndex := ActiveIndex + Signs[WheelDelta < 0];
 end;
