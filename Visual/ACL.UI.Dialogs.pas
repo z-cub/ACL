@@ -1617,18 +1617,20 @@ begin
   else
     DlgType := TMsgDlgType.mtCustom;
 
-  if AFlags and MB_ABORTRETRYIGNORE = MB_ABORTRETRYIGNORE then
-    InitButtons([mbAbort, mbRetry, mbIgnore], [mrAbort, mrRetry, mrIgnore])
-  else if AFlags and MB_RETRYCANCEL = MB_RETRYCANCEL then
-    InitButtons([mbRetry, mbCancel], [mrRetry, mrCancel])
-  else if AFlags and MB_YESNOCANCEL = MB_YESNOCANCEL then
-    InitButtons([mbYes, mbNo, mbCancel], [mrYes, mrNo, mrCancel])
-  else if AFlags and MB_YESNO = MB_YESNO then
-    InitButtons([mbYes, mbNo], [mrYes, mrNo])
-  else if AFlags and MB_OKCANCEL = MB_OKCANCEL then
-    InitButtons([mbOk, mbCancel], [mrOk, mrCancel])
+  case AFlags and $F of
+    MB_ABORTRETRYIGNORE:
+      InitButtons([mbAbort, mbRetry, mbIgnore], [mrAbort, mrRetry, mrIgnore]);
+    MB_RETRYCANCEL:
+      InitButtons([mbRetry, mbCancel], [mrRetry, mrCancel]);
+    MB_YESNOCANCEL:
+      InitButtons([mbYes, mbNo, mbCancel], [mrYes, mrNo, mrCancel]);
+    MB_YESNO:
+      InitButtons([mbYes, mbNo], [mrYes, mrNo]);
+    MB_OKCANCEL:
+      InitButtons([mbOk, mbCancel], [mrOk, mrCancel]);
   else
     InitButtons([mbOk], [mrOk]);
+  end;
 
   if Caption = '' then
     Caption := TACLDialogsStrs.MsgDlgCaptions[DlgType];
