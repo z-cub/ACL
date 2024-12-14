@@ -1088,27 +1088,29 @@ end;
 
 procedure TACLSliderHorizontalViewInfo.CalculateTickMarks(AInterval: Single);
 var
-  AMarkThickness: Integer;
-  AMarkSize: Integer;
-  AMaxPosition: Single;
-  APosition: Single;
+  LMarkOffset: Integer;
+  LMarkThickness: Integer;
+  LMarkSize: Integer;
+  LMaxPosition: Single;
+  LPosition: Single;
   X0, Y1, Y2, X: Integer;
 begin
-  APosition := GetThumbSize div 2;
-  AMaxPosition := ThumbBarRect.Width - APosition + 1;
-  AMarkThickness := dpiApply(1, CurrentDpi);
-  AMarkSize := GetMarkSize;
+  LPosition := GetThumbSize div 2;
+  LMaxPosition := ThumbBarRect.Width - LPosition + 1;
+  LMarkThickness := dpiApply(1, CurrentDpi);
+  LMarkOffset := LMarkThickness div 2;
+  LMarkSize := GetMarkSize;
 
   X0 := FThumbBarRect.Left;
   Y1 := FThumbBarRect.Top - 1 - GetMarkSize;
   Y2 := FThumbBarRect.Bottom + 1;
 
-  while APosition <= AMaxPosition do
+  while LPosition <= LMaxPosition do
   begin
-    X := X0 + FastTrunc(APosition);
-    FTickMarks.Add(Bounds(X, Y1, AMarkThickness, AMarkSize));
-    FTickMarks.Add(Bounds(X, Y2, AMarkThickness, AMarkSize));
-    APosition := APosition + AInterval;
+    X := X0 + FastTrunc(LPosition) - LMarkOffset;
+    FTickMarks.Add(Bounds(X, Y1, LMarkThickness, LMarkSize));
+    FTickMarks.Add(Bounds(X, Y2, LMarkThickness, LMarkSize));
+    LPosition := LPosition + AInterval;
   end;
 end;
 
@@ -1308,27 +1310,29 @@ end;
 
 procedure TACLSliderVerticalViewInfo.CalculateTickMarks(AInterval: Single);
 var
-  AMarkThickness: Integer;
-  AMarkSize: Integer;
-  AMaxPosition: Single;
-  APosition: Single;
+  LMarkOffset: Integer;
+  LMarkThickness: Integer;
+  LMarkSize: Integer;
+  LMaxPosition: Single;
+  LPosition: Single;
   Y0, X1, X2, Y: Integer;
 begin
-  APosition := GetThumbSize div 2;
-  AMaxPosition := ThumbBarRect.Height - APosition + 1;
-  AMarkThickness := dpiApply(1, CurrentDpi);
-  AMarkSize := GetMarkSize;
+  LPosition := GetThumbSize div 2;
+  LMaxPosition := ThumbBarRect.Height - LPosition + 1;
+  LMarkThickness := dpiApply(1, CurrentDpi);
+  LMarkOffset := LMarkThickness div 2;
+  LMarkSize := GetMarkSize;
 
   Y0 := FThumbBarRect.Top;
   X1 := FThumbBarRect.Left - 1 - GetMarkSize;
   X2 := FThumbBarRect.Right + 1;
 
-  while APosition <= AMaxPosition do
+  while LPosition <= LMaxPosition do
   begin
-    Y := Y0 + Trunc(APosition);
-    FTickMarks.Add(Bounds(X1, Y, AMarkSize, AMarkThickness));
-    FTickMarks.Add(Bounds(X2, Y, AMarkSize, AMarkThickness));
-    APosition := APosition + AInterval;
+    Y := Y0 + Trunc(LPosition) - LMarkOffset;
+    FTickMarks.Add(Bounds(X1, Y, LMarkSize, LMarkThickness));
+    FTickMarks.Add(Bounds(X2, Y, LMarkSize, LMarkThickness));
+    LPosition := LPosition + AInterval;
   end;
 end;
 
@@ -1679,6 +1683,8 @@ end;
 
 procedure TACLSlider.Paint;
 begin
+  inherited;
+
   DrawTrackBar(Canvas, ViewInfo.TrackBarRect);
   DrawThumbBar(Canvas, ViewInfo.ThumbRect);
   DrawTickMarks(Canvas);
