@@ -166,6 +166,7 @@ type
     procedure DoShow; override;
   public
     destructor Destroy; override;
+    procedure InitiateAction; override;
     function HasSubItems: Boolean; override;
     function ToString: string; override;
   published
@@ -1068,6 +1069,13 @@ begin
     Result := TPopupMenu(Link).Items.HasVisibleSubItems
   else
     Result := False;
+end;
+
+procedure TACLMenuItemLink.InitiateAction;
+begin
+  inherited;
+  if Enabled and (Link is TPopupMenu) then
+    TPopupMenu(Link).Items.InitiateActions;
 end;
 
 procedure TACLMenuItemLink.SetLink(AValue: TComponent);
