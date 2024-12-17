@@ -209,7 +209,6 @@ begin
   Style.DrawBackground(Canvas, ClientRect, Enabled);
   if Enabled then
   begin
-    LClipRgn := acSaveClipRegion(Canvas.Handle);
     if acStartClippedDraw(Canvas.Handle, ProgressAreaRect, LClipRgn) then
     try
       CalculateProgressRect(R1, R2);
