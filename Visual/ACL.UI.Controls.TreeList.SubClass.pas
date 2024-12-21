@@ -2101,7 +2101,7 @@ var
 begin
   acFillRect(ACanvas, Bounds,
     SubClass.StyleGetNodeBackgroundColor(Odd(AbsoluteNodeIndex), Node),
-    SubClass.Style.RowCornerRadius.Value);
+    dpiApply(SubClass.Style.RowCornerRadius.Value, SubClass.CurrentDpi));
   if IsFocused and (SubClass.FocusedColumn <> nil) and SubClass.Focused then
     acFillRect(ACanvas, GetFocusRect, SubClass.Style.RowColorFocused.Value);
   if HasHorzSeparators then

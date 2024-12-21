@@ -121,6 +121,8 @@ function GetObjectPropClass(PropInfo: PPropInfo): TClass;
 function GetPropName(PropInfo: PPropInfo): string;
 {$ENDIF}
 function GetPropType(PropInfo: PPropInfo): PTypeInfo; inline;
+
+procedure SetBoolProp(Instance: TObject; PropInfo: PPropInfo; Value: Boolean);
 implementation
 
 uses
@@ -158,6 +160,11 @@ end;
 function GetPropType(PropInfo: PPropInfo): PTypeInfo; inline;
 begin
   Result := PropInfo^.PropType{$IFNDEF FPC}^{$ENDIF};
+end;
+
+procedure SetBoolProp(Instance: TObject; PropInfo: PPropInfo; Value: Boolean);
+begin
+  SetOrdProp(Instance, PropInfo, IfThen(Value, 1, 0));
 end;
 
 { TRTTI }
@@ -468,7 +475,7 @@ begin
   if APropInfo.SetProc = nil then
     raise EPropReadOnly.CreateFmt(sErrorReadOnly, [APropInfo.Name]);
   if IsBoolean(APropInfo) and VarIsNumeric(AValue) then
-    SetOrdProp(AObject, APropInfo, Ord(FastTrunc(AValue) <> 0))
+    SetBoolProp(AObject, APropInfo, FastTrunc(AValue) <> 0)
   else
     TypInfo.SetPropValue(AObject, APropInfo, AValue);
 end;

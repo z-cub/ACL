@@ -14,7 +14,6 @@
 unit ACL.UI.Insight;
 
 {$I ACL.Config.inc}
-{$R ACL.UI.Insight.res}
 
 interface
 
@@ -431,7 +430,7 @@ begin
   FStyleSearchResults := TACLStyleTreeList.Create(Self);
   FStyleSearchResultsScrollBox := TACLStyleScrollBox.Create(Self);
   if (AOwner <> nil) and ([csLoading, csReading, csDesigning] * AOwner.ComponentState = [csDesigning]) then
-    Glyph.ImportFromImageResource(HInstance, 'ACLUIINSIGHT', 'PNG');
+    Caption := '💡';
 end;
 
 destructor TACLUIInsightButton.Destroy;

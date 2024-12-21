@@ -159,6 +159,7 @@ type
     procedure PaintCaption(ACanvas: TCanvas);
     function UseCustomStyle: Boolean; virtual;
     // Messages
+    procedure WMNCHitTest(var Msg: TWMNCHitTest); message WM_NCHITTEST;
     procedure WndProc(var Message: TMessage); override;
     // Properties
     property HoveredId: Integer read FHoveredId write SetHoveredId;
@@ -545,6 +546,14 @@ end;
 function TACLCustomStyledForm.UseCustomStyle: Boolean;
 begin
   Result := True;
+end;
+
+procedure TACLCustomStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
+begin
+  if UseCustomStyle then
+    Msg.Result := HitTest(ScreenToClient(Msg.Pos))
+  else
+    inherited;
 end;
 
 procedure TACLCustomStyledForm.Resize;

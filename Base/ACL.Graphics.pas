@@ -565,8 +565,7 @@ procedure acDrawHueColorBar(ACanvas: TCanvas; const R: TRect);
 procedure acDrawHueIntensityBar(ACanvas: TCanvas; const R: TRect; AHue: Byte = 0);
 procedure acDrawSelectionRect(ACanvas: TCanvas; const R: TRect; AColor: TAlphaColor);
 procedure acDrawShadow(ACanvas: TCanvas; const ARect: TRect; ABKColor: TColor; AShadowSize: Integer = 5);
-procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor); overload;
-procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor; ARadius: Integer); overload;
+procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor; ARadius: Integer = 0); overload;
 procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TColor); overload;
 procedure acFitFileName(ACanvas: TCanvas; ATargetWidth: Integer; var S: string);
 procedure acResetFont(AFont: TFont);
@@ -671,6 +670,7 @@ uses
 {$IFDEF ACL_CAIRO}
   ACL.Graphics.Ex.Cairo,
 {$ENDIF}
+  ACL.Graphics.Images,
   ACL.Graphics.TextLayout,
   ACL.Utils.DPIAware,
   ACL.Utils.Strings;
@@ -1937,16 +1937,6 @@ begin
   end;
 end;
 
-procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor);
-begin
-  if AColor.IsValid then
-  begin
-    ExPainter.BeginPaint(ACanvas);
-    ExPainter.FillRectangle(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom, AColor);
-    ExPainter.EndPaint;
-  end;
-end;
-
 procedure acFillRect(ACanvas: TCanvas; const ARect: TRect; AColor: TAlphaColor; ARadius: Integer); overload;
 var
   LPath: TACL2DRenderPath;
@@ -1961,6 +1951,7 @@ begin
         try
           LPath.AddRoundRect(ARect, ARadius, ARadius);
           ExPainter.SetGeometrySmoothing(TACLBoolean.True);
+          ExPainter.SetPixelOffsetMode(ipomHalf);
           ExPainter.FillPath(LPath, AColor);
         finally
           LPath.Free;

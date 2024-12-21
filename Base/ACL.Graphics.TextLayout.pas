@@ -226,12 +226,10 @@ type
   { TACLTextLayoutBlockFillColor }
 
   TACLTextLayoutBlockFillColor = class(TACLTextLayoutBlockStyle)
-  strict private
-    FColor: TColor;
   public
+    Color: TColor;
     constructor Create(const AColor: string; AInclude: Boolean);
     function Export(AExporter: TACLTextLayoutExporter): Boolean; override;
-    property Color: TColor read FColor;
   end;
 
   { TACLTextLayoutBlockFontColor }
@@ -1924,7 +1922,7 @@ end;
 constructor TACLTextLayoutBlockFillColor.Create(const AColor: string; AInclude: Boolean);
 begin
   inherited Create(AInclude);
-  FColor := StringToColor(AColor);
+  Color := StringToColor(AColor);
 end;
 
 function TACLTextLayoutBlockFillColor.Export(AExporter: TACLTextLayoutExporter): Boolean;
@@ -2593,10 +2591,13 @@ end;
 destructor TACLTextLayoutShadowPainter.Destroy;
 begin
   Render.Free; // end drawing
-  Text32ApplyBlur(FBuffer, FShadow);
-  Text32RecoverAlpha(FBuffer, TACLPixel32.Create(FShadow.Color));
-  FTargetRender.DrawImage(FBuffer, TRect.Create(FOrigin, FBuffer.Size));
-  FreeAndNil(FBuffer);
+  if FBuffer <> nil then
+  begin
+    Text32ApplyBlur(FBuffer, FShadow);
+    Text32RecoverAlpha(FBuffer, TACLPixel32.Create(FShadow.Color));
+    FTargetRender.DrawImage(FBuffer, TRect.Create(FOrigin, FBuffer.Size));
+    FBuffer.Free;
+  end;
   inherited;
 end;
 

@@ -416,6 +416,7 @@ const
   MB_OK               = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_OK;
   MB_OKCANCEL         = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_OKCANCEL;
   MB_DEFBUTTON2       = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_DEFBUTTON2;
+  MB_DEFBUTTON3       = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_DEFBUTTON3;
   MB_ICONINFORMATION  = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_ICONINFORMATION;
   MB_ICONQUESTION     = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_ICONQUESTION;
   MB_ICONWARNING      = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_ICONWARNING;
@@ -1550,6 +1551,7 @@ end;
 procedure TACLMessageDialog.AfterFormCreate;
 begin
   inherited;
+  ClientWidth := dpiApply(400, FCurrentPPI);
   CreateControls;
 end;
 

@@ -321,12 +321,12 @@ end;
 
 function acURLEncode(const S: string): string;
 var
-	A: AnsiString;
+  A: AnsiString;
   B: TACLStringBuilder;
   C: AnsiChar;
 begin
-	A := acStringToUtf8(S);
-	B := TACLStringBuilder.Get(Length(A) * 3);
+  A := acStringToUtf8(S);
+  B := TACLStringBuilder.Get(Length(A) * 3);
   try
     for C in A do
     begin
