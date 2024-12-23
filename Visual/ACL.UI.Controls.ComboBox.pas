@@ -154,8 +154,8 @@ type
     constructor Create(AOwner: TComponent); override;
     constructor CreateInplace(const AParams: TACLInplaceInfo); override;
     procedure ChangeItemIndex(AValue: Integer); virtual;
-    function DoMouseWheel(Shift: TShiftState;
-      WheelDelta: Integer; MousePos: TPoint): Boolean; override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
     procedure LockChanges(ALock: Boolean);
     //# Properties
     property Count: Integer read GetCount;
@@ -735,14 +735,14 @@ begin
     Dec(FChangeLockCount);
 end;
 
-function TACLBasicComboBox.DoMouseWheel(Shift: TShiftState;
-  WheelDelta: Integer; MousePos: TPoint): Boolean;
+function TACLBasicComboBox.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
 begin
-  Result := inherited DoMouseWheel(Shift, WheelDelta, MousePos);
+  Result := inherited;
   if not Result then
   begin
     DoPrepareDropDownData;
-    ItemIndex := Max(0, ItemIndex - Signs[WheelDelta > 0]);
+    ItemIndex := Max(0, ItemIndex - TACLMouseWheel.DirectionToInteger[Direction]);
     Result := True;
   end;
 end;

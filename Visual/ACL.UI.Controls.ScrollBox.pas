@@ -44,7 +44,8 @@ uses
   ACL.UI.Controls.BaseEditors,
   ACL.UI.Controls.ScrollBar,
   ACL.UI.Resources,
-  ACL.Utils.Common;
+  ACL.Utils.Common,
+  ACL.Utils.DPIAware;
 
 type
 
@@ -123,6 +124,8 @@ type
   protected
     procedure AlignScrollBars(const ARect: TRect); override;
     function CalculateRange: TSize; virtual;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
     procedure ScrollContent(dX, dY: Integer); override;
     //# Messages
     procedure CMFocusChanged(var Msg: TMessage); message CM_FOCUSCHANGED;
@@ -259,7 +262,9 @@ procedure TACLCustomScrollingControl.AlignScrollBars(const ARect: TRect);
 begin
   FHorzScrollBar.SetBounds(ARect.Left, ARect.Bottom, ARect.Width, HorzScrollBar.Height);
   FHorzScrollBar.Tag := HorzScrollBar.Position;
+  FHorzScrollBar.SmallChange := dpiApply(16, FCurrentPPI);
   FVertScrollBar.SetBounds(ARect.Right, ARect.Top, VertScrollBar.Width, ARect.Height);
+  FVertScrollBar.SmallChange := dpiApply(16, FCurrentPPI);
   FVertScrollBar.Tag := VertScrollBar.Position;
   FSizeGrip.SetBounds(ARect.Right, ARect.Bottom, VertScrollBar.Width, HorzScrollBar.Height);
   FSizeGrip.Visible := VertScrollBar.Visible and HorzScrollBar.Visible;
@@ -538,6 +543,19 @@ begin
   finally
     FFocusing := False;
   end;
+end;
+
+function TACLCustomScrollBox.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
+var
+  LBar: TACLInnerScrollBar;
+begin
+  if ssShift in Shift then
+    LBar := TACLInnerScrollBar(HorzScrollBar)
+  else
+    LBar := TACLInnerScrollBar(VertScrollBar);
+
+  Result := (LBar <> nil) and LBar.Visible and LBar.MouseWheel(Direction, Shift, MousePos);
 end;
 
 procedure TACLCustomScrollBox.DisableAutoRange;

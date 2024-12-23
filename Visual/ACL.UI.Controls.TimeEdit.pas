@@ -86,7 +86,8 @@ type
     function CreateEditor: TWinControl; override;
     procedure ButtonClick(AStep: Integer); override;
     procedure DoEditChange(Sender: TObject);
-    function DoMouseWheel(Shift: TShiftState; Delta: Integer; Pos: TPoint): Boolean; override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
     //# Properties
     property Edit: TACLInnerTimeEdit read GetEdit;
   public
@@ -296,10 +297,10 @@ begin
   if Assigned(OnChange) then OnChange(Self);
 end;
 
-function TACLTimeEdit.DoMouseWheel;
+function TACLTimeEdit.MouseWheel;
 begin
   if not inherited then
-    Edit.Increase(Delta >= 0);
+    ButtonClick(TACLMouseWheel.DirectionToInteger[Direction]);
   Result := True;
 end;
 

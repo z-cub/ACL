@@ -44,6 +44,7 @@ uses
   ACL.Utils.Clipboard,
   ACL.Utils.Common,
   ACL.Utils.Desktop,
+  ACL.Utils.DPIAware,
   ACL.Utils.FileSystem,
   ACL.Utils.Shell,
   ACL.Utils.Stream,
@@ -121,7 +122,7 @@ type
     procedure SetTarget(AValue: TWinControl);
     procedure ValidateFiles(AFiles: TACLStringList);
   protected
-    procedure CheckContentScrolling(const AClientPoint: TPoint);
+    procedure CheckContentScrolling(const P: TPoint);
     function GetTargetClientRect: TRect; virtual;
     function ScreenToClient(const P: TPoint): TPoint; virtual;
     procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
@@ -148,8 +149,6 @@ type
     function HasData(AFormat: TClipboardFormat): Boolean;
     function HasFiles: Boolean;
     function HasText: Boolean;
-    // Utils
-    class function GetVScrollSpeed(const P: TPoint; const AClientRect: TRect): Integer;
   published
     property Target: TWinControl read FTarget write SetTarget;
     property Options: TACLDropTargetOptions read FOptions write SetOptions;
@@ -826,13 +825,27 @@ begin
     HasData(CF_TEXT);
 end;
 
-procedure TACLDropTarget.CheckContentScrolling(const AClientPoint: TPoint);
+procedure TACLDropTarget.CheckContentScrolling(const P: TPoint);
+const
+  ScrollIndent = 16;
+  SpeedMap: array[Boolean] of Integer = (1, 4);
 var
-  ASpeed: Integer;
+  LClient: TRect;
+  LIndent: Integer;
 begin
-  ASpeed := GetVScrollSpeed(AClientPoint, GetTargetClientRect);
-  if ASpeed <> 0 then
-    DoScroll(Abs(ASpeed), TACLMouseWheel.GetDirection(ASpeed), AClientPoint);
+  LClient := GetTargetClientRect;
+  if LClient.Contains(P) then
+  begin
+    LIndent := dpiApply(ScrollIndent, acGetCurrentDpi(Target));
+    LClient.Inflate(0, -LIndent);
+    if not LClient.Contains(P) then
+    begin
+      if P.Y < LClient.Top then
+        DoScroll(SpeedMap[P.Y < LClient.Top    - LIndent div 2], mwdUp, P)
+      else if P.Y > LClient.Bottom then
+        DoScroll(SpeedMap[P.Y > LClient.Bottom + LIndent div 2], mwdDown, P);
+    end;
+  end;
 end;
 
 function TACLDropTarget.GetTargetClientRect: TRect;
@@ -951,18 +964,6 @@ begin
       else
         AFiles[I] := acExpandFileName(AFiles[I]);
   end;
-end;
-
-class function TACLDropTarget.GetVScrollSpeed(const P: TPoint; const AClientRect: TRect): Integer;
-const
-  ScrollIndent = 16;
-  SpeedMap: array[Boolean] of Integer = (1, 4);
-begin
-  if P.Y < AClientRect.Top + ScrollIndent then
-    Exit(-SpeedMap[P.Y < AClientRect.Top + ScrollIndent div 2]);
-  if P.Y > AClientRect.Bottom - ScrollIndent then
-    Exit(SpeedMap[P.Y > AClientRect.Bottom - ScrollIndent div 2]);
-  Result := 0;
 end;
 
 { TACLDropTargetOptions }

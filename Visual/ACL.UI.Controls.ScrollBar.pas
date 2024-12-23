@@ -261,6 +261,8 @@ type
     procedure MouseLeave; override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
 
     //# Paint
     procedure Paint; override;
@@ -997,6 +999,14 @@ procedure TACLScrollBar.MouseMove(Shift: TShiftState; X, Y: Integer);
 begin
   inherited MouseMove(Shift, X, Y);
   SubClass.MouseMove(X, Y);
+end;
+
+function TACLScrollBar.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
+begin
+  Result := Enabled;
+  if Result then
+    SubClass.Scroll(TACLMouseWheel.DirectionToScrollCode[Direction]);
 end;
 
 procedure TACLScrollBar.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);

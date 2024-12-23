@@ -462,7 +462,7 @@ type
     DirectionToScrollCodeI: array[TACLMouseWheelDirection] of Integer = (SB_LINEDOWN, SB_LINEUP);
   public
     class constructor Create;
-    class function GetDirection(AValue: Integer): TACLMouseWheelDirection;
+    class function GetDirection(AWheelDelta: Integer): TACLMouseWheelDirection;
     class function GetScrollLines(AState: TShiftState): Integer;
     class function HWheelToVWheel(const AMessage: TWMMouseWheel): TWMMouseWheel;
   end;
@@ -692,10 +692,15 @@ type
     procedure WndProc(var Message: TMessage); override;
 
     // IACLMouseTracking
+    function DoMouseWheel(Shift: TShiftState; Delta: Integer; MousePos: TPoint): Boolean; override; final;
+    function DoMouseWheelDown(Shift: TShiftState; MousePos: TPoint): Boolean; override; final;
+    function DoMouseWheelUp(Shift: TShiftState; MousePos: TPoint): Boolean; override; final;
     function IsMouseAtControl: Boolean; virtual;
     procedure MouseEnter; reintroduce; virtual;
     procedure MouseLeave; reintroduce; virtual;
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X: Integer; Y: Integer); override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; virtual;
 
     // IACLResourceCollection
     function GetCollection: TACLCustomResourceCollection;
@@ -766,6 +771,8 @@ type
     property OnMouseMove;
     property OnMouseUp;
     property OnMouseWheel;
+    property OnMouseWheelDown;
+    property OnMouseWheelUp;
     property OnResize;
     property OnStartDock;
     property OnStartDrag;
@@ -2110,12 +2117,12 @@ begin
   ScrollLinesCtrl := DefaultScrollLinesCtrl;
 end;
 
-class function TACLMouseWheel.GetDirection(AValue: Integer): TACLMouseWheelDirection;
+class function TACLMouseWheel.GetDirection(AWheelDelta: Integer): TACLMouseWheelDirection;
 begin
-  if AValue < 0 then
-    Result := mwdUp
+  if AWheelDelta < 0 then
+    Result := mwdDown
   else
-    Result := mwdDown;
+    Result := mwdUp;
 end;
 
 class function TACLMouseWheel.GetScrollLines(AState: TShiftState): Integer;
@@ -2677,6 +2684,21 @@ begin
   FullRefresh;
 end;
 
+function TACLCustomControl.DoMouseWheel(Shift: TShiftState; Delta: Integer; MousePos: TPoint): Boolean;
+begin
+  Result := inherited; // just to be a final
+end;
+
+function TACLCustomControl.DoMouseWheelDown(Shift: TShiftState; MousePos: TPoint): Boolean;
+begin
+  Result := MouseWheel(mwdDown, Shift, MousePos);
+end;
+
+function TACLCustomControl.DoMouseWheelUp(Shift: TShiftState; MousePos: TPoint): Boolean;
+begin
+  Result := MouseWheel(mwdUp, Shift, MousePos);
+end;
+
 procedure TACLCustomControl.MouseEnter;
 begin
   FMouseInClient := True;
@@ -2688,6 +2710,29 @@ begin
   FMouseInClient := False;
 end;
 
+procedure TACLCustomControl.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  if FocusOnClick then
+    SetFocusOnClick;
+  inherited MouseDown(Button, Shift, X, Y);
+end;
+
+function TACLCustomControl.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
+var
+  LEvent: TMouseWheelUpDownEvent;
+begin
+  if Direction = mwdDown then
+    LEvent := OnMouseWheelDown
+  else
+    LEvent := OnMouseWheelUp;
+
+  Result := False;
+  if Assigned(LEvent) then
+    LEvent(Self, Shift, MousePos, Result);
+end;
+
 procedure TACLCustomControl.Notification(AComponent: TComponent; Operation: TOperation);
 begin
   inherited;
@@ -2697,14 +2742,6 @@ begin
     if AComponent = ResourceCollection then
       ResourceCollection := nil;
   end;
-end;
-
-procedure TACLCustomControl.MouseDown(
-  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  if FocusOnClick then
-    SetFocusOnClick;
-  inherited MouseDown(Button, Shift, X, Y);
 end;
 
 procedure TACLCustomControl.Paint;

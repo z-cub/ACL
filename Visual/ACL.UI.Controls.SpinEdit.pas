@@ -186,7 +186,8 @@ type
     // Keyboard
     procedure KeyDown(var Key: Word; Shift: TShiftState); override;
     // Mouse
-    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
     // Messages
     procedure CMEnter(var Message: TCMEnter); message CM_ENTER;
     procedure CMExit(var Message: TCMExit); message CM_EXIT;
@@ -628,14 +629,12 @@ begin
   Key := 0;
 end;
 
-function TACLSpinEdit.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+function TACLSpinEdit.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
 begin
-  Result := inherited DoMouseWheel(Shift, WheelDelta, MousePos);
-  if not Result then
-  begin
-    ButtonClick(Signs[WheelDelta > 0]);
-    Result := True;
-  end;
+  if not inherited then
+    ButtonClick(TACLMouseWheel.DirectionToInteger[Direction]);
+  Result := True;
 end;
 
 procedure TACLSpinEdit.CMEnter(var Message: TCMEnter);

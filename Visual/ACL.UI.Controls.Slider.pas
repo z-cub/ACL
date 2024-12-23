@@ -356,17 +356,18 @@ type
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     procedure DoGetHint(const P: TPoint; var AHint: string); override;
     procedure FocusChanged; override;
-    procedure NextPage(ADirection: Integer; APageSize: Single);
+    procedure NextPage(AForward: Boolean; APageSize: Single);
 
     // Keyboard
     procedure KeyDown(var Key: Word; Shift: TShiftState); override;
 
     // Mouse
-    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseLeave; override;
     procedure MouseMove(Shift: TShiftState; X: Integer; Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
     procedure UpdateThumbState(const P: TPoint);
 
     // Moving Hint
@@ -1477,24 +1478,11 @@ begin
       OnGetHint(Self, Position, AHint);
 end;
 
-procedure TACLSlider.NextPage(ADirection: Integer; APageSize: Single);
-var
-  ALevelUp: Boolean;
+procedure TACLSlider.NextPage(AForward: Boolean; APageSize: Single);
 begin
-  if Orientation = oVertical then
-  begin
-    if OptionsValue.Reverse then
-      ALevelUp := ADirection >= 0
-    else
-      ALevelUp := ADirection <= 0;
-  end
-  else
-    if OptionsValue.Reverse then
-      ALevelUp := ADirection <= 0
-    else
-      ALevelUp := ADirection >= 0;
-
-  SetPosition(Position + Signs[ALevelUp] * APageSize, True);
+  if OptionsValue.Reverse <> (Orientation = oVertical) then
+    AForward := not AForward;
+  SetPosition(Position + Signs[AForward] * APageSize, True);
 end;
 
 procedure TACLSlider.KeyDown(var Key: Word; Shift: TShiftState);
@@ -1503,15 +1491,15 @@ begin
 
   case Key of
     VK_PRIOR:
-      NextPage(Signs[Orientation = oVertical], OptionsValue.Page);
+      NextPage(Orientation = oVertical, OptionsValue.Page);
     VK_NEXT:
-      NextPage(Signs[Orientation = oHorizontal], OptionsValue.Page);
+      NextPage(Orientation = oHorizontal, OptionsValue.Page);
     VK_HOME, VK_END:
       SetPosition(IfThen(OptionsValue.Reverse = (Key = VK_HOME), OptionsValue.Max, OptionsValue.Min), True);
     VK_RIGHT, VK_UP:
-      NextPage(1, IfThen(OptionsValue.Paginate, OptionsValue.Page, OptionsValue.SmallChange));
+      NextPage(True, IfThen(OptionsValue.Paginate, OptionsValue.Page, OptionsValue.SmallChange));
     VK_LEFT, VK_DOWN:
-      NextPage(-1, IfThen(OptionsValue.Paginate, OptionsValue.Page, OptionsValue.SmallChange));
+      NextPage(False, IfThen(OptionsValue.Paginate, OptionsValue.Page, OptionsValue.SmallChange));
     VK_DELETE:
       if OptionsValue.IsDefaultAssigned then
         SetPosition(OptionsValue.Default, True);
@@ -1523,23 +1511,24 @@ begin
   Key := 0;
 end;
 
-function TACLSlider.DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+function TACLSlider.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
 var
-  ADelta: Single;
+  LDelta: Single;
 begin
-  Result := not Moving;
-  if Result then
+  if not (inherited or Moving) then
   begin
     if OptionsValue.Paginate then
-      ADelta := OptionsValue.Page
+      LDelta := OptionsValue.Page
     else if OptionsValue.SmallChange > 0 then
-      ADelta := OptionsValue.SmallChange
+      LDelta := OptionsValue.SmallChange
     else
-      ADelta := OptionsValue.Range / ViewInfo.GetTrackSize;
+      LDelta := OptionsValue.Range / ViewInfo.GetTrackSize;
 
-    NextPage(WheelDelta, ADelta);
+    NextPage(Direction = TACLMouseWheelDirection.mwdUp, LDelta);
     ShowMovingHint(Position, True);
   end;
+  Result := True;
 end;
 
 procedure TACLSlider.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);

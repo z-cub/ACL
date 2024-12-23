@@ -100,12 +100,12 @@ type
   {$ENDIF}
 
     // Mouse
-    function DoMouseWheelDown(Shift: TShiftState; MousePos: TPoint): Boolean; override;
-    function DoMouseWheelUp(Shift: TShiftState; MousePos: TPoint): Boolean; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseLeave; override;
     procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
 
     // Touch
   {$IFNDEF FPC}
@@ -366,20 +366,6 @@ begin
 end;
 {$ENDIF}
 
-function TACLCompoundControl.DoMouseWheelDown(Shift: TShiftState; MousePos: TPoint): Boolean;
-begin
-  if not inherited then
-    SubClass.MouseWheel(mwdDown, Shift);
-  Result := True;
-end;
-
-function TACLCompoundControl.DoMouseWheelUp(Shift: TShiftState; MousePos: TPoint): Boolean;
-begin
-  if not inherited then
-    SubClass.MouseWheel(mwdUp, Shift);
-  Result := True;
-end;
-
 procedure TACLCompoundControl.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
   SubClass.MouseDown(Button, Shift, X, Y);
@@ -402,6 +388,14 @@ procedure TACLCompoundControl.MouseUp(Button: TMouseButton; Shift: TShiftState; 
 begin
   SubClass.MouseUp(Button, Shift, X, Y);
   inherited MouseUp(Button, Shift, X, Y);
+end;
+
+function TACLCompoundControl.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
+begin
+  if not inherited then
+    SubClass.MouseWheel(Direction, Shift);
+  Result := True;
 end;
 
 {$IFNDEF FPC}

@@ -229,11 +229,12 @@ type
     procedure KeyDown(var Key: Word; Shift: TShiftState); override;
 
     // Mouse
-    function DoMouseWheel(Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean; override;
     function IsMouseAtControl: Boolean; override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseLeave; override;
     procedure MouseMove(Shift: TShiftState; X: Integer; Y: Integer); override;
+    function MouseWheel(Direction: TACLMouseWheelDirection;
+      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
 
     procedure DoActiveIndexChanged; virtual;
     procedure DoActiveIndexChanging(ANewIndex: Integer); virtual;
@@ -854,13 +855,13 @@ begin
   end;
 end;
 
-function TACLCustomTabControl.DoMouseWheel(
-  Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint): Boolean;
+function TACLCustomTabControl.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
 begin
   Result := acUIMouseWheelSwitchesTabs and
     FTabAreaRect.Contains({$IFNDEF LCLGtk2}ScreenToClient{$ENDIF}(MousePos));
   if Result then
-    ActiveIndex := ActiveIndex + Signs[WheelDelta < 0];
+    ActiveIndex := ActiveIndex - TACLMouseWheel.DirectionToInteger[Direction];
 end;
 
 function TACLCustomTabControl.IsMouseAtControl: Boolean;
