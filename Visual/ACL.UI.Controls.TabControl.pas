@@ -966,7 +966,12 @@ begin
     VK_PRIOR, VK_NEXT:
       if [ssCtrl, ssAlt, ssShift] * acGetShiftState = [ssCtrl] then
       begin
-        JumpToNextPage(Message.CharCode = VK_NEXT);
+        FIsUserAction := True;
+        try
+          JumpToNextPage(Message.CharCode = VK_NEXT);
+        finally
+          FIsUserAction := False;
+        end;
         Message.Result := 1;
       end;
 
@@ -975,7 +980,12 @@ begin
         AShiftState := acGetShiftState;
         if [ssCtrl, ssAlt] * AShiftState = [ssCtrl] then
         begin
-          JumpToNextPage(not (ssShift in AShiftState));
+          FIsUserAction := True;
+          try
+            JumpToNextPage(not (ssShift in AShiftState));
+          finally
+            FIsUserAction := False;
+          end;
           Message.Result := 1;
         end;
       end;
