@@ -203,7 +203,7 @@ type
     procedure SetTargetDPI(AValue: Integer); override;
     procedure UpdateTransparency; override;
     procedure ValidateActiveTab;
-    procedure ValidateFocus; virtual;
+    procedure ValidateFocus;
 
     // Calculating
     function CalculateTabPlaceIndents(AItem: TACLTabViewItem): TRect; virtual;
@@ -336,7 +336,6 @@ type
     procedure PageRemoving(APage: TACLPageControlPage);
     procedure ResourceChanged; override;
     procedure UpdatePagesVisibility;
-    procedure ValidateFocus; override;
     procedure ValidateInsert(AComponent: TComponent); override;
   public
     function AddPage(const ACaption: string): TACLPageControlPage;
@@ -1352,17 +1351,11 @@ begin
     ActivePage.Invalidate;
 end;
 
-procedure TACLPageControl.ValidateFocus;
-begin
-  UpdatePagesVisibility;
-  inherited ValidateFocus;
-end;
-
 procedure TACLPageControl.ValidateInsert(AComponent: TComponent);
 begin
-  inherited ValidateInsert(AComponent);
   if not (AComponent is TACLPageControlPage) then
     raise Exception.CreateFmt(sErrorWrongChild, [TACLPageControlPage.ClassName, ClassName]);
+  inherited;
 end;
 
 procedure TACLPageControl.UpdatePagesVisibility;
@@ -1375,12 +1368,22 @@ begin
       ActivePage.BringToFront;
   end
   else
-  begin
-    if ActivePage <> nil then
-      ActivePage.Visible := True;
-    for I := 0 to PageCount - 1 do
-      Pages[I].Visible := IsTabVisible(I) and (I = ActiveIndex);
-  end;
+    if HandleAllocated then
+    begin
+      DisableAlign;
+      try
+        if ActivePage <> nil then
+        begin
+          ActivePage.Visible := False;
+          ActivePage.BringToFront;
+          ActivePage.Visible := True;
+        end;
+        for I := 0 to PageCount - 1 do
+          Pages[I].Visible := IsTabVisible(I) and (I = ActiveIndex);
+      finally
+        EnableAlign;
+      end;
+    end;
 end;
 
 function TACLPageControl.GetActivePage: TACLPageControlPage;

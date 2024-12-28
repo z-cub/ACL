@@ -1500,7 +1500,7 @@ end;
 
 function acLowerCase(const S: string): string;
 begin
-  Result := S.ToLower;
+  Result := AnsiLowerCase(S);
 end;
 
 function acLowerCase(const S: AnsiChar): AnsiChar;
@@ -1515,7 +1515,7 @@ end;
 
 function acUpperCase(const S: string): string;
 begin
-  Result := S.ToUpper;
+  Result := AnsiUpperCase(S);
 end;
 
 function acUpperCase(const S: AnsiChar): AnsiChar;

@@ -69,6 +69,7 @@ uses
   ACL.UI.Controls.ProgressBar,
   ACL.UI.Controls.TextEdit,
   ACL.UI.Forms,
+  ACL.UI.Forms.Base,
   ACL.UI.ImageList,
   ACL.Utils.Common,
   ACL.Utils.DPIAware,
@@ -371,6 +372,7 @@ type
     FImage: TACLDib;
     FImageBox: TRect;
     FMessage: TACLLabel;
+    FSwitchToWindow: Boolean;
     function GetImageSize: Integer;
     procedure LoadImage;
   protected
@@ -423,7 +425,7 @@ const
   MB_ICONERROR        = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_ICONERROR;
   MB_YESNO            = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_YESNO;
   MB_YESNOCANCEL      = {$IFDEF FPC}LCLType{$ELSE}Windows{$ENDIF}.MB_YESNOCANCEL;
-  MB_SYSTEMMODAL      = {$IFDEF FPC}      0{$ELSE}Windows.MB_SYSTEMMODAL{$ENDIF};
+  MB_SYSTEMMODAL      = {$IFDEF FPC}$001000{$ELSE}Windows.MB_SYSTEMMODAL{$ENDIF};
 
 procedure acMessageBeep(AType: TMsgDlgType);
 function acMessageBox(AOwnerWnd: HWND; const AMessage, ACaption: string; AFlags: Integer): Integer;
@@ -1573,6 +1575,8 @@ begin
   LoadImage;
   inherited;
   acMessageBeep(DlgType);
+  if FSwitchToWindow then
+    acSwitchToWindow(Handle);
 end;
 
 procedure TACLMessageDialog.Initialize(AFlags: LongWord);
@@ -1636,6 +1640,7 @@ begin
 
   if Caption = '' then
     Caption := TACLDialogsStrs.MsgDlgCaptions[DlgType];
+  FSwitchToWindow := AFlags and MB_SYSTEMMODAL <> 0;
 end;
 
 function TACLMessageDialog.GetImageSize: Integer;

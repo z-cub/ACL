@@ -310,6 +310,7 @@ type
 
 {$ENDREGION}
 
+procedure acSwitchToWindow(AHandle: HWND);
 implementation
 
 {$IFNDEF FPC}
@@ -598,6 +599,20 @@ end;
 {$ENDREGION}
 
 {$REGION ' Basic Form '}
+
+procedure acSwitchToWindow(AHandle: HWND);
+{$IFDEF MSWINDOWS}
+var
+  AInput: TInput;
+begin
+  ZeroMemory(@AInput, SizeOf(AInput));
+  SendInput(INPUT_KEYBOARD, AInput, SizeOf(AInput));
+{$ELSE}
+begin
+{$ENDIF}
+  SetForegroundWindow(AHandle);
+  SetFocus(AHandle);
+end;
 
 { TACLBasicForm }
 
@@ -1310,8 +1325,7 @@ begin
   if TACLApplication.IsMinimized then
     Visible := False;
   Show;
-  SetForegroundWindow(Handle);
-  SetFocus;
+  acSwitchToWindow(Handle);
 end;
 
 procedure TACLCustomForm.UpdateImageLists;

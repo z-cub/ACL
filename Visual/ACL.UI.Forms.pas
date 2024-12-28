@@ -164,7 +164,6 @@ type
 
 function acGetWindowText(AHandle: HWND): string;
 procedure acSetWindowText(AHandle: HWND; const AText: string);
-procedure acSwitchToWindow(AHandle: HWND);
 
 procedure acFormsCloseAll;
 function acFormSetCorners(AHandle: HWND; ACorners: TACLFormCorners): Boolean;
@@ -210,20 +209,6 @@ begin
   if LCtrl <> nil then
     LCtrl.Text := AText;
 {$ENDIF}
-end;
-
-procedure acSwitchToWindow(AHandle: HWND);
-{$IFDEF MSWINDOWS}
-var
-  AInput: TInput;
-begin
-  ZeroMemory(@AInput, SizeOf(AInput));
-  SendInput(INPUT_KEYBOARD, AInput, SizeOf(AInput));
-{$ELSE}
-begin
-{$ENDIF}
-  SetForegroundWindow(AHandle);
-  SetFocus(AHandle);
 end;
 
 function acWantSpecialKey(AChild: TControl; ACharCode: Word; AShift: TShiftState): Boolean;

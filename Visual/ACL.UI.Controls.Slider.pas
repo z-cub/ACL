@@ -1714,8 +1714,11 @@ end;
 procedure TACLSlider.CMEnabledChanged(var Message: TMessage);
 begin
   inherited;
-  UpdateThumbState(CalcCursorPos);
-  Invalidate;
+  if HandleAllocated then
+  begin
+    UpdateThumbState(CalcCursorPos);
+    Invalidate;
+  end;
 end;
 
 procedure TACLSlider.CMHintShow(var Message: TCMHintShow);
