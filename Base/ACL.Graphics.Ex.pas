@@ -126,6 +126,12 @@ type
   TACL2DRender = class;
   TACL2DRenderStrokeStyle = (ssSolid, ssDash, ssDot, ssDashDot, ssDashDotDot);
 
+  TACL2DRenderSourceUsage = (
+    suCopy,      // Copy required data from the source
+    suReference, // Use data directly from the source throughout lifetime of the resource
+    suOwned      // Use data directly from the source throughout lifetime of the resource, destroy the source with the resource
+  );
+
   { IACL2DRenderGdiCompatible }
 
   TACL2DRenderGdiDrawProc = reference to procedure (DC: HDC; out UpdateRect: TRect);
@@ -157,9 +163,12 @@ type
   PACL2DRenderImage = ^TACL2DRenderImage;
   TACL2DRenderImage = class(TACL2DRenderResource)
   protected
+    FOwnedData: TObject;
+    FOwnedDataPtr: Pointer;
     FHeight: Integer;
     FWidth: Integer;
   public
+    destructor Destroy; override;
     function ClientRect: TRect; inline;
     function Empty: Boolean; inline;
     property Height: Integer read FHeight;
@@ -249,9 +258,12 @@ type
 
     // Images
     function CreateImage(Colors: PACLPixel32; Width, Height: Integer;
-      AlphaFormat: TAlphaFormat = afDefined): TACL2DRenderImage; overload; virtual; abstract;
-    function CreateImage(Image: TACLDib): TACL2DRenderImage; overload; virtual;
-    function CreateImage(Image: TACLImage): TACL2DRenderImage; overload; virtual;
+      AlphaFormat: TAlphaFormat = afDefined;
+      Usage: TACL2DRenderSourceUsage = suCopy): TACL2DRenderImage; overload; virtual; abstract;
+    function CreateImage(Image: TACLDib;
+      Usage: TACL2DRenderSourceUsage = suCopy): TACL2DRenderImage; overload; virtual;
+    function CreateImage(Image: TACLImage;
+      Usage: TACL2DRenderSourceUsage = suCopy): TACL2DRenderImage; overload; virtual;
     function CreateImageAttributes: TACL2DRenderImageAttributes; virtual;
     procedure DrawImage(Image: TACLDib;
       const TargetRect: TRect; Cache: PACL2DRenderImage = nil); overload; virtual;
@@ -1539,7 +1551,8 @@ end;
 constructor TACL2DRenderResource.Create(AOwner: TACL2DRender);
 begin
   FOwner := AOwner;
-  FOwnerSerial := AOwner.Serial;
+  if AOwner <> nil then
+    FOwnerSerial := AOwner.Serial;
 end;
 
 procedure TACL2DRenderResource.Release;
@@ -1549,6 +1562,13 @@ begin
 end;
 
 { TACL2DRenderImage }
+
+destructor TACL2DRenderImage.Destroy;
+begin
+  FreeAndNil(FOwnedData);
+  FreeMem(FOwnedDataPtr);
+  inherited;
+end;
 
 function TACL2DRenderImage.ClientRect: TRect;
 begin
@@ -1605,39 +1625,67 @@ begin
   BeginPaint(ACanvas.Handle);
 end;
 
-function TACL2DRender.CreateImage(Image: TACLImage): TACL2DRenderImage;
+function TACL2DRender.CreateImage(Image: TACLImage;
+  Usage: TACL2DRenderSourceUsage = suCopy): TACL2DRenderImage;
 {$IFDEF FPC}
 begin
   if not Image.Empty then
-    Result := CreateImage(TACLImageAccess(Image).Handle)
+  begin
+    if Usage = suOwned then
+    begin
+      Result := CreateImage(TACLImageAccess(Image).Handle, suReference);
+      Result.FOwnedData := Image;
+    end
+    else
+      Result := CreateImage(TACLImageAccess(Image).Handle, Usage);
+  end
 {$ELSE}
 var
-  AData: TBitmapData;
-  AFormat: TAlphaFormat;
-  APixelFormat: Integer;
+  LAlphaFormat: TAlphaFormat;
+  LData: TBitmapData;
+  LPixelFormat: Integer;
 begin
-  APixelFormat := TACLImageAccess(Image).GetPixelFormat;
-  if GetPixelFormatSize(APixelFormat) <> 32 then
-    APixelFormat := PixelFormat32bppARGB;
-  if TACLImageAccess(Image).BeginLock(AData, APixelFormat) then
+  LPixelFormat := TACLImageAccess(Image).GetPixelFormat;
+  if GetPixelFormatSize(LPixelFormat) <> 32 then
+    LPixelFormat := PixelFormat32bppARGB;
+  if TACLImageAccess(Image).BeginLock(LData, LPixelFormat) then
   try
-    case AData.PixelFormat of
+    case LData.PixelFormat of
       PixelFormat32bppARGB:
-        AFormat := afDefined;
+        LAlphaFormat := afDefined;
       PixelFormat32bppPARGB:
-        AFormat := afPremultiplied;
+        LAlphaFormat := afPremultiplied;
       PixelFormat32bppRGB:
-        AFormat := afIgnored;
+        LAlphaFormat := afIgnored;
     else
       raise EInvalidArgument.Create('Unexpected pixel format');
     end;
-    Result := CreateImage(AData.Scan0, AData.Width, AData.Height, AFormat);
+    if Usage = suOwned then
+    begin
+      Result := CreateImage(LData.Scan0, LData.Width, LData.Height, LAlphaFormat, suReference);
+      Result.FOwnedData := Image;
+    end
+    else
+      Result := CreateImage(LData.Scan0, LData.Width, LData.Height, LAlphaFormat, Usage);
   finally
-    TACLImageAccess(Image).EndLock(AData);
+    TACLImageAccess(Image).EndLock(LData);
   end
 {$ENDIF}
   else
     Result := nil;
+end;
+
+function TACL2DRender.CreateImage(Image: TACLDib; Usage: TACL2DRenderSourceUsage): TACL2DRenderImage;
+begin
+  if Image.Empty then
+    Exit(nil);
+  if Usage = suOwned then
+  begin
+    Result := CreateImage(@Image.Colors^[0], Image.Width, Image.Height, afPremultiplied, suReference);
+    Result.FOwnedData := Image;
+  end
+  else
+    Result := CreateImage(@Image.Colors^[0], Image.Width, Image.Height, afPremultiplied, Usage);
 end;
 
 function TACL2DRender.CreateImageAttributes: TACL2DRenderImageAttributes;
@@ -1645,34 +1693,26 @@ begin
   Result := TACL2DRenderImageAttributes.Create(Self);
 end;
 
-function TACL2DRender.CreateImage(Image: TACLDib): TACL2DRenderImage;
-begin
-  if Image.Empty then
-    Result := nil
-  else
-    Result := CreateImage(PACLPixel32(Image.Colors), Image.Width, Image.Height, afPremultiplied);
-end;
-
 procedure TACL2DRender.DrawImage(Image: TACLDib; const TargetRect: TRect; Cache: PACL2DRenderImage);
 var
-  AImage: TACL2DRenderImage;
+  LImage: TACL2DRenderImage;
 begin
   if Cache <> nil then
   begin
     if not IsValid(Cache^) then
     begin
       FreeAndNil(Cache^);
-      Cache^ := CreateImage(Image);
+      Cache^ := CreateImage(Image, suReference);
     end;
     DrawImage(Cache^, TargetRect);
   end
   else
   begin
-    AImage := CreateImage(Image);
+    LImage := CreateImage(Image, suReference);
     try
-      DrawImage(AImage, TargetRect);
+      DrawImage(LImage, TargetRect);
     finally
-      AImage.Free;
+      LImage.Free;
     end;
   end;
 end;

@@ -1102,13 +1102,16 @@ begin
     SetHandle(LHandle);
   end
 {$ELSE}
-  if GdipCloneImage(AImage.Handle, LHandle) = Ok then
+  if Length(AImage.FBits) > 0 then
   begin
     SetLength(FBits, Length(AImage.FBits));
-    if Length(FBits) > 0 then
-      FastMove(AImage.FBits[0], FBits[0], SizeOf(AImage.FBits));
-    SetHandle(LHandle);
+    FastMove(AImage.FBits[0], FBits[0], Length(FBits) * SizeOf(TACLPixel32));
+    SetHandle(GpCreateBitmap(AImage.Width, AImage.Height, @FBits[0], AImage.GetPixelFormat));
   end
+  else
+
+  if GdipCloneImage(AImage.Handle, LHandle) = Ok then
+    SetHandle(LHandle)
 {$ENDIF}
   else
     Clear;

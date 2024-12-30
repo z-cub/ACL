@@ -453,6 +453,7 @@ type
 
     class procedure AlphaBlend(var D: TColor; S: TColor; AAlpha: Byte = 255); overload; inline; static;
     class procedure AlphaBlend(var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte = 255); overload; inline; static;
+    class procedure Clone(var Colors: PACLPixel32; Width, Height: Integer); static;
     class procedure Flip(AColors: PACLPixel32Array; AWidth, AHeight: Integer; AHorizontally, AVertically: Boolean);
     class procedure Flush(var P: TACLPixel32); inline; static;
     class procedure Grayscale(P: PACLPixel32; Count: Integer); overload; static;
@@ -3557,6 +3558,17 @@ begin
     TACLColors.RGBtoHSLi(P.R, P.G, P.B, H, S, L);
     TACLColors.HSLtoRGBi(AHue, MulDiv(S, AIntensity, 100), L, P.R, P.G, P.B);
   end;
+end;
+
+class procedure TACLColors.Clone(var Colors: PACLPixel32; Width, Height: Integer);
+var
+  LNum: Integer;
+  LSrc: PACLPixel32;
+begin
+  LSrc := Colors;
+  LNum := Width * Height * SizeOf(TACLPixel32);
+  Colors := AllocMem(LNum);
+  Move(LSrc^, Colors^, LNum);
 end;
 
 class procedure TACLColors.ChangeHue(P: PACLPixel32; ACount: Integer; AHue: Byte; AIntensity: Byte = 100);

@@ -126,6 +126,19 @@ type
 
 {$REGION ' 2D Render '}
 
+  { TACLGdiplusRenderImage }
+
+  TACLGdiplusRenderImage = class(TACL2DRenderImage)
+  strict private
+    FHandle: GpImage;
+    FHandleAutoFree: Boolean;
+  public
+    constructor Create(AOwner: TACL2DRender;
+      AHandle: GpImage; AHandleAutoFree: Boolean);
+    destructor Destroy; override;
+    property Handle: GpImage read FHandle;
+  end;
+
   { TACLGdiplusRender }
 
   TACLGdiplusRender = class(TACL2DRender, IACL2DRenderGdiCompatible)
@@ -158,8 +171,9 @@ type
 
     // Images
     function CreateImage(Colors: PACLPixel32; Width, Height: Integer;
-      AlphaFormat: TAlphaFormat = afDefined): TACL2DRenderImage; override;
-    function CreateImage(Image: TACLImage): TACL2DRenderImage; override;
+      AlphaFormat: TAlphaFormat; Usage: TACL2DRenderSourceUsage): TACL2DRenderImage; override;
+    function CreateImage(Image: TACLImage;
+      Usage: TACL2DRenderSourceUsage): TACL2DRenderImage; override;
     function CreateImageAttributes: TACL2DRenderImageAttributes; override;
     procedure DrawImage(Image: TACL2DRenderImage;
       const TargetRect, SourceRect: TRect; Attributes: TACL2DRenderImageAttributes); override;
@@ -294,17 +308,6 @@ uses
   System.Math;
 
 type
-  TACLImageAccess = class(TACLImage);
-
-  { TACLGdiplusRenderImage }
-
-  TACLGdiplusRenderImage = class(TACL2DRenderImage)
-  protected
-    FHandle: GpImage;
-  public
-    constructor Create(AOwner: TACL2DRender; AHandle: GpImage);
-    destructor Destroy; override;
-  end;
 
   { TACLGdiplusRenderImageAttributes }
 
@@ -746,10 +749,12 @@ end;
 
 { TACLGdiplusRenderImage }
 
-constructor TACLGdiplusRenderImage.Create(AOwner: TACL2DRender; AHandle: GpImage);
+constructor TACLGdiplusRenderImage.Create(
+  AOwner: TACL2DRender; AHandle: GpImage; AHandleAutoFree: Boolean);
 begin
   inherited Create(AOwner);
   FHandle := AHandle;
+  FHandleAutoFree := AHandleAutoFree;
   if GdipGetImageHeight(FHandle, Cardinal(FHeight)) <> Ok then
     FHeight := 0;
   if GdipGetImageWidth(FHandle, Cardinal(FWidth)) <> Ok then
@@ -758,7 +763,8 @@ end;
 
 destructor TACLGdiplusRenderImage.Destroy;
 begin
-  GdipDisposeImage(FHandle);
+  if FHandleAutoFree then
+    GdipDisposeImage(FHandle);
   inherited;
 end;
 
@@ -1021,25 +1027,36 @@ end;
 {$ENDREGION}
 
 function TACLGdiplusRender.CreateImage(Colors: PACLPixel32;
-  Width, Height: Integer; AlphaFormat: TAlphaFormat): TACL2DRenderImage;
+  Width, Height: Integer; AlphaFormat: TAlphaFormat;
+  Usage: TACL2DRenderSourceUsage): TACL2DRenderImage;
 const
   FormatMap: array[TAlphaFormat] of Integer = (
     PixelFormat32bppRGB, PixelFormat32bppARGB, PixelFormat32bppPARGB
   );
 var
-  AHandle: GpBitmap;
+  LHandle: GpBitmap;
 begin
+  if Usage = suCopy then
+    TACLColors.Clone(Colors, Width, Height);
   GdipCheck(GdipCreateBitmapFromScan0(Width, Height,
-    Width * 4, FormatMap[AlphaFormat], PByte(Colors), AHandle));
-  Result := TACLGdiplusRenderImage.Create(Self, AHandle);
+    Width * 4, FormatMap[AlphaFormat], PByte(Colors), LHandle));
+  Result := TACLGdiplusRenderImage.Create(Self, LHandle, True);
+  if Usage <> suReference then
+    TACLGdiplusRenderImage(Result).FOwnedDataPtr := Colors;
 end;
 
-function TACLGdiplusRender.CreateImage(Image: TACLImage): TACL2DRenderImage;
-var
-  AHandle: GpImage;
+function TACLGdiplusRender.CreateImage(
+  Image: TACLImage; Usage: TACL2DRenderSourceUsage): TACL2DRenderImage;
 begin
-  GdipCheck(GdipCloneImage(TACLImageAccess(Image).Handle, AHandle));
-  Result := TACLGdiplusRenderImage.Create(Self, AHandle);
+  if Usage = suCopy then
+  begin
+    // Если картинка ссылается на Bits - их надо тоже копировать.
+    // GdipCloneImage(Image.Handle,)
+    Image := Image.Clone;
+  end;
+  Result := TACLGdiplusRenderImage.Create(Self, Image.Handle, Usage <> suReference);
+  if Usage <> suReference then
+    TACLGdiplusRenderImage(Result).FOwnedData := Image;
 end;
 
 function TACLGdiplusRender.CreateImageAttributes: TACL2DRenderImageAttributes;
@@ -1060,7 +1077,7 @@ begin
       LAttrs := nil;
 
     GpDrawImage(NativeHandle,
-      TACLGdiplusRenderImage(Image).FHandle, LAttrs,
+      TACLGdiplusRenderImage(Image).Handle, LAttrs,
       TargetRect.OffsetTo(-Origin.X, -Origin.Y), SourceRect, False);
   end;
 end;
@@ -1070,7 +1087,7 @@ procedure TACLGdiplusRender.DrawImage(
 begin
   if IsValid(Image) then
     GpDrawImage(NativeHandle,
-      TACLGdiplusRenderImage(Image).FHandle,
+      TACLGdiplusRenderImage(Image).Handle,
       TACLGdiplusAlphaBlendAttributes.Get(Alpha),
       TargetRect.OffsetTo(-Origin.X, -Origin.Y), SourceRect, False);
 end;

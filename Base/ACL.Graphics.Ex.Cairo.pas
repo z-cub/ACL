@@ -184,7 +184,7 @@ type
 
     // Images
     function CreateImage(Colors: PACLPixel32; Width, Height: Integer;
-      AlphaFormat: TAlphaFormat = afDefined): TACL2DRenderImage; override;
+      AlphaFormat: TAlphaFormat; Usage: TACL2DRenderSourceUsage): TACL2DRenderImage; override;
     procedure DrawImage(Image: TACLDib;
       const TargetRect: TRect; Cache: PACL2DRenderImage = nil); override;
     procedure DrawImage(Image: TACL2DRenderImage;
@@ -380,11 +380,11 @@ type
 
   TACLCairoRenderImage = class(TACL2DRenderImage)
   strict private
-    FColors: Pointer;
     FHandle: Pcairo_surface_t;
   public
     constructor Create(ARender: TACL2DRender; AColors: PACLPixel32;
-      AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat);
+      AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat;
+      AUsage: TACL2DRenderSourceUsage);
     destructor Destroy; override;
     property Handle: Pcairo_surface_t read FHandle;
   end;
@@ -1694,9 +1694,10 @@ begin
 end;
 
 function TACLCairoRender.CreateImage(Colors: PACLPixel32;
-  Width, Height: Integer; AlphaFormat: TAlphaFormat): TACL2DRenderImage;
+  Width, Height: Integer; AlphaFormat: TAlphaFormat;
+  Usage: TACL2DRenderSourceUsage): TACL2DRenderImage;
 begin
-  Result := TACLCairoRenderImage.Create(Self, Colors, Width, Height, AlphaFormat);
+  Result := TACLCairoRenderImage.Create(Self, Colors, Width, Height, AlphaFormat, Usage);
 end;
 
 function TACLCairoRender.CreatePath: TACL2DRenderPath;
@@ -1799,7 +1800,10 @@ end;
 procedure TACLCairoRender.DrawImage(
   Image: TACLDib; const TargetRect: TRect; Cache: PACL2DRenderImage);
 begin
-  Image.DrawBlend(Handle, TargetRect, Image.ClientRect);
+  if Cache <> nil then
+    inherited
+  else
+    Image.DrawBlend(Handle, TargetRect, Image.ClientRect);
 end;
 
 procedure TACLCairoRender.DrawImage(Image: TACL2DRenderImage;
@@ -2189,22 +2193,23 @@ end;
 { TACLCairoRenderImage }
 
 constructor TACLCairoRenderImage.Create(ARender: TACL2DRender;
-  AColors: PACLPixel32; AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat);
-var
-  LNumBytes: Integer;
+  AColors: PACLPixel32; AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat;
+  AUsage: TACL2DRenderSourceUsage);
 begin
   inherited Create(ARender);
-  if AAlphaFormat <> afPremultiplied then
+  if (AUsage = suReference) and (AAlphaFormat <> afPremultiplied) then
+    AUsage := suCopy;
+  if (AUsage = suCopy) then
+    TACLColors.Clone(AColors, AWidth, AHeight);
+  if (AAlphaFormat <> afPremultiplied) then
   begin
-    LNumBytes := AWidth * AHeight * SizeOf(TACLPixel32);
-    FColors := AllocMem(LNumBytes);
-    Move(AColors^, FColors^, LNumBytes);
     if AAlphaFormat = afDefined then
-      TACLColors.Premultiply(FColors, AWidth * AHeight);
+      TACLColors.Premultiply(AColors, AWidth * AHeight);
     if AAlphaFormat = afIgnored then
-      TACLColors.MakeOpaque(FColors, AWidth * AHeight);
-    AColors := PACLPixel32(FColors);
+      TACLColors.MakeOpaque(AColors, AWidth * AHeight);
   end;
+  if AUsage <> suReference then
+    FOwnedDataPtr := AColors;
   FHandle := cairo_create_surface(PACLPixel32Array(AColors), AWidth, AHeight);
   FHeight := AHeight;
   FWidth := AWidth;
@@ -2213,7 +2218,6 @@ end;
 destructor TACLCairoRenderImage.Destroy;
 begin
   cairo_surface_destroy(FHandle);
-  FreeMemAndNil(FColors);
   inherited;
 end;
 

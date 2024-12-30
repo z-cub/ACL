@@ -116,7 +116,7 @@ type
 
     // Images
     function CreateImage(Colors: PACLPixel32; Width, Height: Integer;
-      AlphaFormat: TAlphaFormat = afDefined): TACL2DRenderImage; override;
+      AlphaFormat: TAlphaFormat; Usage: TACL2DRenderSourceUsage): TACL2DRenderImage; override;
     procedure DrawImage(Image: TACL2DRenderImage;
       const TargetRect, SourceRect: TRect; Attributes: TACL2DRenderImageAttributes); override;
     procedure DrawImage(Image: TACL2DRenderImage;
@@ -290,7 +290,8 @@ type
   public
     Handle: ID2D1Bitmap;
     constructor Create(AOwner: TACLDirect2DAbstractRender;
-      AColors: PACLPixel32; AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat);
+      AColors: PACLPixel32; AWidth, AHeight: Integer;
+      AAlphaFormat: TAlphaFormat; AUsage: TACL2DRenderSourceUsage);
     destructor Destroy; override;
     procedure Release; override;
   end;
@@ -694,13 +695,16 @@ end;
 { TACLDirect2DRenderImage }
 
 constructor TACLDirect2DRenderImage.Create(AOwner: TACLDirect2DAbstractRender;
-  AColors: PACLPixel32; AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat);
+  AColors: PACLPixel32; AWidth, AHeight: Integer; AAlphaFormat: TAlphaFormat;
+  AUsage: TACL2DRenderSourceUsage);
 begin
   inherited Create(AOwner);
   AOwner.FResources.Add(Self);
   Handle := D2D1Bitmap(AOwner.FDeviceContext, AColors, AWidth, AHeight, AAlphaFormat);
   FHeight := AHeight;
   FWidth := AWidth;
+  if AUsage = suOwned then
+    FOwnedDataPtr := AColors;
 end;
 
 destructor TACLDirect2DRenderImage.Destroy;
@@ -866,9 +870,10 @@ begin
 end;
 
 function TACLDirect2DAbstractRender.CreateImage(Colors: PACLPixel32;
-  Width, Height: Integer; AlphaFormat: TAlphaFormat): TACL2DRenderImage;
+  Width, Height: Integer; AlphaFormat: TAlphaFormat;
+  Usage: TACL2DRenderSourceUsage): TACL2DRenderImage;
 begin
-  Result := TACLDirect2DRenderImage.Create(Self, Colors, Width, Height, AlphaFormat);
+  Result := TACLDirect2DRenderImage.Create(Self, Colors, Width, Height, AlphaFormat, Usage);
 end;
 
 function TACLDirect2DAbstractRender.CreatePath: TACL2DRenderPath;
