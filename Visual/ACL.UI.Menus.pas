@@ -419,6 +419,7 @@ type
     end;
   {$ENDREGION}
   strict private
+    FDefaultIndex: Integer;
     FItems: TACLObjectListOf<TItemInfo>;
     FPrevMousePos: TPoint;
     FSelectedItemIndex: Integer;
@@ -468,6 +469,7 @@ type
     function HasSubItems(AItem: TMenuItem): Boolean;
     procedure Init(ASource: TMenuItem);
 
+    property DefaultIndex: Integer read FDefaultIndex;
     property Items: TACLObjectListOf<TItemInfo> read FItems;
     property SelectedItemIndex: Integer read FSelectedItemIndex;
     property SelectedItemInfo: TItemInfo read GetSelectedItemInfo;
@@ -1788,7 +1790,7 @@ begin
     if AItemIndex < TopIndex then
       TopIndex := AItemIndex
     else
-      TopIndex := TopIndex - FVisibleItemCount + 1;
+      TopIndex := TopIndex + FVisibleItemCount - 1;
   end;
 end;
 
@@ -1811,6 +1813,8 @@ begin
 
     if (Items.Count > 0) and Items.Last.Item.IsLine then
       Items.Delete(Items.Count - 1);
+
+    FDefaultIndex := ASource.IndexOf(ASource.DefaultItem);
   end;
 end;
 
@@ -2496,6 +2500,7 @@ begin
     FControlRect := MonitorAlignPopupWindow(AControlRect);
   SetBounds(FControlRect.Left, FControlRect.Bottom, 0, 0);
   CalculateBounds;
+  EnsureItemVisible(DefaultIndex);
   Visible := True;
   ShowWindow(Handle, SW_SHOWNOACTIVATE);
 

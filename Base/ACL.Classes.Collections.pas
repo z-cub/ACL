@@ -467,6 +467,7 @@ type
     function GetKeys: IACLEnumerable<TKey>; virtual;
     function GetValues: IACLEnumerable<TValue>; virtual;
 
+    procedure EnsureCapacity(ACount: Integer);
     procedure Remove(const Key: TKey);
     procedure RemoveByValue(const Value: TValue);
     procedure TrimExcess;
@@ -1879,6 +1880,11 @@ begin
     begin
       AProc(K, V);
     end);
+end;
+
+procedure TACLDictionary<TKey, TValue>.EnsureCapacity(ACount: Integer);
+begin
+  Capacity := Max(Capacity, Count + ACount);
 end;
 
 procedure TACLDictionary<TKey, TValue>.Remove(const Key: TKey);
