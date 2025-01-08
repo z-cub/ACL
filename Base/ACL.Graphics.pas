@@ -3156,37 +3156,17 @@ end;
 procedure TACLDib.CopyCanvasToColors;
 {$IFDEF LCLGtk2}
 var
-  LBuf: PGdkPixbuf;
-  LDst: PACLPixel32;
-  LSrc: PACLPixel32;
-  LTmp: Byte;
-  I: Integer;
+  AImg: PGdkImage;
 begin
-  LBuf := gdk_pixbuf_new(GDK_COLORSPACE_RGB, True, 8, Width, Height);
+  AImg := gdk_drawable_get_image(TGtkDeviceContext(FHandle).Drawable, 0, 0, Width, Height);
+  if AImg = nil then
+    raise EInvalidGraphicOperation.CreateFmt('FastDib: drawable has no image data (%d,%d)', [Width, Height]);
   try
-    // gdk_pixbuf_get_from_drawable сбросит альфа-канал в 255.
-    // Это задокументированное поведение.
-    gdk_pixbuf_get_from_drawable(LBuf, TGtkDeviceContext(FHandle).Drawable, nil, 0, 0, 0, 0, Width, Height);
-    // В общем случае виджеты gtk2 не поддерживают альфа-канал.
-    // Поэтому пытаемся перенести альфу вручную
-    LSrc := PACLPixel32(gdk_pixbuf_get_pixels(LBuf));
-    LDst := PACLPixel32(FColors);
-    for I := 1 to ColorCount do
-    begin
-      // Gtk2 использует модель RGBA, тогда как Windows, Cairo (ну и мы) - BGRA.
-      // Посему конвертируем
-      LTmp    := LSrc^.R;
-      LSrc^.R := LSrc^.B;
-      LSrc^.B := LTmp;
-      // Если контент пикселя (не альфа) изменился - забираем его
-      if PDWORD(LSrc)^ and TACLPixel32.EssenceMask <> PDWORD(LDst)^ and TACLPixel32.EssenceMask then
-        // todo: попробовать восстановить альфу, исходя из фоного и результирующего цветов
-        PDWORD(LDst)^ := PDWORD(LSrc)^;
-      Inc(LDst);
-      Inc(LSrc);
-    end;
+    if (AImg^.bpp <> 4) or (AImg^.bpl <> Width * SizeOf(TACLPixel32)) or (AImg^.height <> Height) then
+      raise EInvalidGraphicOperation.CreateFmt('FastDib: drawable has wrong params (%d,%d,%d,%d)', [AImg^.bpp, AImg^.bpl, AImg^.width, AImg^.height]);
+    Move(AImg.mem^, FColors^, Width * Height * SizeOf(TACLPixel32));
   finally
-    gdk_pixbuf_unref(LBuf);
+    gdk_image_destroy(AImg);
   end;
 {$ELSE}
 begin
