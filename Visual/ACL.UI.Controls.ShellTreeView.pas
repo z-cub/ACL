@@ -6,7 +6,7 @@
 //  Purpose:   ShellTreeView
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -760,6 +760,8 @@ begin
     for I := 0 to ANode.ChildrenCount - 1 do
     begin
       LFolder := ANode.Children[I].Data;
+      if LFolder = nil then
+        Continue;
       if TACLShellFolder.Root.Compare(AAbsoluteID, LFolder.AbsoluteID) = 0 then
         Exit(ANode.Children[I]);
     end;
