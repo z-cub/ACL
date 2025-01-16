@@ -205,7 +205,7 @@ begin
     try
       if SelLength > 0 then
         CleanSelection;
-      if FocusedSection = tesNone then
+      if InRange(Cursor, 0, Length(Text) - 1) and (Text[LCursor + 1] = ':') then
         Inc(LCursor, 1);
       ValidateEdit(Replace(Text, acString(Key), LCursor, 1));
     finally
