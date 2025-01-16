@@ -259,6 +259,7 @@ type
   protected
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
+    procedure CreateParams(var Params: TCreateParams); override;
     function CreateSubClass: TACLCompoundControlSubClass; override;
     function GetContentOffset: TRect; override;
     procedure Paint; override;
@@ -1434,6 +1435,12 @@ begin
   FBorders := acAllBorders;
   FocusOnClick := True;
   AutoSize := True;
+end;
+
+procedure TACLCustomColorPicker.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.Style := Params.Style or WS_CLIPCHILDREN;
 end;
 
 procedure TACLCustomColorPicker.AlignControls(AControl: TControl; var Rect: TRect);
