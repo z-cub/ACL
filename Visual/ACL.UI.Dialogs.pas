@@ -6,7 +6,7 @@
 //  Purpose:   General Dialogs
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -90,7 +90,6 @@ type
     procedure DoApply(Sender: TObject = nil); virtual;
   public
     procedure AfterConstruction; override;
-    function IsShortCut(var Message: TWMKey): Boolean; override;
   end;
 
 {$REGION ' FileDialogs '}
@@ -523,6 +522,13 @@ end;
 
 function TACLCustomDialog.DialogChar(var Message: TWMKey): Boolean;
 begin
+  if ActiveControl <> nil then
+  begin
+    ActiveControl.WindowProc(TMessage(Message));
+    if Message.Result <> 0 then
+      Exit(True);
+  end;
+
   case Message.CharCode of
     VK_ESCAPE:
       begin
@@ -539,25 +545,6 @@ begin
       end;
   end;
   Result := inherited;
-end;
-
-function TACLCustomDialog.IsShortCut(var Message: TWMKey): Boolean;
-begin
-  Result := inherited IsShortCut(Message);
-  case Message.CharCode of
-    VK_ESCAPE:
-      ModalResult := mrCancel;
-
-    VK_RETURN:
-      if CanApply then
-      begin
-        if KeyDataToShiftState(Message.KeyData) * [ssAlt, ssCtrl, ssShift] = [ssCtrl] then
-        begin
-          DoApply;
-          ModalResult := mrOk;
-        end;
-      end;
-  end;
 end;
 
 { TACLDialogsStrs }

@@ -6,7 +6,7 @@
 //  Purpose:   Buttons
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -104,7 +104,7 @@ type
 
   { TACLCustomButtonSubClass }
 
-  TACLButtonStateFlag = (bsfPressed, bsfActive, bsfEnabled, bsfFocused, bsfDown, bsfDefault);
+  TACLButtonStateFlag = (bsfPressed, bsfHovered, bsfEnabled, bsfFocused, bsfDown, bsfDefault);
   TACLButtonStateFlags = set of TACLButtonStateFlag;
 
   TACLCustomButtonSubClass = class(TACLUnknownObject, IACLAnimateControl)
@@ -181,11 +181,11 @@ type
     property TextureSize: TSize read GetTextureSize;
     property Transparent: Boolean read GetTransparent;
     //# States
-    property IsActive: Boolean index bsfActive read GetFlag write SetFlag;
     property IsDefault: Boolean index bsfDefault read GetFlag write SetFlag;
     property IsDown: Boolean index bsfDown read GetFlag write SetFlag;
     property IsEnabled: Boolean index bsfEnabled read GetFlag write SetFlag;
     property IsFocused: Boolean index bsfFocused read GetFlag write SetFlag;
+    property IsHovered: Boolean index bsfHovered read GetFlag write SetFlag;
     property IsPressed: Boolean index bsfPressed read GetFlag write SetFlag;
     //# Events
     property OnClick: TNotifyEvent read FOnClick write FOnClick;
@@ -357,7 +357,6 @@ type
     // Messages
     procedure CMDialogKey(var Message: TCMDialogKey); message {%H-}CM_DIALOGKEY;
     procedure CMFocusChanged(var Message: TMessage); message CM_FOCUSCHANGED;
-    procedure CMWantSpecialKey(var Message: TCMWantSpecialKey); message CM_WANTSPECIALKEY;
   protected
     procedure ActionChange(Sender: TObject; CheckDefaults: Boolean); override;
     function CreateStyle: TACLStyleButton; override;
@@ -778,7 +777,7 @@ end;
 
 procedure TACLCustomButtonSubClass.MouseMove(Shift: TShiftState; const P: TPoint);
 begin
-  IsActive := IsEnabled and PtInRect(Bounds, P) and not (ssLeft in Shift);
+  IsHovered := IsEnabled and PtInRect(Bounds, P) and not (ssLeft in Shift);
 end;
 
 procedure TACLCustomButtonSubClass.MouseUp(Button: TMouseButton; const P: TPoint);
@@ -826,7 +825,7 @@ begin
     Result := absDisabled
   else if IsPressed or IsDown then
     Result := absPressed
-  else if IsActive then
+  else if IsHovered then
     Result := absHover
   else if IsFocused or IsDefault then
     Result := absActive
@@ -1354,12 +1353,14 @@ end;
 
 procedure TACLSimpleButton.ExecuteCancelAction;
 begin
-  if Cancel then Click;
+  if Cancel then
+    SubClass.PerformClick;
 end;
 
 procedure TACLSimpleButton.ExecuteDefaultAction;
 begin
-  if Default or SubClass.IsDefault then Click;
+  if SubClass.IsFocused or SubClass.IsDefault then
+    SubClass.PerformClick;
 end;
 
 procedure TACLSimpleButton.UpdateRolesForForm;
@@ -1377,7 +1378,7 @@ end;
 
 procedure TACLSimpleButton.CMDialogKey(var Message: TCMDialogKey);
 begin
-  if (Message.CharCode = VK_RETURN) and SubClass.IsDefault or
+  if (Message.CharCode = VK_RETURN) and (SubClass.IsFocused or SubClass.IsDefault) or
      (Message.CharCode = VK_ESCAPE) and Cancel
   then
     if (KeyDataToShiftState(Message.KeyData) = []) and CanFocus then
@@ -1401,17 +1402,6 @@ begin
     SubClass.IsDefault := Default;
 
   inherited;
-end;
-
-procedure TACLSimpleButton.CMWantSpecialKey(var Message: TCMWantSpecialKey);
-begin
-  if (Message.CharCode = VK_ESCAPE) and Cancel and Focused then
-  begin
-    PerformClick;
-    Message.Result := 1
-  end
-  else
-    inherited;
 end;
 
 function TACLSimpleButton.CreateStyle: TACLStyleButton;
