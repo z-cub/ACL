@@ -6,7 +6,7 @@
 //  Purpose:   String Utilities
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -100,11 +100,14 @@ type
   { TACLSearchString }
 
   TACLSearchString = class
+  strict private const
+    JoinChars = '-&';
   strict private
     FLock: TACLCriticalSection;
     FEmpty: Boolean;
     FIgnoreCase: Boolean;
     FIgnoreDiacritic: Boolean;
+    FIgnoreJoinChars: Boolean;
     FMask: TStringDynArray;
     FMaskResult: array of Boolean;
     FSeparator: Char;
@@ -112,7 +115,6 @@ type
 
     function GetValueIsNumeric: Boolean;
     function PrepareString(const AValue: string): string;
-    procedure SetIgnoreCase(const AValue: Boolean);
     procedure SetValue(AValue: string);
   public
     constructor Create; overload;
@@ -125,8 +127,9 @@ type
     function EndComparing: Boolean;
 
     property Empty: Boolean read FEmpty;
-    property IgnoreCase: Boolean read FIgnoreCase write SetIgnoreCase;
+    property IgnoreCase: Boolean read FIgnoreCase write FIgnoreCase;
     property IgnoreDiacritic: Boolean read FIgnoreDiacritic write FIgnoreDiacritic;
+    property IgnoreJoinChars: Boolean read FIgnoreJoinChars write FIgnoreJoinChars;
     property Separator: Char read FSeparator write FSeparator;
     property Value: string read FValue write SetValue;
     property ValueIsNumeric: Boolean read GetValueIsNumeric;
@@ -2552,6 +2555,7 @@ begin
   FEmpty := True;
   FIgnoreCase := True;
   FIgnoreDiacritic := True;
+  FIgnoreJoinChars := True;
   FSeparator := ' ';
 end;
 
@@ -2640,15 +2644,8 @@ begin
     Result := acRemoveDiacritic(Result);
   if IgnoreCase then
     Result := acUpperCase(Result);
-end;
-
-procedure TACLSearchString.SetIgnoreCase(const AValue: Boolean);
-begin
-  if FIgnoreCase <> AValue then
-  begin
-    FIgnoreCase := AValue;
-    Value := Value;
-  end;
+  if IgnoreJoinChars then
+    Result := acRemoveChar(acReplaceChars(AValue, JoinChars, #1), #1);
 end;
 
 procedure TACLSearchString.SetValue(AValue: string);
@@ -2795,7 +2792,9 @@ type
 
     procedure CheckNeighbors(S, T, ADelta: Integer; var AResult: Integer);
     begin
-      while (AResult < AEqualsNearbyTokens) and InRange(S, 1, ASourceLength) and InRange(T, 1, ATargetLength) and ACompareProc(S - 1, T - 1) do
+      while (AResult < AEqualsNearbyTokens) and
+        InRange(S, 1, ASourceLength) and
+        InRange(T, 1, ATargetLength) and ACompareProc(S - 1, T - 1) do
       begin
         Inc(S, ADelta);
         Inc(T, ADelta);
