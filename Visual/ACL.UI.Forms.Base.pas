@@ -6,7 +6,7 @@
 //  Purpose:   Basic Form things
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -301,22 +301,23 @@ type
     class function StayOnTopAvailable: Boolean;
   public
     class destructor Destroy;
-    class function ExecuteCommonDialog(ADialog: TCommonDialog; AHandleWnd: HWND): Boolean;
-    class function IsStayOnTop(AHandle: HWND): Boolean;
-    class function ShouldBeStayOnTop(AHandle: HWND): Boolean;
+    class function ExecuteCommonDialog(ADialog: TCommonDialog; AHandleWnd: TWndHandle): Boolean;
+    class function IsStayOnTop(AHandle: TWndHandle): Boolean;
+    class function ShouldBeStayOnTop(AHandle: TWndHandle): Boolean;
     class procedure Refresh(AForm: TACLCustomForm); overload;
     class procedure Refresh; overload;
   end;
 
 {$ENDREGION}
 
-procedure acSwitchToWindow(AHandle: HWND);
+procedure acSwitchToWindow(AHandle: TWndHandle);
 implementation
 
-{$IFNDEF FPC}
 uses
-  Vcl.AppEvnts;
+{$IFNDEF FPC}
+  Vcl.AppEvnts,
 {$ENDIF}
+  ACL.UI.Menus;
 
 type
   TCustomFormAccess = class(TCustomForm);
@@ -359,64 +360,6 @@ begin
   FreeAndNil(FEvents);
 end;
 
-class procedure TACLStayOnTopHelper.Refresh(AForm: TACLCustomForm);
-const
-  StyleMap: array[Boolean] of HWND = (HWND_NOTOPMOST, HWND_TOPMOST);
-var
-  AStayOnTop: Boolean;
-begin
-  if (AForm <> nil) and AForm.HandleAllocated and IsWindowVisible(AForm.Handle) then
-  begin
-    if csDesigning in AForm.ComponentState then Exit;
-
-    AStayOnTop := (AForm.FormStyle = fsStayOnTop) or StayOnTopAvailable and AForm.ShouldBeStayOnTop;
-    if IsStayOnTop(AForm.Handle) <> AStayOnTop then
-    begin
-      if AStayOnTop then
-        CheckForApplicationEvents;
-      SetWindowPos(AForm.Handle, StyleMap[AStayOnTop], 0, 0, 0, 0,
-        SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE or SWP_NOOWNERZORDER);
-    end;
-  end;
-end;
-
-class function TACLStayOnTopHelper.ExecuteCommonDialog(
-  ADialog: TCommonDialog; AHandleWnd: HWND): Boolean;
-begin
-  Application.ModalStarted;
-  try
-    Result := ADialog.Execute{$IFNDEF FPC}(AHandleWnd){$ENDIF};
-  finally
-    Application.ModalFinished;
-  end;
-end;
-
-class function TACLStayOnTopHelper.IsStayOnTop(AHandle: HWND): Boolean;
-begin
-  Result := (AHandle <> 0) and (GetWindowLong(AHandle, GWL_EXSTYLE) and WS_EX_TOPMOST <> 0);
-end;
-
-class procedure TACLStayOnTopHelper.Refresh;
-var
-  AForm: TForm;
-  I: Integer;
-begin
-  for I := Screen.FormCount - 1 downto 0 do
-  begin
-    AForm := Screen.Forms[I];
-    if AForm is TACLCustomForm then
-      Refresh(TACLCustomForm(AForm));
-  end;
-end;
-
-class function TACLStayOnTopHelper.ShouldBeStayOnTop(AHandle: HWND): Boolean;
-var
-  AControl: TWinControl;
-begin
-  AControl := FindControl(AHandle);
-  Result := (AControl is TACLCustomForm) and TACLCustomForm(AControl).ShouldBeStayOnTop;
-end;
-
 class procedure TACLStayOnTopHelper.AppEventsModalHandler(Sender: TObject);
 begin
   Refresh;
@@ -436,6 +379,62 @@ begin
     TApplicationEvents(FEvents).OnModalEnd := AppEventsModalHandler;
   {$ENDIF}
   end;
+end;
+
+class procedure TACLStayOnTopHelper.Refresh(AForm: TACLCustomForm);
+const
+  StyleMap: array[Boolean] of TWndHandle = (HWND_NOTOPMOST, HWND_TOPMOST);
+var
+  LStayOnTop: Boolean;
+begin
+  if (AForm <> nil) and AForm.HandleAllocated and IsWindowVisible(AForm.Handle) then
+  begin
+    if csDesigning in AForm.ComponentState then
+      Exit;
+    if acMenusHasActivePopup then
+      Exit;
+
+    LStayOnTop := (AForm.FormStyle = fsStayOnTop) or StayOnTopAvailable and AForm.ShouldBeStayOnTop;
+    if IsStayOnTop(AForm.Handle) <> LStayOnTop then
+    begin
+      if LStayOnTop then
+        CheckForApplicationEvents;
+      SetWindowPos(AForm.Handle, StyleMap[LStayOnTop], 0, 0, 0, 0,
+        SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE or SWP_NOOWNERZORDER);
+    end;
+  end;
+end;
+
+class function TACLStayOnTopHelper.ExecuteCommonDialog(
+  ADialog: TCommonDialog; AHandleWnd: TWndHandle): Boolean;
+begin
+  Application.ModalStarted;
+  try
+    Result := ADialog.Execute{$IFNDEF FPC}(AHandleWnd){$ENDIF};
+  finally
+    Application.ModalFinished;
+  end;
+end;
+
+class function TACLStayOnTopHelper.IsStayOnTop(AHandle: TWndHandle): Boolean;
+begin
+  Result := (AHandle <> 0) and (GetWindowLong(AHandle, GWL_EXSTYLE) and WS_EX_TOPMOST <> 0);
+end;
+
+class procedure TACLStayOnTopHelper.Refresh;
+var
+  I: Integer;
+begin
+  for I := Screen.FormCount - 1 downto 0 do
+    Refresh(Safe.CastOrNil<TACLCustomForm>(Screen.Forms[I]));
+end;
+
+class function TACLStayOnTopHelper.ShouldBeStayOnTop(AHandle: TWndHandle): Boolean;
+var
+  AControl: TWinControl;
+begin
+  AControl := FindControl(AHandle);
+  Result := (AControl is TACLCustomForm) and TACLCustomForm(AControl).ShouldBeStayOnTop;
 end;
 
 class function TACLStayOnTopHelper.StayOnTopAvailable: Boolean;
@@ -469,8 +468,12 @@ var
 begin
   //#AI: don't change the order
   Form := AForm;
+{$IFDEF MSWINDOWS}
   RedrawLocked := acOSCheckVersion(6, 0) and
     IsWindowVisible(AForm.Handle) and not (csDesigning in AForm.ComponentState);
+{$ELSE}
+  RedrawLocked := False;
+{$ENDIF}
   LockedControls := TComponentList.Create(False);
   PopulateControls(AForm);
   for I := 0 to LockedControls.Count - 1 do
@@ -1489,7 +1492,8 @@ begin
   begin
     inherited WndProc(Message);
   {$IFDEF MSWINDOWS}
-    if (Message.Msg = WM_SHOWWINDOW) or
+    if (Message.Msg = WM_ACTIVATE) or
+       (Message.Msg = WM_SHOWWINDOW) or
        (Message.Msg = WM_WINDOWPOSCHANGED) and Visible
     then
       TACLStayOnTopHelper.Refresh;
