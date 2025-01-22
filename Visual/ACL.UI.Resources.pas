@@ -6,7 +6,7 @@
 //  Purpose:   Styling Engine
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -52,8 +52,8 @@ uses
   ACL.Utils.RTTI;
 
 const
-  crDragRemove = TCursor(-25);
-  crDragLink = TCursor(-26);
+  crDragRemove = TCursor(-31);
+  crDragLink   = TCursor(-32);
 
 type
   TACLGlyph = class;
