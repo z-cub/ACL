@@ -2645,7 +2645,7 @@ begin
   if IgnoreCase then
     Result := acUpperCase(Result);
   if IgnoreJoinChars then
-    Result := acRemoveChar(acReplaceChars(AValue, JoinChars, #1), #1);
+    Result := acRemoveChar(acReplaceChars(Result, JoinChars, #1), #1);
 end;
 
 procedure TACLSearchString.SetValue(AValue: string);
