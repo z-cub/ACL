@@ -6,7 +6,7 @@
 //  Purpose:   Font Picker Dialog
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -66,7 +66,7 @@ type
     FontNameHeight = 260;
     FontNameWidth = 276;
   strict private
-    FColorPicker: TACLButton;
+    FColorPicker: TACLColorButton;
     FFontName: TACLTreeList;
     FFontNameEdit: TACLEdit;
     FFontSize: TACLTreeList;
@@ -99,13 +99,12 @@ type
     procedure PlaceControls(var R: TRect); override;
     procedure PopulateFonts;
     procedure PopulateFontSize;
-    procedure UpdateColorPickerPreview;
 
     procedure Initialize(AFont: TFont; AOnApply: TProc = nil);
     procedure LoadFontParams(AFont: TFont);
     procedure SaveFontParams(AFont: TFont);
 
-    property ColorPicker: TACLButton read FColorPicker;
+    property ColorPicker: TACLColorButton read FColorPicker;
     property FontName: TACLTreeList read FFontName;
     property FontNameEdit: TACLEdit read FFontNameEdit;
     property FontSize: TACLTreeList read FFontSize;
@@ -171,7 +170,7 @@ begin
   FFontSizeSign := Sign(AFont.Size);
   FontSizeEdit.Text := IntToStr(Abs(AFont.Size));
   FontNameEdit.Text := AFont.Name;
-  ColorPicker.Tag := TAlphaColor.FromColor(AFont.Color);
+  ColorPicker.Color := TAlphaColor.FromColor(AFont.Color);
 
   for I := 0 to FFontStyleGroup.ControlCount - 1 do
   begin
@@ -179,8 +178,6 @@ begin
     if AControl is TACLCheckBox then
       TACLCheckBox(AControl).Checked := TFontStyle(AControl.Tag) in AFont.Style;
   end;
-
-  UpdateColorPickerPreview;
 end;
 
 procedure TACLFontPickerDialog.SaveFontParams(AFont: TFont);
@@ -206,7 +203,7 @@ begin
   AFont.Name := FontNameEdit.Text;
   AFont.Style := GetFontStyle;
   AFont.Size := FFontSizeSign * StrToIntDef(FontSizeEdit.Text, 0);
-  AFont.Color := TAlphaColor(FColorPicker.Tag).ToColor;
+  AFont.Color := FColorPicker.Color.ToColor;
 end;
 
 procedure TACLFontPickerDialog.CreateControls;
@@ -248,8 +245,9 @@ begin
     ACheckBox.OnClick := HandlerFontModified;
   end;
 
-  CreateControl(FColorPicker, TACLButton, FFontStyleGroup,
+  CreateControl(FColorPicker, TACLColorButton, FFontStyleGroup,
     Rect(0, 0, FontSizeEdit.Width, dpiApply(ButtonHeight, FCurrentPPI)), alRight);
+  FColorPicker.ColorAllowEditAlpha := False;
   FColorPicker.OnClick := HandlerColorPickerClick;
   FColorPicker.Margins.Margins := Rect(3, 0, 0, 0);
   FColorPicker.AlignWithMargins := True;
@@ -339,8 +337,6 @@ begin
   R.Top := FPreview.BoundsRect.Bottom + AIndent;
 
   inherited;
-
-  UpdateColorPickerPreview;
 end;
 
 procedure TACLFontPickerDialog.PopulateFonts;
@@ -371,39 +367,10 @@ begin
   end;
 end;
 
-procedure TACLFontPickerDialog.UpdateColorPickerPreview;
-var
-  ABitmap: TACLDib;
-  AFocusRect: TRect;
-begin
-  if not ColorPicker.SubClass.FocusRect.IsEmpty then
-  begin
-    AFocusRect := ColorPicker.SubClass.FocusRect;
-    AFocusRect.Inflate(-1);
-    ABitmap := TACLDib.Create(AFocusRect);
-    try
-      acFillRect(ABitmap.Canvas, ABitmap.ClientRect, TAlphaColor(ColorPicker.Tag));
-      ColorPicker.Glyph.Overriden := True;
-      ColorPicker.Glyph.Scalable := TACLBoolean.False;
-      ColorPicker.Glyph.Image.LoadFromBitmap(ABitmap);
-    finally
-      ABitmap.Free;
-    end;
-  end;
-end;
-
 procedure TACLFontPickerDialog.HandlerColorPickerClick(Sender: TObject);
-var
-  AColor: TAlphaColor;
 begin
-  AColor := FColorPicker.Tag;
-  if TACLColorPickerDialog.Execute(AColor, False, Handle) then
-  begin
-    FColorPicker.Tag := AColor;
-    FPreview.Invalidate;
-    UpdateColorPickerPreview;
-    DoModified;
-  end;
+  FPreview.Invalidate;
+  DoModified;
 end;
 
 procedure TACLFontPickerDialog.HandlerFontModified(Sender: TObject);

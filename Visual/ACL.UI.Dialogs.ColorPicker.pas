@@ -6,7 +6,7 @@
 //  Purpose:   Color Picker Dialog
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -41,10 +41,44 @@ uses
   ACL.UI.Controls.ColorPicker,
   ACL.UI.Controls.Panel,
   ACL.UI.Dialogs,
+  ACL.UI.Resources,
   ACL.Utils.DPIAware,
   ACL.Utils.Common,
   ACL.Utils.Strings;
+
 type
+
+  { TACLColorButton }
+
+  TACLColorButton = class(TACLCustomButton)
+  strict private
+    FColorAllowEditAlpha: Boolean;
+    function GetColor: TAlphaColor;
+    procedure SetColor(AValue: TAlphaColor);
+  protected
+    procedure Click; override;
+    function CreateStyle: TACLStyleButton; override;
+    function CreateSubClass: TACLCustomButtonSubClass; override;
+  public
+    constructor Create(AOwner: TComponent); override;
+  published
+    property Alignment default taLeftJustify;
+    property Color: TAlphaColor read GetColor write SetColor default {TAlphaColor.None}0;
+    property ColorAllowEditAlpha: Boolean read FColorAllowEditAlpha write FColorAllowEditAlpha default True;
+  end;
+
+  { TACLColorButtonSubClass }
+
+  TACLColorButtonSubClass = class(TACLButtonSubClass)
+  strict private
+    FColor: TAlphaColor;
+    procedure SetColor(AValue: TAlphaColor);
+  protected
+    procedure CalculateImageRect(var R: TRect); override;
+    procedure DrawContent(ACanvas: TCanvas); override;
+  public
+    property Color: TAlphaColor read FColor write SetColor;
+  end;
 
   { TACLColorPickerDialog }
 
@@ -79,6 +113,76 @@ type
   end;
 
 implementation
+
+{ TACLColorButton }
+
+constructor TACLColorButton.Create(AOwner: TComponent);
+begin
+  inherited;
+  Alignment := taLeftJustify;
+  FColorAllowEditAlpha := True;
+end;
+
+procedure TACLColorButton.Click;
+var
+  LColor: TAlphaColor;
+begin
+  LColor := Color;
+  if TACLColorPickerDialog.Execute(LColor, ColorAllowEditAlpha, Handle, Caption) then
+  begin
+    Color := LColor;
+    inherited;
+  end;
+end;
+
+function TACLColorButton.CreateStyle: TACLStyleButton;
+begin
+  Result := TACLStyleButton.Create(Self);
+end;
+
+function TACLColorButton.CreateSubClass: TACLCustomButtonSubClass;
+begin
+  Result := TACLColorButtonSubClass.Create(Self);
+end;
+
+function TACLColorButton.GetColor: TAlphaColor;
+begin
+  Result := TACLColorButtonSubClass(SubClass).Color;
+end;
+
+procedure TACLColorButton.SetColor(AValue: TAlphaColor);
+begin
+  TACLColorButtonSubClass(SubClass).Color := AValue;
+end;
+
+{ TACLColorButtonSubClass }
+
+procedure TACLColorButtonSubClass.CalculateImageRect(var R: TRect);
+begin
+  FImageRect := R;
+  if Caption <> '' then
+  begin
+    FImageRect.Left := FImageRect.Right - FImageRect.Height;
+    R.Right := FImageRect.Left - GetIndentBetweenElements;
+  end
+  else
+    R := NullRect;
+end;
+
+procedure TACLColorButtonSubClass.DrawContent(ACanvas: TCanvas);
+begin
+  inherited;
+  acDrawColorPreview(ACanvas, FImageRect, Color);
+end;
+
+procedure TACLColorButtonSubClass.SetColor(AValue: TAlphaColor);
+begin
+  if FColor <> AValue then
+  begin
+    FColor := AValue;
+    Invalidate;
+  end;
+end;
 
 { TACLColorPickerDialog }
 

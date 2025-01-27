@@ -95,6 +95,7 @@ uses
   ACL.UI.Controls.TreeList,
   ACL.UI.Controls.TreeList.Types,
   ACL.UI.Dialogs,
+  ACL.UI.Dialogs.ColorPicker,
   ACL.UI.DropTarget,
   ACL.UI.Forms,
   ACL.UI.ImageList,
@@ -181,7 +182,7 @@ begin
 
   // Buttons
   RegisterPropertyEditor(TypeInfo(TImageIndex), TACLButton, 'ImageIndex', TACLImageIndexProperty);
-  RegisterComponents(sACLComponentsPage, [TACLButton, TACLCheckBox, TACLRadioBox]);
+  RegisterComponents(sACLComponentsPage, [TACLButton, TACLCheckBox, TACLRadioBox, TACLColorButton]);
 
   // Menus
   HideProperties(TACLPopupMenu, ['OnChange']);

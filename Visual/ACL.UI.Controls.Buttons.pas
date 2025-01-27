@@ -384,7 +384,6 @@ type
     //# Properties
     property SubClass: TACLButtonSubClass read GetSubClass;
   published
-    property Color;
     property Cancel: Boolean read FCancel write SetCancel default False;
     property Default: Boolean read FDefault write SetDefault default False;
     property Down: Boolean read GetDown write SetDown default False;
