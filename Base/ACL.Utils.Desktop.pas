@@ -95,6 +95,8 @@ end;
 function MonitorGetDefault: TACLMonitor;
 begin
   Result := Screen.PrimaryMonitor;
+  if Result = nil then
+    Result := Screen.Monitors[0];
 end;
 
 function MonitorGetDefaultBounds: TRect;

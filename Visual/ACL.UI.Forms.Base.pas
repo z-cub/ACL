@@ -105,6 +105,7 @@ type
   {$ELSE}
     procedure CMDialogKey(var Message: TCMDialogKey); message CM_DIALOGKEY;
     procedure CMParentFontChanged(var Message: TCMParentFontChanged); message CM_PARENTFONTCHANGED;
+    procedure CMShowingChanged(var Message: TMessage); message CM_SHOWINGCHANGED;
     procedure WMAppCommand(var Message: TMessage); message WM_APPCOMMAND;
     procedure WMDPIChanged(var Message: TWMDpi); message WM_DPICHANGED;
     procedure WMSettingsChanged(var Message: TWMSettingChange); message WM_SETTINGCHANGE;
@@ -310,14 +311,17 @@ type
 
 {$ENDREGION}
 
+type
+  TACLFormCorners = (afcDefault, afcRectangular, afcRounded, afcSmallRounded);
+
+function acFormSetCorners(AHandle: TWndHandle; ACorners: TACLFormCorners): Boolean;
 procedure acSwitchToWindow(AHandle: TWndHandle);
 implementation
 
-uses
 {$IFNDEF FPC}
-  Vcl.AppEvnts,
+uses
+  Vcl.AppEvnts;
 {$ENDIF}
-  ACL.UI.Menus;
 
 type
   TCustomFormAccess = class(TCustomForm);
@@ -602,6 +606,31 @@ end;
 {$ENDREGION}
 
 {$REGION ' Basic Form '}
+
+function acFormSetCorners(AHandle: HWND; ACorners: TACLFormCorners): Boolean;
+{$IFDEF MSWINDOWS}
+const
+  // Windows 11
+  //   https://docs.microsoft.com/en-us/windows/apps/desktop/modernize/apply-rounded-corners
+  DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+  //   Values (SizeOf = 4)
+  DWMWCP_DEFAULT    = 0; // Let the system decide whether or not to round window corners.
+  DWMWCP_DONOTROUND = 1; // Never round window corners.
+  DWMWCP_ROUND      = 2; // Round the corners if appropriate.
+  DWMWCP_ROUNDSMALL = 3; // Round the corners if appropriate, with a small radius.
+const
+  BorderCorners: array[TACLFormCorners] of Cardinal = (
+    DWMWCP_DEFAULT, DWMWCP_DONOTROUND, DWMWCP_ROUND, DWMWCP_ROUNDSMALL
+  );
+{$ENDIF}
+begin
+{$IFDEF MSWINDOWS}
+  Result := acOSCheckVersion(10, 0, 22000) and Succeeded(DwmSetWindowAttribute(
+    AHandle, DWMWA_WINDOW_CORNER_PREFERENCE, @BorderCorners[ACorners], SizeOf(Cardinal)));
+{$ELSE}
+  Result := False;
+{$ENDIF}
+end;
 
 procedure acSwitchToWindow(AHandle: HWND);
 {$IFDEF MSWINDOWS}
@@ -1023,6 +1052,22 @@ begin
     else
       TakeParentFontIfNecessary;
   end;
+{$ENDIF}
+end;
+
+procedure TACLBasicForm.CMShowingChanged(var Message: TMessage);
+begin
+{$IFDEF FPC}
+  inherited;
+{$ELSE}
+  if GetWindowLong(WindowHandle, GWL_EXSTYLE) and WS_EX_NOACTIVATE <> 0 then
+  begin
+    SetWindowPos(WindowHandle, 0, 0, 0, 0, 0,
+      IfThen(Showing, SWP_SHOWWINDOW, SWP_HIDEWINDOW) or
+      SWP_NOACTIVATE or SWP_NOSIZE or SWP_NOMOVE or SWP_NOZORDER or SWP_NOACTIVATE);
+  end
+  else
+    inherited;
 {$ENDIF}
 end;
 

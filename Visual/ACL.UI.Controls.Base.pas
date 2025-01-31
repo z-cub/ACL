@@ -84,6 +84,8 @@ const
   WM_MOUSEFIRST  = LM_MOUSEFIRST;
   WM_MOUSELAST   = LM_MOUSELAST;
   WM_DESTROY     = LM_DESTROY;
+  WM_RBUTTONDOWN = LM_RBUTTONDOWN;
+  WM_MBUTTONDOWN = LM_MBUTTONDOWN;
 
   csAligning     = csCreating; // просто потому, что оно в LCL не используется
 

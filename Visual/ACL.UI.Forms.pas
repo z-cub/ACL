@@ -3,10 +3,10 @@
 //  Project:   Artem's Controls Library aka ACL
 //             v6.0
 //
-//  Purpose:   forms and top-level windows
+//  Purpose:   Forms and Top-level Windows
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -90,7 +90,6 @@ type
   TACLPopupWindow = class(TACLBasicForm)
   strict private
     FOwnerFormWnd: TWndHandle;
-
     FOnClosePopup: TNotifyEvent;
     FOnPopup: TNotifyEvent;
 
@@ -104,11 +103,11 @@ type
     procedure KeyDownBeforeInterface(var Key: Word; Shift: TShiftState); override;
   {$ENDIF}
     procedure WndProc(var Message: TMessage); override;
+    //# Mouse
+    function IsMouseInControl: Boolean;
     //# Events
     procedure DoPopup; virtual;
     procedure DoPopupClosed; virtual;
-    //# Mouse
-    function IsMouseInControl: Boolean;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -128,7 +127,7 @@ type
 {$REGION ' Forms '}
 
 {$IFDEF ACL_USE_SKINNED_FORM}
-  TACLCustomFormImpl = TACLCustomStyledFormImpl;
+  TACLCustomFormImpl = TACLCustomStyledForm;
 {$ELSE}
   TACLCustomFormImpl = TACLCustomForm;
 {$ENDIF}
@@ -160,14 +159,16 @@ type
 
 {$ENDREGION}
 
-  TACLFormCorners = (afcDefault, afcRectangular, afcRounded, afcSmallRounded);
-
 function acGetWindowText(AHandle: HWND): string;
 procedure acSetWindowText(AHandle: HWND; const AText: string);
 
 procedure acFormsCloseAll;
-function acFormSetCorners(AHandle: HWND; ACorners: TACLFormCorners): Boolean;
 implementation
+
+{$IFDEF LCLGtk2}
+uses
+  ACL.UI.Core.Impl.Gtk2;
+{$ENDIF}
 
 type
   TWinControlAccess = class(TWinControl);
@@ -237,31 +238,6 @@ begin
   end;
 end;
 
-function acFormSetCorners(AHandle: HWND; ACorners: TACLFormCorners): Boolean;
-{$IFDEF MSWINDOWS}
-const
-  // Windows 11
-  //   https://docs.microsoft.com/en-us/windows/apps/desktop/modernize/apply-rounded-corners
-  DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-  //   Values (SizeOf = 4)
-  DWMWCP_DEFAULT    = 0; // Let the system decide whether or not to round window corners.
-  DWMWCP_DONOTROUND = 1; // Never round window corners.
-  DWMWCP_ROUND      = 2; // Round the corners if appropriate.
-  DWMWCP_ROUNDSMALL = 3; // Round the corners if appropriate, with a small radius.
-const
-  BorderCorners: array[TACLFormCorners] of Cardinal = (
-    DWMWCP_DEFAULT, DWMWCP_DONOTROUND, DWMWCP_ROUND, DWMWCP_ROUNDSMALL
-  );
-{$ENDIF}
-begin
-{$IFDEF MSWINDOWS}
-  Result := acOSCheckVersion(10, 0, 22000) and Succeeded(DwmSetWindowAttribute(
-    AHandle, DWMWA_WINDOW_CORNER_PREFERENCE, @BorderCorners[ACorners], SizeOf(Cardinal)));
-{$ELSE}
-  Result := False;
-{$ENDIF}
-end;
-
 {$REGION ' Popup Window '}
 
 { TACLPopupWindow }
@@ -294,6 +270,9 @@ procedure TACLPopupWindow.ClosePopup;
 begin
   if Visible then
   try
+  {$IFDEF LCLGtk2}
+    TGtk2App.EndPopup;
+  {$ENDIF}
     Hide;
     if FOwnerFormWnd <> 0 then
       SendMessage(FOwnerFormWnd, WM_EXITMENULOOP, 0, 0);
@@ -325,7 +304,8 @@ end;
 procedure TACLPopupWindow.CreateParams(var Params: TCreateParams);
 begin
   inherited;
-  Params.WindowClass.Style := Params.WindowClass.Style or CS_HREDRAW or CS_VREDRAW or CS_DROPSHADOW;
+  Params.WindowClass.Style := Params.WindowClass.Style or
+    CS_HREDRAW or CS_VREDRAW or CS_DROPSHADOW;
 end;
 
 procedure TACLPopupWindow.DoPopup;
@@ -427,6 +407,9 @@ begin
     SendMessage(FOwnerFormWnd, WM_ENTERMENULOOP, 0, 0);
 
   Visible := True;
+{$IFDEF LCLGtk2}
+  TGtk2App.BeginPopup(Self);
+{$ENDIF}
 end;
 
 {$IFDEF FPC}
@@ -452,38 +435,45 @@ end;
 
 procedure TACLPopupWindow.WndProc(var Message: TMessage);
 begin
-  if Visible then
-    case Message.Msg of
-      CM_CANCELMODE:
-        if not (fsShowing in FormState) then
-        begin
-          if not ContainsControl(TCMCancelMode(Message).Sender) then
-            ClosePopup;
-        end;
-      WM_GETDLGCODE:
-        Message.Result := DLGC_WANTARROWS or DLGC_WANTTAB or DLGC_WANTALLKEYS or DLGC_WANTCHARS;
-      WM_ACTIVATEAPP:
-        ClosePopup;
-      WM_CONTEXTMENU, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, CM_MOUSEWHEEL:
-        Exit;
-      WM_ACTIVATE:
-        with TWMActivate(Message) do
-          if Active = WA_INACTIVE then
-            TACLMainThread.RunPostponed(ClosePopup, Self)
-          else // c нашей формой, по идее, это не нужно:
-            SendMessage(ActiveWindow, WM_NCACTIVATE, WPARAM(True), 0);
-
-    {$IFNDEF FPC}
-      WM_KEYDOWN, CM_DIALOGKEY, CM_WANTSPECIALKEY:
-        if TWMKey(Message).CharCode = VK_ESCAPE then
-        begin
+  case Message.Msg of
+    CM_CANCELMODE:
+      if Visible and not (fsShowing in FormState) then
+      begin
+        if not ContainsControl(TCMCancelMode(Message).Sender) then
           ClosePopup;
-          TWMKey(Message).CharCode := 0;
-          TWMKey(Message).Result := 1;
-          Exit;
-        end;
-    {$ENDIF}
-    end;
+      end;
+
+    WM_CONTEXTMENU, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, CM_MOUSEWHEEL:
+      Exit;
+    WM_GETDLGCODE:
+      Message.Result := DLGC_WANTARROWS or DLGC_WANTTAB or DLGC_WANTALLKEYS or DLGC_WANTCHARS;
+    WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
+      if not IsMouseInControl then ClosePopup;
+
+    WM_ACTIVATEAPP:
+      ClosePopup;
+    WM_ACTIVATE:
+      if Visible then
+      begin
+        if TWMActivate(Message).Active = WA_INACTIVE then
+          TACLMainThread.RunPostponed(ClosePopup, Self)
+      {$IFDEF MSWINDOWS}
+        else // c нашей формой, по идее, это не нужно:
+          SendMessage(TWMActivate(Message).ActiveWindow, WM_NCACTIVATE, WPARAM(True), 0);
+      {$ENDIF}
+      end;
+
+  {$IFNDEF FPC}
+    WM_KEYDOWN, CM_DIALOGKEY, CM_WANTSPECIALKEY:
+      if Visible and (TWMKey(Message).CharCode = VK_ESCAPE) then
+      begin
+        ClosePopup;
+        TWMKey(Message).CharCode := 0;
+        TWMKey(Message).Result := 1;
+        Exit;
+      end;
+  {$ENDIF}
+  end;
   inherited;
 end;
 

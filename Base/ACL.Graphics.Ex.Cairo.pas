@@ -7,7 +7,7 @@
 //  Purpose:   Cairo Wrappers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -314,6 +314,7 @@ procedure cairo_fill_surface(ACairo: pcairo_t; ASurface: Pcairo_surface_t;
   AAlpha: Double; ATileMode: Boolean;
   AOperator: cairo_operator_t = CAIRO_OPERATOR_OVER;
   AFilter: cairo_filter_t = CAIRO_FILTER_NEAREST);
+procedure cairo_reset_rect(ACairo: pcairo_t; const R: TRect);
 implementation
 
 uses
@@ -697,6 +698,18 @@ begin
     else
       cairo_fill(ACairo);
   end;
+  cairo_set_operator(ACairo, LPrevOperator);
+end;
+
+procedure cairo_reset_rect(ACairo: pcairo_t; const R: TRect);
+var
+  LPrevOperator: cairo_operator_t;
+begin
+  LPrevOperator := cairo_get_operator(ACairo);
+  cairo_set_operator(ACairo, CAIRO_OPERATOR_SOURCE);
+  cairo_set_source_color(ACairo, TCairoColor.From(0, 0, 0, 0));
+  cairo_rectangle(ACairo, R.Left, R.Top, R.Right, R.Bottom);
+  cairo_fill(ACairo);
   cairo_set_operator(ACairo, LPrevOperator);
 end;
 

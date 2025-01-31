@@ -6,7 +6,7 @@
 //  Purpose:   Custom Skinned Top-Level Window
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -23,23 +23,11 @@ unit ACL.UI.Forms.Styled;
 interface
 
 uses
-{$IF DEFINED(LCLGtk2)}
-  GLib2,
-  Gdk2,
-  Gdk2x,
-  Gtk2,
-  Gtk2Def,
-  Gtk2Extra,
-  Gtk2Globals,
-  Gtk2Int,
-  Gtk2proc,
-  Gtk2WSForms,
-  WSLCLClasses,
-{$ENDIF}
 {$IFDEF FPC}
   LCLIntf,
   LCLType,
   LMessages,
+  WSLCLClasses,
 {$ELSE}
   Winapi.ActiveX,
   Winapi.CommDlg,
@@ -72,6 +60,9 @@ uses
   ACL.Threading,
   ACL.UI.Application,
   ACL.UI.Controls.Base,
+{$IFDEF LCLGtk2}
+  ACL.UI.Core.Impl.Gtk2,
+{$ENDIF}
   ACL.UI.Forms.Base,
   ACL.UI.Resources,
   ACL.Utils.Common,
@@ -79,30 +70,11 @@ uses
   ACL.Utils.RTTI,
   ACL.Utils.Strings;
 
-{$IFDEF FPC}
-const
-  HTNOWHERE     = 0;
-  HTCLIENT      = 1;
-  HTCAPTION     = 2;
-  HTSYSMENU     = 3;
-  HTMINBUTTON   = 8;
-  HTMAXBUTTON   = 9;
-  HTLEFT        = 10;
-  HTRIGHT       = 11;
-  HTTOP         = 12;
-  HTTOPLEFT     = 13;
-  HTTOPRIGHT    = 14;
-  HTBOTTOM      = 15;
-  HTBOTTOMLEFT  = 16;
-  HTBOTTOMRIGHT = 17;
-  HTCLOSE       = 20;
-{$ENDIF}
-
 type
 
-  { TACLCustomStyledForm }
+  { TACLAbstractStyledForm }
 
-  TACLCustomStyledForm = class(TACLCustomForm)
+  TACLAbstractStyledForm = class(TACLCustomForm)
   strict private
     FHoveredId: Integer;
     FPressedId: Integer;
@@ -170,10 +142,11 @@ type
     function Active: Boolean;
   end;
 
-{$REGION ' Form Implementation '}
-
 {$IFDEF MSWINDOWS}
-  TACLCustomStyledFormImpl = class(TACLCustomStyledForm)
+
+  { TACLCustomStyledForm }
+
+  TACLCustomStyledForm = class(TACLAbstractStyledForm)
   strict private
     FNativeBorderSize: Integer;
     FNativeCaptionSize: Integer;
@@ -191,13 +164,12 @@ type
   public
     constructor Create(AOwner: TComponent); override;
   end;
+
 {$ENDIF}
 
 {$IFDEF LCLGtk2}
 
-  { TACLCustomStyledFormImpl }
-
-  TACLCustomStyledFormImpl = class(TACLCustomStyledForm,
+  TACLCustomStyledForm = class(TACLAbstractStyledForm,
     IACLCursorProvider,
     IACLMouseTracking)
   strict private
@@ -226,47 +198,32 @@ type
     procedure SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer); override;
   end;
 
-  { TACLWSCustomStyledForm }
-
-  TACLWSCustomStyledForm = class(TGtk2WSCustomForm)
-  strict private
-    class function DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl; static;
-  published
-    class function CreateHandle(const AWinControl: TWinControl;
-      const AParams: TCreateParams): TLCLHandle; override;
-    class procedure SetCallbacks(const AWidget: PGtkWidget;
-      const AWidgetInfo: PWidgetInfo); override;
-    class procedure SetFormBorderStyle(const AForm: TCustomForm;
-      const AFormBorderStyle: TFormBorderStyle); override;
-    class procedure SetWindowCapabities(AForm: TCustomForm; AWidget: PGtkWidget);
-    class procedure ShowHide(const AWinControl: TWinControl); override;
-  end;
-
 {$ENDIF}
-{$ENDREGION}
 
 implementation
 
 uses
+{$IFDEF LCLGtk2}
+  Gdk2,
+{$ENDIF}
   ACL.Graphics.Ex,
   ACL.Graphics.SkinImage,
-  ACL.Graphics.SkinImageSet,
-  ACL.UI.Forms;
+  ACL.Graphics.SkinImageSet;
 
-{ TACLCustomStyledForm }
+{ TACLAbstractStyledForm }
 
-destructor TACLCustomStyledForm.Destroy;
+destructor TACLAbstractStyledForm.Destroy;
 begin
   TACLMouseTracker.Release(Self);
   inherited;
 end;
 
-function TACLCustomStyledForm.Active: Boolean;
+function TACLAbstractStyledForm.Active: Boolean;
 begin
   Result := inherited Active or (InMenuLoop > 0);
 end;
 
-procedure TACLCustomStyledForm.AdjustClientRect(var Rect: TRect);
+procedure TACLAbstractStyledForm.AdjustClientRect(var Rect: TRect);
 begin
   if UseCustomStyle and not (csDesigning in ComponentState) then
   begin
@@ -284,7 +241,7 @@ begin
   Rect.Content(Padding.GetScaledMargins(FCurrentPPI));
 end;
 
-procedure TACLCustomStyledForm.CalculateMetrics;
+procedure TACLAbstractStyledForm.CalculateMetrics;
 var
   LRect: TRect;
 begin
@@ -331,20 +288,20 @@ begin
   FMetrics.RectText.Right := LRect.Right - dpiApply(acTextIndent, FCurrentPPI);
 end;
 
-procedure TACLCustomStyledForm.BordersChanged;
+procedure TACLAbstractStyledForm.BordersChanged;
 begin
   CalculateMetrics;
   Realign;
   Invalidate;
 end;
 
-procedure TACLCustomStyledForm.DpiChanged;
+procedure TACLAbstractStyledForm.DpiChanged;
 begin
   inherited;
   BordersChanged;
 end;
 
-function TACLCustomStyledForm.HitTest(const P: TPoint): Integer;
+function TACLAbstractStyledForm.HitTest(const P: TPoint): Integer;
 var
   LButton: TFormButton;
   LRect: TRect;
@@ -397,18 +354,18 @@ begin
     Result := HTCLIENT;
 end;
 
-procedure TACLCustomStyledForm.InitializeNewForm;
+procedure TACLAbstractStyledForm.InitializeNewForm;
 begin
   inherited;
   CalculateMetrics;
 end;
 
-procedure TACLCustomStyledForm.InvalidateFrame;
+procedure TACLAbstractStyledForm.InvalidateFrame;
 begin
   Invalidate;
 end;
 
-procedure TACLCustomStyledForm.MouseDown(
+procedure TACLAbstractStyledForm.MouseDown(
   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
   inherited;
@@ -416,13 +373,13 @@ begin
     PressedId := HitTest(Point(X, Y));
 end;
 
-procedure TACLCustomStyledForm.MouseMove(Shift: TShiftState; X, Y: Integer);
+procedure TACLAbstractStyledForm.MouseMove(Shift: TShiftState; X, Y: Integer);
 begin
   inherited;
   HoveredId := HitTest(Point(X, Y));
 end;
 
-procedure TACLCustomStyledForm.MouseUp(
+procedure TACLAbstractStyledForm.MouseUp(
   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
   inherited;
@@ -441,7 +398,7 @@ begin
   PressedId := HTNOWHERE;
 end;
 
-procedure TACLCustomStyledForm.MouseTracking;
+procedure TACLAbstractStyledForm.MouseTracking;
 begin
   if UseCustomStyle then
   begin
@@ -453,7 +410,7 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledForm.Paint;
+procedure TACLAbstractStyledForm.Paint;
 begin
   if not (csDesigning in ComponentState) then
   begin
@@ -464,12 +421,12 @@ begin
   inherited;
 end;
 
-procedure TACLCustomStyledForm.PaintAppIcon(ACanvas: TCanvas; const R: TRect; AIcon: TIcon);
+procedure TACLAbstractStyledForm.PaintAppIcon(ACanvas: TCanvas; const R: TRect; AIcon: TIcon);
 begin
   ACanvas.StretchDraw(R, AIcon);
 end;
 
-procedure TACLCustomStyledForm.PaintBorderIcons(ACanvas: TCanvas);
+procedure TACLAbstractStyledForm.PaintBorderIcons(ACanvas: TCanvas);
 
   function GetHighlightColor(AButton: TFormButton): TAlphaColor;
   var
@@ -512,7 +469,7 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledForm.PaintBorders(ACanvas: TCanvas);
+procedure TACLAbstractStyledForm.PaintBorders(ACanvas: TCanvas);
 begin
   if FMetrics.BorderWidth > 0 then
   begin
@@ -525,7 +482,7 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledForm.PaintCaption(ACanvas: TCanvas);
+procedure TACLAbstractStyledForm.PaintCaption(ACanvas: TCanvas);
 var
   LIcon: TIcon;
 begin
@@ -543,12 +500,12 @@ begin
   acTextDraw(ACanvas, Caption, FMetrics.RectText, taLeftJustify, taVerticalCenter, True);
 end;
 
-function TACLCustomStyledForm.UseCustomStyle: Boolean;
+function TACLAbstractStyledForm.UseCustomStyle: Boolean;
 begin
   Result := True;
 end;
 
-procedure TACLCustomStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
+procedure TACLAbstractStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
 begin
   if UseCustomStyle then
     Msg.Result := HitTest(ScreenToClient(Msg.Pos))
@@ -556,19 +513,19 @@ begin
     inherited;
 end;
 
-procedure TACLCustomStyledForm.Resize;
+procedure TACLAbstractStyledForm.Resize;
 begin
   CalculateMetrics;
   MouseTracking;
   inherited;
 end;
 
-procedure TACLCustomStyledForm.ResourceChanged;
+procedure TACLAbstractStyledForm.ResourceChanged;
 begin
   Color := Style.ColorContent.AsColor;
 end;
 
-procedure TACLCustomStyledForm.ToggleMaximize;
+procedure TACLAbstractStyledForm.ToggleMaximize;
 begin
   if WindowState = wsMaximized then
     WindowState := wsNormal
@@ -576,7 +533,7 @@ begin
     WindowState := wsMaximized;
 end;
 
-procedure TACLCustomStyledForm.SetHoveredId(AValue: Integer);
+procedure TACLAbstractStyledForm.SetHoveredId(AValue: Integer);
 begin
   if FHoveredId <> AValue then
   begin
@@ -585,7 +542,7 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledForm.SetPressedId(AValue: Integer);
+procedure TACLAbstractStyledForm.SetPressedId(AValue: Integer);
 begin
   if FPressedId <> AValue then
   begin
@@ -594,7 +551,7 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledForm.WndProc(var Message: TMessage);
+procedure TACLAbstractStyledForm.WndProc(var Message: TMessage);
 begin
   inherited;
   case Message.Msg of
@@ -605,17 +562,17 @@ begin
   end;
 end;
 
-{$REGION ' Form Implementation - Windows'}{$IFDEF MSWINDOWS}
+{$IFDEF MSWINDOWS}
 
-{ TACLCustomStyledFormImpl }
+{ TACLCustomStyledForm }
 
-constructor TACLCustomStyledFormImpl.Create(AOwner: TComponent);
+constructor TACLCustomStyledForm.Create(AOwner: TComponent);
 begin
   inherited;
 //  TACLShadowWindow.Create(Self);
 end;
 
-procedure TACLCustomStyledFormImpl.CalculateMetrics;
+procedure TACLCustomStyledForm.CalculateMetrics;
 begin
   ZeroMemory(@FMetrics, SizeOf(FMetrics));
   if BorderStyle <> bsNone then
@@ -631,29 +588,29 @@ begin
   inherited;
 end;
 
-procedure TACLCustomStyledFormImpl.CreateHandle;
+procedure TACLCustomStyledForm.CreateHandle;
 begin
   inherited;
   acFormSetCorners(Handle, afcRounded);
 end;
 
-procedure TACLCustomStyledFormImpl.CreateParams(var Params: TCreateParams);
+procedure TACLCustomStyledForm.CreateParams(var Params: TCreateParams);
 begin
   inherited;
   Params.WindowClass.Style := Params.WindowClass.Style or CS_VREDRAW or CS_HREDRAW;
 end;
 
-procedure TACLCustomStyledFormImpl.PaintAppIcon(ACanvas: TCanvas; const R: TRect; AIcon: TIcon);
+procedure TACLCustomStyledForm.PaintAppIcon(ACanvas: TCanvas; const R: TRect; AIcon: TIcon);
 begin
   DrawIconEx(ACanvas.Handle, R.Left, R.Top, AIcon.Handle, R.Width, R.Width, 0, 0, DI_NORMAL);
 end;
 
-function TACLCustomStyledFormImpl.UseCustomStyle: Boolean;
+function TACLCustomStyledForm.UseCustomStyle: Boolean;
 begin
   Result := acOSCheckVersion(6, 2) and not (csDesigning in ComponentState);
 end;
 
-procedure TACLCustomStyledFormImpl.WMNCCalcSize(var Msg: TWMNCCalcSize);
+procedure TACLCustomStyledForm.WMNCCalcSize(var Msg: TWMNCCalcSize);
 var
   LRect: TRect;
 begin
@@ -670,7 +627,7 @@ begin
     inherited;
 end;
 
-procedure TACLCustomStyledFormImpl.WMNCHitTest(var Msg: TWMNCHitTest);
+procedure TACLCustomStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
 begin
   if UseCustomStyle then
   begin
@@ -684,13 +641,13 @@ begin
     inherited;
 end;
 
-procedure TACLCustomStyledFormImpl.WMNCMouseMove(var Msg: TMessage);
+procedure TACLCustomStyledForm.WMNCMouseMove(var Msg: TMessage);
 begin
   inherited;
   MouseTracking;
 end;
 
-procedure TACLCustomStyledFormImpl.WndProc(var Message: TMessage);
+procedure TACLCustomStyledForm.WndProc(var Message: TMessage);
 begin
   inherited;
   case Message.Msg of
@@ -700,156 +657,14 @@ begin
       MouseTracking;
   end;
 end;
-{$ENDIF}{$ENDREGION}
 
-{$REGION ' Form Implementation - Gtk2'}{$IFDEF LCLGtk2}
-//procedure gdk_window_show_window_menu(window: PGdkWindow; event: PGdkEvent);
-//const
-//  SubstructureNotifyMask   = 1 shl 19;
-//  SubstructureRedirectMask = 1 shl 20;
-//var
-//  deviceId: Integer;
-//  display: PGdkDisplay;
-//  x, y: gdouble;
-//  xclient: TXClientMessageEvent;
-//begin
-//  case event^._type of
-//    GDK_BUTTON_PRESS, GDK_BUTTON_RELEASE:;
-//  else
-//    Exit;
-//  end;
-//
-//  gdk_event_get_root_coords(event, @x, @y);
-//
-//  display := gdk_drawable_get_display(window);
-//  deviceId := 0;
-//  g_object_get(event^.button.device, 'device-id', @deviceId, nil);
-//
-//  GDK_WINDOW_IMPL_X11(window);
-//
-//  FillChar(xclient, sizeOf(xclient), 0);
-//  xclient._type := 33;//ClientMessage = 33;
-//  xclient.window := GDK_WINDOW_XID (window);
-//  xclient.message_type := gdk_x11_get_xatom_by_name_for_display(display, '_GTK_SHOW_WINDOW_MENU');
-//  xclient.data.l[0] := deviceId;
-//  xclient.data.l[1] := 0;
-//  xclient.data.l[2] := 0;
-//  //xclient.data.l[0] := device_id;
-//  //xclient.data.l[1] := x_root * impl->window_scale;
-//  //xclient.data.l[2] := y_root * impl->window_scale;
-//  xclient.format := 32;
-//
-//  XSendEvent(GDK_DISPLAY_XDISPLAY(display), GDK_WINDOW_XROOTWIN (window),
-//    False, SubstructureRedirectMask or SubstructureNotifyMask, @xclient);
-//end;
+{$ENDIF}
 
-procedure RegisterStyledForm;
-const
-  Done: Boolean = False;
-begin
-  if Done then exit;
-  RegisterWSComponent(TACLCustomStyledFormImpl, TACLWSCustomStyledForm);
-  Done := True;
-end;
+{$IFDEF LCLGtk2}
 
-{ TACLWSCustomStyledForm }
+{ TACLCustomStyledForm }
 
-class function TACLWSCustomStyledForm.CreateHandle(
-  const AWinControl: TWinControl; const AParams: TCreateParams): TLCLHandle;
-begin
-  Result := inherited;
-  SetWindowCapabities(TCustomForm(AWinControl), PGtkWidget(Result));
-end;
-
-class function TACLWSCustomStyledForm.DoRealize(Widget: PGtkWidget; Data: Pointer): GBoolean; cdecl;
-begin
-  // таким образом пытаемся добраться до метода RealizeAccelerator
-  Result := gtkRealizeCB(Widget, Data);
-  SetWindowCapabities(TCustomForm(Data), Widget);
-end;
-
-class procedure TACLWSCustomStyledForm.SetCallbacks(
-  const AWidget: PGtkWidget; const AWidgetInfo: PWidgetInfo);
-var
-  LFixed: PGtkWidget;
-begin
-  inherited SetCallbacks(AWidget, AWidgetInfo);
-
-  if AWidgetInfo^.Style and WS_CHILD = 0 then
-  begin
-    // подменяем gtkRealizeCB нашим обработчиком, чтобы подсунуть окну правильную декорацию и функционал
-    g_signal_handlers_disconnect_by_func(AWidget, @gtkRealizeCB, AWidgetInfo^.LCLObject);
-    g_signal_connect(AWidget, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
-
-    LFixed := GetFixedWidget(AWidget);
-    if LFixed <> nil then
-    begin
-      g_signal_handlers_disconnect_by_func(LFixed, @gtkRealizeCB, AWidgetInfo^.LCLObject);
-      g_signal_connect(LFixed, 'realize', TGTKSignalFunc(@DoRealize), AWidgetInfo^.LCLObject);
-    end;
-  end;
-end;
-
-class procedure TACLWSCustomStyledForm.SetFormBorderStyle(
-  const AForm: TCustomForm; const AFormBorderStyle: TFormBorderStyle);
-var
-  LWidget: PGtkWidget;
-  LWidgetInfo: PWidgetInfo;
-begin
-  if AForm.Parent <> nil then Exit;
-  LWidget := {%H-}PGtkWidget(AForm.Handle);
-  LWidgetInfo := GetWidgetInfo(LWidget);
-  if FormStyleMap[AFormBorderStyle] <> FormStyleMap[TFormBorderStyle(LWidgetInfo.FormBorderStyle)] then
-    RecreateWnd(AForm)
-  else
-  begin
-    SetWindowCapabities(AForm, LWidget);
-    LWidgetInfo^.FormBorderStyle := Ord(AFormBorderStyle);
-  end;
-end;
-
-class procedure TACLWSCustomStyledForm.SetWindowCapabities(AForm: TCustomForm; AWidget: PGtkWidget);
-var
-  LWnd: PGdkWindow;
-begin
-  if AForm.Parent = nil then
-  begin
-    LWnd := gtk_widget_get_toplevel(AWidget)^.window;
-    if LWnd <> nil then
-    begin
-      gdk_window_set_decorations(LWnd, 0);
-      gdk_window_set_functions(LWnd, GetWindowFunction(AForm));
-    end;
-  end;
-end;
-
-class procedure TACLWSCustomStyledForm.ShowHide(const AWinControl: TWinControl);
-var
-  LForm: TCustomForm absolute AWinControl;
-  LGtkWindow: PGtkWindow;
-begin
-  if (fsModal in LForm.FormState) and LForm.HandleObjectShouldBeVisible then
-  begin
-    // только ради GDK_WINDOW_TYPE_HINT_DIALOG, чтобы модалка
-    // ни при каких условиях не создавала собственную кнопку на таскбаре
-    LGtkWindow := {%H-}PGtkWindow(LForm.Handle);
-    gtk_window_set_default_size(LGtkWindow, Max(1, LForm.Width), Max(1, LForm.Height));
-    gtk_widget_set_uposition(PGtkWidget(LGtkWindow), LForm.Left, LForm.Top);
-    gtk_window_set_type_hint(LGtkWindow, GDK_WINDOW_TYPE_HINT_DIALOG);
-    GtkWindowShowModal(LForm, LGtkWindow);
-
-    InvalidateLastWFPResult(LForm, LForm.BoundsRect);
-  end
-  else
-  begin
-    inherited;
-    SetWindowCapabities(LForm, PGtkWidget(LForm.Handle));
-  end;
-end;
-
-{ TACLCustomStyledFormImpl }
-
-procedure TACLCustomStyledFormImpl.CalculateMetrics;
+procedure TACLCustomStyledForm.CalculateMetrics;
 var
   LRect: TRect;
 begin
@@ -866,7 +681,7 @@ begin
   inherited;
 end;
 
-function TACLCustomStyledFormImpl.GetCursor(const P: TPoint): TCursor;
+function TACLCustomStyledForm.GetCursor(const P: TPoint): TCursor;
 const
   CursorMap: array [HTLEFT..HTBOTTOMRIGHT] of TCursor = (
     crSizeWE, crSizeWE, crSizeNS, crSizeNW,
@@ -884,23 +699,16 @@ begin
   end;
 end;
 
-function TACLCustomStyledFormImpl.IsMouseAtControl: Boolean;
+function TACLCustomStyledForm.IsMouseAtControl: Boolean;
 begin
   MouseTracking;
   Result := HoveredId <> HTNOWHERE;
 end;
 
-procedure TACLCustomStyledFormImpl.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-const
-  BorderMap: array[HTLEFT..HTBOTTOMRIGHT] of TGdkWindowEdge = (
-    GDK_WINDOW_EDGE_WEST, GDK_WINDOW_EDGE_EAST,
-    GDK_WINDOW_EDGE_NORTH, GDK_WINDOW_EDGE_NORTH_WEST, GDK_WINDOW_EDGE_NORTH_EAST,
-    GDK_WINDOW_EDGE_SOUTH, GDK_WINDOW_EDGE_SOUTH_WEST, GDK_WINDOW_EDGE_SOUTH_EAST
-  );
+procedure TACLCustomStyledForm.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   LHitCode: Integer;
   LPoint: TPoint;
-  LXPos, LYPos: gint;
 begin
   if Button = mbLeft then
   begin
@@ -912,33 +720,21 @@ begin
 
       HTLEFT..HTBOTTOMRIGHT:
         if acCanStartDragging(Self, X, Y) then
-        begin
-          MouseCapture := False;
-          LastMouse.Down := False;
-          gtk_window_begin_resize_drag(PGtkWindow(Handle),
-            BorderMap[LHitCode], 1, LPoint.X, LPoint.Y, GDK_CURRENT_TIME);
-        end;
+          Gtk2StartDrag(Self, LPoint, LHitCode);
 
       HTCAPTION:
         if ssDouble in Shift then
           ToggleMaximize
         else
           if acCanStartDragging(Self, X, Y) then
-          begin
-            MouseCapture := False;
-            LastMouse.Down := False;
-            LXPos := 0; LYPos := 0;
-            gdk_window_get_origin(GetControlWindow(PGtkWindow(Handle)), @LXPos, @LYPos);
-            gtk_widget_set_uposition(PGtkWidget(Handle), LXPos, LYPos);
-            gtk_window_begin_move_drag(PGtkWindow(Handle), 1, LPoint.X, LPoint.Y, GDK_CURRENT_TIME);
-          end;
+            Gtk2StartDrag(Self, LPoint, LHitCode);
     else
       inherited MouseDown(Button, Shift, X, Y);
     end;
   end;
 end;
 
-procedure TACLCustomStyledFormImpl.MouseMove(Shift: TShiftState; X, Y: Integer);
+procedure TACLCustomStyledForm.MouseMove(Shift: TShiftState; X, Y: Integer);
 begin
   inherited MouseMove(Shift, X, Y);
   case HoveredId of
@@ -949,13 +745,13 @@ begin
   end;
 end;
 
-procedure TACLCustomStyledFormImpl.Resize;
+procedure TACLCustomStyledForm.Resize;
 begin
   inherited Resize;
   UpdateClientOffsets;
 end;
 
-procedure TACLCustomStyledFormImpl.Resizing(State: TWindowState);
+procedure TACLCustomStyledForm.Resizing(State: TWindowState);
 begin
   if State <> WindowState then
   begin
@@ -966,28 +762,28 @@ begin
     inherited;
 end;
 
-procedure TACLCustomStyledFormImpl.Loaded;
+procedure TACLCustomStyledForm.Loaded;
 begin
   FInLoaded := True;
   inherited;
   FInLoaded := False;
 end;
 
-procedure TACLCustomStyledFormImpl.SetClientHeight(Value: Integer);
+procedure TACLCustomStyledForm.SetClientHeight(Value: Integer);
 begin
   if not (csReadingState in ControlState) then
     Inc(Value, 2 * FMetrics.BorderWidth + FMetrics.CaptionHeight);
   inherited SetClientHeight(Value);
 end;
 
-procedure TACLCustomStyledFormImpl.SetClientWidth(Value: Integer);
+procedure TACLCustomStyledForm.SetClientWidth(Value: Integer);
 begin
   if not (csReadingState in ControlState) then
     Inc(Value, 2 * FMetrics.BorderWidth);
   inherited SetClientWidth(Value);
 end;
 
-procedure TACLCustomStyledFormImpl.SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer);
+procedure TACLCustomStyledForm.SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight: Integer);
 begin
   if FInLoaded then
   begin
@@ -1000,12 +796,12 @@ begin
   inherited SetBoundsKeepBase(aLeft, aTop, aWidth, aHeight);
 end;
 
-procedure TACLCustomStyledFormImpl.Nothing;
+procedure TACLCustomStyledForm.Nothing;
 begin
   // do nothing
 end;
 
-procedure TACLCustomStyledFormImpl.UpdateClientOffsets;
+procedure TACLCustomStyledForm.UpdateClientOffsets;
 var
   LControl: TControl;
   LDelta: TRect;
@@ -1068,11 +864,16 @@ begin
   end;
 end;
 
-class procedure TACLCustomStyledFormImpl.WSRegisterClass;
+class procedure TACLCustomStyledForm.WSRegisterClass;
+const
+  Done: Boolean = False;
 begin
+  if Done then exit;
   inherited;
-  RegisterStyledForm;
+  RegisterWSComponent(TACLCustomStyledForm, TACLGtk2WSAdvancedForm);
+  Done := True;
 end;
+
 {$ENDIF}
-{$ENDREGION}
+
 end.
