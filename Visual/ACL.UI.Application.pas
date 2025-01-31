@@ -249,9 +249,21 @@ class procedure TACLApplication.SetDefaultFont(AName: TFontName; AHeight: Intege
 begin
   TACLFontCache.RemapFont(AName, AHeight);
   AHeight := MulDiv(AHeight, acGetSystemDpi, acDefaultDpi);
-  DefaultFont.Name := AName;
-  DefaultFont.Height := AHeight;
+
+  DefFontData.Name := TFontDataName(AName);
   DefFontData.Height := AHeight;
+
+{$IFDEF FPC}
+  DefaultFont.BeginUpdate;
+  try
+{$ENDIF}
+    DefaultFont.Name := AName;
+    DefaultFont.Height := AHeight;
+{$IFDEF FPC}
+  finally
+    DefaultFont.EndUpdate;
+  end;
+{$ENDIF}
 end;
 
 class procedure TACLApplication.UpdateColorSet;

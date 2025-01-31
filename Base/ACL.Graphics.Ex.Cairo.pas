@@ -361,7 +361,8 @@ type
   strict private
     class var FBitmap: TACLDib;
     class var FContext: Pcairo_t;
-    class var FDefaultFontData: TFontData;
+    class var FDefaultFontName: TFontDataName;
+    class var FDefaultFontSize: Integer;
     class var FUtf8Buffer: PAnsiChar;
     class var FUtf8BufferSize: Integer;
     class procedure InitDefaultFont;
@@ -1286,27 +1287,35 @@ end;
 
 class function TCairoHelper.DefaultFontName: TFontDataName;
 begin
-  if FDefaultFontData.Name = '' then
+  if FDefaultFontName = '' then
     InitDefaultFont;
-  Result := FDefaultFontData.Name;
+  Result := FDefaultFontName;
 end;
 
 class function TCairoHelper.DefaultFontSize: Integer;
 begin
-  if FDefaultFontData.Height = 0 then
+  if FDefaultFontSize = 0 then
     InitDefaultFont;
-  Result := FDefaultFontData.Height;
+  Result := FDefaultFontSize;
 end;
 
 class procedure TCairoHelper.InitDefaultFont;
+var
+  LFont: TLogFont;
 begin
-{$IFDEF FPC}
-  FDefaultFontData := GetFontData(GetStockObject(DEFAULT_GUI_FONT));
-  if FDefaultFontData.Name = '' then
-    FDefaultFontData.Name := GetDefaultFontName;
-{$ELSE}
-  FDefaultFontData := DefFontData;
-{$ENDIF}
+  GetObject(GetStockObject(DEFAULT_GUI_FONT), SizeOf(TLogFont), @LFont);
+  FDefaultFontName := TFontDataName(string(LFont.lfFaceName));
+  FDefaultFontSize := LFont.lfHeight;
+  if FDefaultFontName = '' then
+  {$IFDEF LCLGtk2}
+    FDefaultFontName := GetDefaultFontName;
+  {$ELSE}
+    FDefaultFontName := DefFontData.Name;
+  {$ENDIF}
+  if FDefaultFontSize = 0 then
+    FDefaultFontSize := DefFontData.Height;
+  if FDefaultFontSize = 0 then
+    FDefaultFontSize := -11;
 end;
 
 class function TCairoHelper.Measurer(ACanvas: TCanvas): Pcairo_t;
