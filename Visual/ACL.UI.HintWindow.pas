@@ -184,7 +184,7 @@ implementation
 
 uses
   ACL.Classes,
-  ACL.UI.Menus,
+  ACL.UI.Controls.Base,
   ACL.Utils.Common,
   ACL.Utils.Desktop;
 
@@ -551,7 +551,7 @@ var
   LForm: TCustomForm;
 begin
   Result := Application.ShowHint and (AHintOwner <> nil) and (AHintData.Text <> '') and
-    GetOwnerForm(LForm) and IsFormActive(LForm) and not acMenusHasActivePopup;
+    GetOwnerForm(LForm) and IsFormActive(LForm) and (acMenuLoopCount = 0);
 end;
 
 function TACLHintController.CanShowHintOverOwner: Boolean;

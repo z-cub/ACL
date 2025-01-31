@@ -881,6 +881,9 @@ type
   TACLScrollToMode = (MakeVisible, MakeTop, MakeCenter);
   {$SCOPEDENUMS OFF}
 
+var
+  acMenuLoopCount: Integer = 0; //!!! read-only
+
 function CallCustomDrawEvent(Sender: TObject;
   AEvent: TACLCustomDrawEvent; ACanvas: TCanvas; const R: TRect): Boolean;
 function CreateControl(AClass: TControlClass; AParent: TWinControl;

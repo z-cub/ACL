@@ -391,7 +391,7 @@ begin
   begin
     if csDesigning in AForm.ComponentState then
       Exit;
-    if acMenusHasActivePopup then
+    if acMenuLoopCount > 0 then
       Exit;
 
     LStayOnTop := (AForm.FormStyle = fsStayOnTop) or StayOnTopAvailable and AForm.ShouldBeStayOnTop;

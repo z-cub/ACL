@@ -710,7 +710,6 @@ type
 
 function acMenuAppendShortCut(const AHint: string; AShortCut: TShortCut): string;
 function acMenuEscapeHotkeys(const ACaption: string): string;
-function acMenusHasActivePopup: Boolean;
 implementation
 
 uses
@@ -756,9 +755,6 @@ type
 
 {$ENDIF}
 
-var
-  FMenuLoopCount: Integer;
-
 function acMenuAppendShortCut(const AHint: string; AShortCut: TShortCut): string;
 begin
   if AShortCut = 0 then
@@ -772,11 +768,6 @@ end;
 function acMenuEscapeHotkeys(const ACaption: string): string;
 begin
   Result := acStringReplace(ACaption, cHotkeyPrefix, cHotkeyPrefix + cHotkeyPrefix);
-end;
-
-function acMenusHasActivePopup: Boolean;
-begin
-  Result := FMenuLoopCount > 0;
 end;
 
 {$REGION ' Helpers '}
@@ -2587,7 +2578,7 @@ constructor TACLMenuPopupLooper.Create(AOwner: TACLMenuPopupWindow);
 
 begin
   FWnd := AOwner;
-  Inc(FMenuLoopCount);
+  Inc(acMenuLoopCount);
   FDelayTimer := TACLTimer.CreateEx(DoShowPopupDelayed, GetMenuDelayTime);
   FPopups := TObjectStack<TACLMenuPopupWindow>.Create;
   FPopups.Push(Wnd);
@@ -2610,7 +2601,7 @@ begin
   while FPopups.Count > 1 do
     FPopups.Pop;
   // Notifications
-  Dec(FMenuLoopCount); // first
+  Dec(acMenuLoopCount); // first
   if FForm <> nil then
     SendMessage(FForm.Handle, WM_EXITMENULOOP, 0, 0);
   if FPostponedSelection <> nil then
