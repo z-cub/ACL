@@ -594,7 +594,6 @@ end;
 class constructor TACLMultithreadedOperation.Create;
 begin
   FLock := TACLCriticalSection.Create;
-  FLockEvent := TACLEvent.Create;
 end;
 
 class destructor TACLMultithreadedOperation.Destroy;
@@ -610,6 +609,9 @@ begin
   begin
     FLock.Enter;
     try
+      if FLockEvent = nil then
+        FLockEvent := TACLEvent.Create;
+
       FFilterProc := AFilterProc;
       FNumberOfActiveThreads := AChunkCount;
       if AChunkCount > 1 then

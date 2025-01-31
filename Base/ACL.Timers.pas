@@ -129,6 +129,8 @@ type
     procedure SafeCallTimerProc(ATimer: TACLTimer); inline;
     procedure SafeUpdateHighResolutionThread;
   protected
+    class procedure TimerProc(hWnd: HWND; uMsg: UINT; idEvent: UINT_PTR; dwTime: DWORD); stdcall; static;
+  protected
     FHandle: HWND;
     FHighResolutionThread: TACLPauseableThread;
     FHighResolutionTimers: TThreadList;
@@ -385,7 +387,9 @@ begin
       SafeUpdateHighResolutionThread;
     end
     else
-      SetTimer(FHandle, NativeUInt(ATimer), AlignToSystemTimerResolution(ATimer.Interval), nil);
+      SetTimer(FHandle, NativeUInt(ATimer),
+        AlignToSystemTimerResolution(ATimer.Interval),
+        {$IFDEF FPC}@TimerProc{$ELSE}nil{$ENDIF}); // for .SO
   finally
     FLock.Leave;
   end;
@@ -475,6 +479,12 @@ begin
   finally
     FHighResolutionTimers.UnlockList;
   end;
+end;
+
+class procedure TACLTimerManager.TimerProc(
+  hWnd: HWND; uMsg: UINT; idEvent: UINT_PTR; dwTime: DWORD); stdcall;
+begin
+  SendMessage(hWnd, uMsg, idEvent, 0);
 end;
 
 procedure TACLTimerManager.SafeCallTimerProcs(AList: TList);

@@ -20,6 +20,7 @@ interface
 
 uses
 {$IFDEF FPC}
+  dl,
   InterfaceBase,
   LCLIntf,
   LCLType,
@@ -464,9 +465,16 @@ begin
       LActualLibPath := ResolveLibraryPath(AFileName);
   end;
   if LActualLibPath <> '' then
-    Result := LoadLibrary(LActualLibPath)
+  begin
+    Result := LoadLibrary(LActualLibPath);
+    if Result = 0 then
+      WriteLn('Library "', AFileName, '" failed to load ', dlerror());
+  end
   else
+  begin
     Result := 0;
+    WriteLn('Library "', AFileName, '" was not found');
+  end;
 {$ENDIF}
 end;
 
