@@ -310,7 +310,7 @@ type
     class var FEncodeFunc: TEncodeFunc;
     class var FFreeFunc: TFreeFunc;
     class var FGetInfoFunc: TGetInfoFunc;
-    class var FLibHandle: HMODULE;
+    class var FInitialized: Boolean;
     class procedure Encode(AStream: TStream; AData: PByte; AWidth, AHeight: Integer);
   protected
     class function CheckIsAvailable: Boolean; override;
@@ -320,10 +320,11 @@ type
     class procedure Save(AStream: TStream; AImage: TACLImage); override;
   public
     class destructor Destroy;
+    class procedure Init(ALibHandle: HMODULE);
     class function Description: string; override;
     class function Ext: string; override;
-    class function MimeType: string; override;
     class function GetSize(AStream: TStream; out ASize: TSize): Boolean; override;
+    class function MimeType: string; override;
   end;
 
   { TACLImageTools }
@@ -1742,9 +1743,19 @@ end;
 
 { TACLImageFormatWebP }
 
+class procedure TACLImageFormatWebP.Init(ALibHandle: HMODULE);
+begin
+  FInitialized := True;
+  @FGetInfoFunc := acGetProcAddress(ALibHandle, 'WebPGetInfo', FInitialized);
+  @FDecodeFunc := acGetProcAddress(ALibHandle, 'WebPDecodeBGRA', FInitialized);
+  @FEncodeFunc := acGetProcAddress(ALibHandle, 'WebPEncodeBGRA', FInitialized);
+  @FFreeFunc := acGetProcAddress(ALibHandle, 'WebPFree', FInitialized);
+end;
+
 class destructor TACLImageFormatWebP.Destroy;
 begin
-  acFreeLibrary(FLibHandle);
+  FInitialized := False;
+  FGetInfoFunc := nil;
   FEncodeFunc := nil;
   FDecodeFunc := nil;
   FFreeFunc := nil;
@@ -1752,12 +1763,9 @@ end;
 
 class function TACLImageFormatWebP.CheckIsAvailable: Boolean;
 begin
-  Result := True;
-  FLibHandle := acLoadLibrary('libwebp' + LibExt);
-  @FGetInfoFunc := acGetProcAddress(FLibHandle, 'WebPGetInfo', Result);
-  @FDecodeFunc := acGetProcAddress(FLibHandle, 'WebPDecodeBGRA', Result);
-  @FEncodeFunc := acGetProcAddress(FLibHandle, 'WebPEncodeBGRA', Result);
-  @FFreeFunc := acGetProcAddress(FLibHandle, 'WebPFree', Result);
+  if not FInitialized then
+    Init(acLoadLibrary('libwebp' + LibExt));
+  Result := FInitialized;
 end;
 
 class function TACLImageFormatWebP.Description: string;
