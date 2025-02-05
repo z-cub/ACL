@@ -1214,49 +1214,49 @@ end;
 procedure TACLStyleMenu.DrawItemImage(ACanvas: TCanvas;
   ARect: TRect; AItem: TMenuItem; ASelected: Boolean);
 var
-  AClipRegion: TRegionHandle;
-  AGlyph: TACLGlyph;
-  AImages: TCustomImageList;
-  AIntf: IACLGlyph;
+  LClipRegion: TRegionHandle;
+  LGlyph: TACLGlyph;
+  LImages: TCustomImageList;
+  LIntf: IACLGlyph;
 begin
-  if acStartClippedDraw(ACanvas.Handle, ARect, AClipRegion) then
+  if acStartClippedDraw(ACanvas.Handle, ARect, LClipRegion) then
   try
     // DPI aware Glyph
-    if Supports(AItem, IACLGlyph, AIntf) and not AIntf.GetGlyph.Empty then
+    if Supports(AItem, IACLGlyph, LIntf) and not LIntf.GetGlyph.Empty then
     begin
-      AGlyph := AIntf.GetGlyph;
-      AGlyph.TargetDPI := TargetDPI;
-      ARect.Center(AGlyph.FrameSize);
-      AGlyph.Draw(ACanvas, ARect, AItem.Enabled);
+      LGlyph := LIntf.GetGlyph;
+      LGlyph.TargetDPI := TargetDPI;
+      ARect := acFitRect(ARect, LGlyph.FrameSize, afmFit);
+      LGlyph.Draw(ACanvas, ARect, AItem.Enabled);
     end
     else
 
     // VCL Glyph
     if IsBitmapDefined(AItem) then
     begin
-      AGlyph := TACLGlyph.Create(nil);
+      LGlyph := TACLGlyph.Create(nil);
       try
-        AGlyph.ImportFromImage(AItem.Bitmap, acDefaultDPI);
-        AGlyph.TargetDPI := TargetDPI;
-        ARect.Center(AGlyph.FrameSize);
-        AGlyph.Draw(ACanvas, ARect, AItem.Enabled);
+        LGlyph.ImportFromImage(AItem.Bitmap, acDefaultDPI);
+        LGlyph.TargetDPI := TargetDPI;
+        ARect := acFitRect(ARect, LGlyph.FrameSize, afmFit);
+        LGlyph.Draw(ACanvas, ARect, AItem.Enabled);
       finally
-        AGlyph.Free;
+        LGlyph.Free;
       end;
     end
     else
 
     // ImageList
     begin
-      AImages := AItem.GetImageList;
-      if (AImages <> nil) and (AItem.ImageIndex >= 0) then
+      LImages := AItem.GetImageList;
+      if (LImages <> nil) and (AItem.ImageIndex >= 0) then
       begin
-        ARect.Center(acGetImageListSize(AImages, TargetDPI));
-        DoDrawImage(ACanvas, ARect, AImages, AItem.ImageIndex, AItem.Enabled, ASelected);
+        ARect := acFitRect(ARect, acGetImageListSize(LImages, TargetDPI), afmFit);
+        DoDrawImage(ACanvas, ARect, LImages, AItem.ImageIndex, AItem.Enabled, ASelected);
       end;
     end;
   finally
-    acRestoreClipRegion(ACanvas.Handle, AClipRegion);
+    acRestoreClipRegion(ACanvas.Handle, LClipRegion);
   end;
 end;
 

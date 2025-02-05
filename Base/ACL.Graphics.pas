@@ -6,7 +6,7 @@
 //  Purpose:   Graphics Library
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -208,7 +208,9 @@ type
     function GetCanvas: TCanvas;
     function GetClientRect: TRect; inline;
     function GetEmpty: Boolean; inline;
+    function GetPixel(X, Y: Integer): TACLPixel32; inline;
     function GetSize: TSize; inline;
+    procedure SetPixel(X, Y: Integer; const AValue: TACLPixel32); inline;
   {$IFDEF FPC}
   strict private
     FCanvasChanged: Boolean;
@@ -285,6 +287,7 @@ type
     property Colors: PACLPixel32Array read {$IFDEF FPC}GetColors{$ELSE}FColors{$ENDIF};
     property Empty: Boolean read GetEmpty;
     property Handle: HDC read {$IFDEF FPC}GetDC{$ELSE}FHandle{$ENDIF};
+    property Pixels[X, Y: Integer]: TACLPixel32 read GetPixel write SetPixel;
     //# Dimensions
     property ClientRect: TRect read GetClientRect;
     property Height: Integer read FHeight;
@@ -3075,6 +3078,11 @@ begin
   end;
 end;
 
+procedure TACLDib.SetPixel(X, Y: Integer; const AValue: TACLPixel32);
+begin
+  Colors^[CoordToFlatIndex(X, Y)] := AValue;
+end;
+
 procedure TACLDib.CreateHandles(W, H: Integer);
 var
   LBitmap: TBitmapInfo;
@@ -3145,6 +3153,11 @@ end;
 function TACLDib.GetEmpty: Boolean;
 begin
   Result := FColorCount = 0;
+end;
+
+function TACLDib.GetPixel(X, Y: Integer): TACLPixel32;
+begin
+  Result := Colors^[CoordToFlatIndex(X, Y)];
 end;
 
 function TACLDib.GetSize: TSize;
