@@ -5133,7 +5133,7 @@ end;
 
 procedure TACLTreeListSubClass.ProcessMouseUp(AButton: TMouseButton; AShift: TShiftState);
 begin
-  if (AButton = mbLeft) and (HitTest.HitObject = PressedObject) then
+  if (AButton = mbLeft) and (HitTest.HitObject = PressedObject) and not DragAndDropController.IsActive then
   begin
     if FWasSelected then
     begin
