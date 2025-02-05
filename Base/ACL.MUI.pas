@@ -245,23 +245,27 @@ var
 begin
   if not LangFile.IsEmpty then
   begin
-  {$IFNDEF ACL_BASE_NOVCL}
-    if AComponent is TAction then
+    if AComponent.Name <> '' then
     begin
-      TAction(AComponent).Caption := LangFile.ReadString(AParentSection, AComponent.Name);
-      TAction(AComponent).Hint := IfThenW(
-        LangFile.ReadString(AParentSection, AComponent.Name + '.h'),
-        TAction(AComponent).Caption);
-    end
-    else
-      if CanLocalizeCaptionAndHint then
-  {$ENDIF}
+    {$IFNDEF ACL_BASE_NOVCL}
+      if AComponent is TAction then
       begin
-        if LangFile.ReadStringEx(AParentSection, AComponent.Name, S) then
-          SetStringValue(GetPropInfo(AComponent, 'Caption'), S);
-        if LangFile.ReadStringEx(AParentSection, AComponent.Name + '.h', S) then
-          SetStringValue(GetPropInfo(AComponent, 'Hint'), S);
-      end;
+        TAction(AComponent).Caption :=
+          LangFile.ReadString(AParentSection, AComponent.Name);
+        TAction(AComponent).Hint := IfThenW(
+          LangFile.ReadString(AParentSection, AComponent.Name + '.h'),
+          TAction(AComponent).Caption);
+      end
+      else
+        if CanLocalizeCaptionAndHint then
+    {$ENDIF}
+        begin
+          if LangFile.ReadStringEx(AParentSection, AComponent.Name, S) then
+            SetStringValue(GetPropInfo(AComponent, 'Caption'), S);
+          if LangFile.ReadStringEx(AParentSection, AComponent.Name + '.h', S) then
+            SetStringValue(GetPropInfo(AComponent, 'Hint'), S);
+        end;
+    end;
 
     if Supports(AComponent, IACLLocalizableComponent, AIntf) then
       AIntf.Localize(AParentSection, AComponent.Name)
