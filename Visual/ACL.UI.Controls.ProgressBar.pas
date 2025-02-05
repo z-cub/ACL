@@ -75,6 +75,7 @@ type
     procedure SetWaitingMode(AValue: Boolean);
   protected
     procedure CalculateProgressRect(out R1, R2: TRect);
+    function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     procedure SetTargetDPI(AValue: Integer); override;
     procedure DoTimer(Sender: TObject);
     procedure Paint; override;
@@ -88,10 +89,10 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
   published
     property Align;
     property Anchors;
+    property AutoSize default True;
     property Enabled;
     property Max: Single index 0 read FMax write SetIndex stored IsIndexStored;
     property Min: Single index 1 read FMin write SetIndex stored IsIndexStored;
@@ -143,6 +144,7 @@ begin
   inherited Create(AOwner);
   FTimer := TACLTimer.CreateEx(DoTimer, 30);
   FStyle := TACLStyleProgress.Create(Self);
+  AutoSize := True;
 end;
 
 destructor TACLProgressBar.Destroy;
@@ -182,8 +184,15 @@ begin
     if ProgressRange > 0 then
     begin
       R1 := ProgressAreaRect;
-      R1.Right := R1.Left + Trunc(R1.Width * (Progress - Min) / ProgressRange);
+      R1.Right := R1.Left + Trunc(R1.Width * EnsureRange((Progress - Min) / ProgressRange, 0, 1));
     end;
+end;
+
+function TACLProgressBar.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
+begin
+  if AutoSize then
+    NewHeight := dpiApply(18, FCurrentPPI);
+  Result := True;
 end;
 
 procedure TACLProgressBar.SetTargetDPI(AValue: Integer);
@@ -218,11 +227,6 @@ begin
       acRestoreClipRegion(Canvas.Handle, LClipRgn);
     end;
   end;
-end;
-
-procedure TACLProgressBar.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
-begin
-  inherited SetBounds(ALeft, ATop, AWidth, dpiApply(18, FCurrentPPI));
 end;
 
 function TACLProgressBar.GetProgressAnimSize: Integer;
