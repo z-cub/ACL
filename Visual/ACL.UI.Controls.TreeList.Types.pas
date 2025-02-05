@@ -6,7 +6,7 @@
 //  Purpose:   TreeList Types (DataModel)
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -1489,18 +1489,21 @@ begin
 end;
 
 procedure TACLTreeListNode.ChildrenNeeded;
+var
+  LList: IACLTreeList;
 begin
   if FHasChildren and (FSubNodes = nil) then
   begin
-    TreeList.BeginLongOperation;
-    TreeList.BeginUpdate;
+    LList := TreeList;
+    LList.BeginLongOperation;
+    LList.BeginUpdate;
     try
       FHasChildren := False;
-      TreeList.NodePopulateChildren(Self);
+      LList.NodePopulateChildren(Self);
       FHasChildren := ChildrenLoaded;
     finally
-      TreeList.EndUpdate;
-      TreeList.EndLongOperation;
+      LList.EndUpdate;
+      LList.EndLongOperation;
     end;
   end;
 end;
