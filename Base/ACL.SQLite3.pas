@@ -6,7 +6,7 @@
 //  Purpose:   SQLite3 Wrappers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -127,12 +127,13 @@ type
     FLock: TACLCriticalSection;
     FUpdateCount: Integer;
 
+    procedure SafeFree;
+    procedure SafeInit;
     function GetVersion: Integer;
     procedure SetVersion(AValue: Integer);
   protected
     procedure CheckError(AErrorCode: Integer; const AAdditionalInfo: string = '');
     procedure CreateFunction(const AName: PChar; AArgCount: Integer; AFunc: TSQLFunction);
-    procedure DestroySubClasses; virtual;
     function GetTableClass: TACLSQLiteTableClass; virtual;
     procedure InitializeFunctions; virtual;
     procedure InitializeTables; virtual;
@@ -147,6 +148,10 @@ type
     destructor Destroy; override;
     procedure BeginUpdate;
     procedure EndUpdate;
+
+    function CheckIntegrity: Boolean; overload;
+    function CheckIntegrity(out ALog: string): Boolean; overload;
+    procedure RecreateFromScratch;
 
     procedure Compress; overload;
     procedure Compress(out AOldSize, ANewSize: Int64); overload;
@@ -574,34 +579,19 @@ begin
   inherited Create;
   FFileName := AFileName;
   FLock := TACLCriticalSection.Create(Self);
-
-{$IFDEF UNICODE}
-  CheckError(sqlite3_open16(PWideChar(AFileName), FHandle));
-  CheckError(sqlite3_create_collation16(Handle, 'NOCASE',  SQLITE_UTF16, nil, @TSQLLiteHelper.NoCaseCompare));
-  CheckError(sqlite3_create_collation16(Handle, 'UNICODE', SQLITE_UTF16, nil, @TSQLLiteHelper.NoCaseCompare));
-  CheckError(sqlite3_create_collation16(Handle, 'LOGICAL', SQLITE_UTF16, nil, @TSQLLiteHelper.LogicalCompare));
-{$ELSE}
-  CheckError(sqlite3_open(PChar(AFileName), @FHandle));
-  CheckError(sqlite3_create_collation(Handle, 'NOCASE',  SQLITE_UTF8, nil, @TSQLLiteHelper.NoCaseCompare));
-  CheckError(sqlite3_create_collation(Handle, 'UNICODE', SQLITE_UTF8, nil, @TSQLLiteHelper.NoCaseCompare));
-  CheckError(sqlite3_create_collation(Handle, 'LOGICAL', SQLITE_UTF8, nil, @TSQLLiteHelper.LogicalCompare));
-{$ENDIF}
-  CheckError(sqlite3_busy_timeout(Handle, 10000));
-
-  InitializeFunctions;
-  InitializeTables;
+  SafeInit;
 end;
 
 destructor TACLSQLiteBase.Destroy;
 begin
   Lock;
   try
-    DestroySubClasses;
+    SafeFree;
   finally
     Unlock;
   end;
-  inherited Destroy;
   FreeAndNil(FLock);
+  inherited Destroy;
 end;
 
 procedure TACLSQLiteBase.Compress;
@@ -766,6 +756,27 @@ begin
     raise EACLSQLiteError.Create(Handle, AErrorCode, AAdditionalInfo);
 end;
 
+function TACLSQLiteBase.CheckIntegrity: Boolean;
+var
+  LUnused: string;
+begin
+  Result := CheckIntegrity(LUnused);
+end;
+
+function TACLSQLiteBase.CheckIntegrity(out ALog: string): Boolean;
+var
+  LTable: TACLSQLiteTable;
+begin
+  Result := True;
+  if Exec('PRAGMA quick_check', LTable) then
+  try
+    ALog := LTable.ReadStr(0);
+    Result := ALog = 'ok';
+  finally
+    LTable.Free;
+  end;
+end;
+
 procedure TACLSQLiteBase.CreateFunction(const AName: PChar; AArgCount: Integer; AFunc: TSQLFunction);
 begin
 {$IFDEF UNICODE}
@@ -773,12 +784,6 @@ begin
 {$ELSE}
   CheckError(sqlite3_create_function(Handle, AName, AArgCount, SQLITE_UTF8, nil, AFunc, nil, nil));
 {$ENDIF}
-end;
-
-procedure TACLSQLiteBase.DestroySubClasses;
-begin
-  sqlite3_close(Handle);
-  FHandle := nil;
 end;
 
 function TACLSQLiteBase.GetTableClass: TACLSQLiteTableClass;
@@ -808,6 +813,16 @@ begin
   // do nothing
 end;
 
+procedure TACLSQLiteBase.Lock;
+begin
+  FLock.Enter;
+end;
+
+procedure TACLSQLiteBase.Unlock;
+begin
+  FLock.Leave;
+end;
+
 procedure TACLSQLiteBase.PrepareQuery(const S: string; out AHandle: HSQLQUERY);
 var
   LNext: PChar;
@@ -819,14 +834,41 @@ begin
 {$ENDIF}
 end;
 
-procedure TACLSQLiteBase.Lock;
+procedure TACLSQLiteBase.RecreateFromScratch;
 begin
-  FLock.Enter;
+  Lock;
+  try
+    SafeFree;
+    acDeleteFile(FileName);
+    SafeInit;
+  finally
+    Unlock;
+  end;
 end;
 
-procedure TACLSQLiteBase.Unlock;
+procedure TACLSQLiteBase.SafeFree;
 begin
-  FLock.Leave;
+  sqlite3_close(Handle);
+  FHandle := nil;
+end;
+
+procedure TACLSQLiteBase.SafeInit;
+begin
+{$IFDEF UNICODE}
+  CheckError(sqlite3_open16(PWideChar(FFileName), FHandle));
+  CheckError(sqlite3_create_collation16(Handle, 'NOCASE',  SQLITE_UTF16, nil, @TSQLLiteHelper.NoCaseCompare));
+  CheckError(sqlite3_create_collation16(Handle, 'UNICODE', SQLITE_UTF16, nil, @TSQLLiteHelper.NoCaseCompare));
+  CheckError(sqlite3_create_collation16(Handle, 'LOGICAL', SQLITE_UTF16, nil, @TSQLLiteHelper.LogicalCompare));
+{$ELSE}
+  CheckError(sqlite3_open(PChar(FFileName), @FHandle));
+  CheckError(sqlite3_create_collation(Handle, 'NOCASE',  SQLITE_UTF8, nil, @TSQLLiteHelper.NoCaseCompare));
+  CheckError(sqlite3_create_collation(Handle, 'UNICODE', SQLITE_UTF8, nil, @TSQLLiteHelper.NoCaseCompare));
+  CheckError(sqlite3_create_collation(Handle, 'LOGICAL', SQLITE_UTF8, nil, @TSQLLiteHelper.LogicalCompare));
+{$ENDIF}
+  CheckError(sqlite3_busy_timeout(Handle, 10000));
+
+  InitializeFunctions;
+  InitializeTables;
 end;
 
 procedure TACLSQLiteBase.SetVersion(AValue: Integer);
