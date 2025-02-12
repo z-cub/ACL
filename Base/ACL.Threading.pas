@@ -532,7 +532,8 @@ begin
   TerminateThread(Handle, ReturnValue);
   DoTerminate;
 {$ELSE}
-  Terminate;
+  KillThread(Handle);
+  DoTerminate;
 {$ENDIF}
 end;
 

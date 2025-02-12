@@ -101,7 +101,7 @@ type
 
   TACLSearchString = class
   strict private const
-    JoinChars = '-&';
+    JoinChars = '-&.'#39;
   strict private
     FLock: TACLCriticalSection;
     FEmpty: Boolean;

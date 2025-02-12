@@ -944,12 +944,18 @@ procedure TACLImage.LoadFromStream(AStream: IACLDataContainer);
 var
   LStream: TStream;
 begin
-  LStream := AStream.LockData;
-  try
-    LoadFromStream(LStream);
-  finally
-    AStream.UnlockData;
-  end;
+  if AStream <> nil then
+  begin
+    LStream := AStream.LockData;
+    try
+      LStream.Position := 0;
+      LoadFromStream(LStream);
+    finally
+      AStream.UnlockData;
+    end;
+  end
+  else
+    Clear;
 end;
 
 procedure TACLImage.LoadFromStream(AStream: TStream);

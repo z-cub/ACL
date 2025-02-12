@@ -1025,7 +1025,7 @@ begin
     begin
       LHeight := 0;
       LLineScan := ALines;
-      while (LLineScan <> nil) and (LHeight + LFontMetrics.height <= ARect.Height) do
+      while (LLineScan <> nil) and (Trunc(LHeight + LFontMetrics.height) <= ARect.Height) do
       begin
         LHeight := LHeight + LFontMetrics.height;
         LLineScan := LLineScan.NextLine;

@@ -546,7 +546,12 @@ end;
 
 procedure TACLMemo.SetText(const Value: string);
 begin
-  Lines.Text := Value;
+  try
+    Lines.Text := Value;
+  except
+    // Text exceeds memo capacity in Wine (max is 30000);
+    Lines.Text := Copy(Value, 1, 20000);
+  end;
 end;
 
 end.
