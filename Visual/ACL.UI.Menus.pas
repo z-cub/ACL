@@ -6,7 +6,7 @@
 //  Purpose:   menus
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -2586,7 +2586,7 @@ begin
   if FForm = nil then
     FForm := Screen.ActiveCustomForm;
   if FForm <> nil then
-    SendMessage(FForm.Handle, WM_ENTERMENULOOP, 0, 0);
+    FForm.Perform(WM_ENTERMENULOOP, 0, 0);
   FInLoop := True;
   DoGrabInput;
 end;
@@ -2603,7 +2603,7 @@ begin
   // Notifications
   Dec(acMenuLoopCount); // first
   if FForm <> nil then
-    SendMessage(FForm.Handle, WM_EXITMENULOOP, 0, 0);
+    FForm.Perform(WM_EXITMENULOOP, 0, 0);
   if FPostponedSelection <> nil then
     Wnd.Source.DoSelect(FPostponedSelection);
   // Destroying
