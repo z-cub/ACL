@@ -87,9 +87,11 @@ type
     class var FInputTarget: PGtkWidget;
     class var FHooks: TStack<TGtk2EventCallback>;
     class var FPopupControl: TWinControl;
+    class var FPopupError: string;
     class var FPopupWindow: PGdkWindow;
 
     class procedure Handler(event: PGdkEvent; data: gpointer); cdecl; static;
+    class procedure HandlerException(Sender: TObject; Error: Exception);
     class procedure HandlerInit;
     class procedure HandlerOnDestroy(data: gpointer); cdecl; static;
     class procedure PopupEventHandler(AEvent: PGdkEvent; var AHandled: Boolean);
@@ -102,6 +104,7 @@ type
     class procedure BeginPopup(APopupControl: TWinControl); overload;
     class procedure BeginPopup(APopupControl: TWinControl; ACallback: TGtk2EventCallback); overload;
     class procedure EndPopup;
+    class function IsPopupAborted: Boolean;
 
     class procedure ProcessMessages;
     class procedure SetInputRedirection(AControl: TWinControl);
@@ -416,6 +419,11 @@ begin
   gtk_main_do_event(event);
 end;
 
+class procedure TGtk2App.HandlerException(Sender: TObject; Error: Exception);
+begin
+  FPopupError := Error.ToString;
+end;
+
 class procedure TGtk2App.HandlerInit;
 begin
   if not FHandlerInit then
@@ -494,10 +502,12 @@ begin
   //end;
 {$ENDIF}
 
-  // если мы тут - все прошло ОК, инициализируем приемник сообщений и перехватчик
+// если мы тут - все прошло ОК, инициализируем приемник сообщений и перехватчик
+  FPopupError := '';
   FPopupControl := APopupControl;
   FPopupWindow := AWindow;
   try
+    Application.AddOnExceptionHandler(HandlerException);
     Hook(ACallback);
   except
     EndPopup;
@@ -512,6 +522,7 @@ begin
   Unhook;
   FPopupControl := nil;
   SetInputRedirection(nil);
+  Application.RemoveOnExceptionHandler(HandlerException);
   if FPopupWindow <> nil then
   try
     LDisplay := gdk_drawable_get_display(FPopupWindow);
@@ -521,6 +532,13 @@ begin
   finally
     FPopupWindow := nil;
   end;
+  if FPopupError <> '' then
+    raise Exception.Create(FPopupError);
+end;
+
+class function TGtk2App.IsPopupAborted: Boolean;
+begin
+  Result := FPopupError <> '';
 end;
 
 class procedure TGtk2App.ProcessMessages;

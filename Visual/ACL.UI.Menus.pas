@@ -3278,6 +3278,8 @@ begin
       except
         Application.HandleException(Self);
       end;
+      if TGtk2App.IsPopupAborted then
+        Break;
       DoIdle;
     until not IsInLoop;
   finally
