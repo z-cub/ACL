@@ -6,7 +6,7 @@
 //  Purpose:   Multi-language UI Engine
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -42,8 +42,8 @@ uses
 
 const
   sLangExt = '.lng';
-  sDefaultLang  = 'English' + sLangExt;
-  sDefaultLang2 = 'Russian' + sLangExt;
+  sDefaultLang  = 'english' + sLangExt;
+  sDefaultLang2 = 'russian' + sLangExt;
 
   sLangAuthor = 'Author';
   sLangIcon = 'Icon';
