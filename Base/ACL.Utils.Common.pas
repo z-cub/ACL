@@ -6,7 +6,7 @@
 //  Purpose:   General Utilities and Types
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -204,9 +204,12 @@ function acModuleHandle(const AFileName: string): HMODULE;
 
 // Window Handles
 function acFindWindow(const AClassName: string): TWndHandle;
+function acIsOurWindow(AWnd: TWndHandle): Boolean;
 function acGetClassName(AWnd: TWndHandle): string;
-function acGetProcessFileName(AWnd: TWndHandle; out AFileName: string): Boolean;
 function acGetWindowRect(AWnd: TWndHandle): TRect;
+{$IFDEF MSWINDOWS}
+function acGetProcessFileName(AWnd: TWndHandle; out AFileName: string): Boolean;
+{$ENDIF}
 
 // System
 procedure MinimizeMemoryUsage;
@@ -649,6 +652,43 @@ begin
     Result := NullRect;
 end;
 
+function acIsOurWindow(AWnd: TWndHandle): Boolean;
+{$IFDEF MSWINDOWS}
+var
+  LProcessID: Cardinal;
+{$ENDIF}
+begin
+{$IFDEF MSWINDOWS}
+  Result := (AWnd <> 0) and
+    (GetWindowThreadProcessId(AWnd, LProcessID) > 0) and
+    (LProcessID = GetCurrentProcessId);
+{$ELSE}
+  Result := IsWindow(AWnd); // WidgetSet will check the window in internal list
+{$ENDIF}
+end;
+
+{$IFDEF MSWINDOWS}
+function acGetProcessFileName(AWnd: TWndHandle; out AFileName: string): Boolean;
+var
+  LProcess: THandle;
+  LProcessID: Cardinal;
+begin
+  Result := False;
+  if (AWnd <> 0) and (GetWindowThreadProcessId(AWnd, LProcessID) > 0) then
+  begin
+    LProcess := OpenProcess(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ, True, LProcessID);
+    if LProcess <> 0 then
+    try
+      SetLength(AFileName, MAX_PATH);
+      SetLength(AFileName, GetModuleFileNameEx(LProcess, 0, PChar(AFileName), Length(AFileName)));
+      Result := True;
+    finally
+      CloseHandle(LProcess);
+    end;
+  end;
+end;
+{$ENDIF}
+
 { TACLBooleanHelper }
 
 function TACLBooleanHelper.ActualValue(ADefault: Boolean): Boolean;
@@ -665,34 +705,6 @@ begin
     Result := TACLBoolean.True
   else
     Result := TACLBoolean.False;
-end;
-
-// -----------------------------------------------------------------------------
-// Process
-// -----------------------------------------------------------------------------
-
-function acGetProcessFileName(AWnd: TWndHandle; out AFileName: string): Boolean;
-{$IFDEF MSWINDOWS}
-var
-  AProcess: THandle;
-  AProcessID: Cardinal;
-{$ENDIF}
-begin
-  Result := False;
-{$IFDEF MSWINDOWS}
-  if (AWnd <> 0) and (GetWindowThreadProcessId(AWnd, AProcessID) > 0) then
-  begin
-    AProcess := OpenProcess(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ, True, AProcessID);
-    if AProcess <> 0 then
-    try
-      SetLength(AFileName, MAX_PATH);
-      SetLength(AFileName, GetModuleFileNameEx(AProcess, 0, PChar(AFileName), Length(AFileName)));
-      Result := True;
-    finally
-      CloseHandle(AProcess);
-    end;
-  end;
-{$ENDIF}
 end;
 
 {$REGION ' TLiveLogStream '}

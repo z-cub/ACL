@@ -6,7 +6,7 @@
 //  Purpose:   ProgressBox
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -437,7 +437,8 @@ begin
     FDelayTimer.Enabled := False;
     FProgressActive := False;
     Visible := False;
-    acRestoreFocus(FSavedFocus);
+    if acIsOurWindow(FSavedFocus) then
+      acRestoreFocus(FSavedFocus);
     CallNotifyEvent(Self, OnFinish);
   end;
 end;
