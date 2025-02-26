@@ -84,8 +84,9 @@ type
   TGtk2App = class
   strict private
     class var FHandlerInit: Boolean;
-    class var FInputTarget: PGtkWidget;
     class var FHooks: TStack<TGtk2EventCallback>;
+    class var FInputTarget: PGtkWidget;
+    class var FOldExceptionHandler: TExceptionEvent;
     class var FPopupControl: TWinControl;
     class var FPopupError: string;
     class var FPopupWindow: PGdkWindow;
@@ -507,7 +508,8 @@ begin
   FPopupControl := APopupControl;
   FPopupWindow := AWindow;
   try
-    Application.AddOnExceptionHandler(HandlerException);
+    FOldExceptionHandler := Application.OnException;
+    Application.OnException := HandlerException;
     Hook(ACallback);
   except
     EndPopup;
@@ -522,7 +524,7 @@ begin
   Unhook;
   FPopupControl := nil;
   SetInputRedirection(nil);
-  Application.RemoveOnExceptionHandler(HandlerException);
+  Application.OnException := FOldExceptionHandler;
   if FPopupWindow <> nil then
   try
     LDisplay := gdk_drawable_get_display(FPopupWindow);
