@@ -1619,7 +1619,7 @@ begin
     if AAutoHide then
     begin
       if FMovingHintAutoHideTimer = nil then
-        FMovingHintAutoHideTimer := TACLTimer.CreateEx(MovingHintAutoHideTimerHandler, 1000, True);
+        FMovingHintAutoHideTimer := TACLTimer.CreateEx(MovingHintAutoHideTimerHandler);
       FMovingHintAutoHideTimer.Restart;
     end
     else

@@ -6,7 +6,7 @@
 //  Purpose:   Timers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -46,19 +46,20 @@ type
 
   { TACLTimer }
 
+  TACLTimerMode = (tmDefault, tmHighResolution, tmTickOnce);
   TACLTimer = class(TComponent)
   public const
     DefaultInterval = 1000;
   strict private
     FEnabled: Boolean;
-    FHighResolution: Boolean;
     FInterval: Cardinal;
+    FMode: TACLTimerMode;
 
     FOnTimer: TNotifyEvent;
 
     procedure SetEnabled(Value: Boolean);
     procedure SetInterval(Value: Cardinal);
-    procedure SetHighResolution(Value: Boolean);
+    procedure SetMode(Value: TACLTimerMode);
     procedure SetOnTimer(Value: TNotifyEvent);
     procedure UpdateTimer;
   private
@@ -68,14 +69,18 @@ type
     procedure Timer; virtual;
   public
     constructor Create(AOwner: TComponent); override;
-    constructor CreateEx(ATimerEvent: TNotifyEvent; AInterval: Cardinal = DefaultInterval;
-      AEnabled: Boolean = False; AHighResolution: Boolean = False);
+    constructor CreateEx(AEvent: TNotifyEvent;
+      AInterval: Cardinal = DefaultInterval;
+      AMode: TACLTimerMode = tmDefault);
     procedure BeforeDestruction; override;
-    procedure Restart;
+    procedure Restart; overload;
+    procedure Restart(AInterval: Cardinal); overload;
+    function Start: TACLTimer;
   published
     property Enabled: Boolean read FEnabled write SetEnabled default True;
     property Interval: Cardinal read FInterval write SetInterval default DefaultInterval;
-    property HighResolution: Boolean read FHighResolution write SetHighResolution default False;
+    property Mode: TACLTimerMode read FMode write SetMode default tmDefault;
+    // Events
     property OnTimer: TNotifyEvent read FOnTimer write SetOnTimer;
   end;
 
@@ -209,15 +214,13 @@ begin
   FEnabled := True;
 end;
 
-constructor TACLTimer.CreateEx(ATimerEvent: TNotifyEvent;
-  AInterval: Cardinal = DefaultInterval;
-  AEnabled: Boolean = False; AHighResolution: Boolean = False);
+constructor TACLTimer.CreateEx(AEvent: TNotifyEvent; AInterval: Cardinal; AMode: TACLTimerMode);
 begin
   Create(nil);
-  HighResolution := AHighResolution;
-  Interval := AInterval;
-  Enabled := AEnabled;
-  OnTimer := ATimerEvent;
+  FMode := AMode;
+  FEnabled := False;
+  FInterval := AInterval;
+  FOnTimer := AEvent;
 end;
 
 procedure TACLTimer.BeforeDestruction;
@@ -229,6 +232,13 @@ end;
 procedure TACLTimer.Restart;
 begin
   Enabled := False;
+  Enabled := True;
+end;
+
+procedure TACLTimer.Restart(AInterval: Cardinal);
+begin
+  Enabled := False;
+  Interval := AInterval;
   Enabled := True;
 end;
 
@@ -261,11 +271,11 @@ begin
   end;
 end;
 
-procedure TACLTimer.SetHighResolution(Value: Boolean);
+procedure TACLTimer.SetMode(Value: TACLTimerMode);
 begin
-  if FHighResolution <> Value then
+  if FMode <> Value then
   begin
-    FHighResolution := Value;
+    FMode := Value;
     UpdateTimer;
   end;
 end;
@@ -274,6 +284,12 @@ procedure TACLTimer.SetOnTimer(Value: TNotifyEvent);
 begin
   FOnTimer := Value;
   UpdateTimer;
+end;
+
+function TACLTimer.Start: TACLTimer;
+begin
+  Enabled := True;
+  Result := Self;
 end;
 
 procedure TACLTimer.UpdateTimer;
@@ -381,7 +397,7 @@ begin
   FLock.Enter;
   try;
     FTimers.Add(ATimer);
-    if ATimer.HighResolution and (ATimer.Interval < 1000) then
+    if (ATimer.Mode = tmHighResolution) and (ATimer.Interval < 1000) then
     begin
       FHighResolutionTimers.Add(ATimer);
       SafeUpdateHighResolutionThread;
@@ -456,16 +472,28 @@ end;
 procedure TACLTimerManager.SafeCallTimerProc(ATimer: TACLTimer);
 begin
   if FTimers.Contains(ATimer) then
+  begin
+    if ATimer.Mode = tmTickOnce then
+      ATimer.Enabled := False;
     ATimer.Timer;
+  end;
+end;
+
+procedure TACLTimerManager.SafeCallTimerProcs(AList: TList);
+var
+  I: Integer;
+begin
+  for I := 0 to AList.Count - 1 do
+    SafeCallTimerProc(AList.List[I]);
 end;
 
 procedure TACLTimerManager.SafeUpdateHighResolutionThread;
 var
-  AList: TList;
+  LList: TList;
 begin
-  AList := FHighResolutionTimers.LockList;
+  LList := FHighResolutionTimers.LockList;
   try
-    if AList.Count = 0 then
+    if LList.Count = 0 then
     begin
       if FHighResolutionThread <> nil then
         FHighResolutionThread.SetPaused(True);
@@ -487,14 +515,6 @@ begin
   SendMessage(hWnd, uMsg, idEvent, 0);
 end;
 
-procedure TACLTimerManager.SafeCallTimerProcs(AList: TList);
-var
-  I: Integer;
-begin
-  for I := 0 to AList.Count - 1 do
-    SafeCallTimerProc(AList.List[I]);
-end;
-
 { TACLTimerManagerHighResolutionThread }
 
 constructor TACLTimerManagerHighResolutionThread.Create(AOwner: TACLTimerManager);
@@ -505,60 +525,60 @@ end;
 
 procedure TACLTimerManagerHighResolutionThread.Execute;
 var
-  AList: TList;
-  ANextTick: Int64;
-  ASleepTime: Integer;
-  ATicked: TList;
-  ATicks: Int64;
-  ATimer: TACLTimer;
+  LList: TList;
+  LNextTick: Int64;
+  LSleepTime: Integer;
+  LTicked: TList;
+  LTicks: Int64;
+  LTimer: TACLTimer;
   I: Integer;
 begin
 {$IFDEF ACL_THREADING_DEBUG}
   NameThreadForDebugging('HighResolutionTimer');
 {$ENDIF}
 
-  ATicked := TList.Create;
+  LTicked := TList.Create;
   try
     while not Terminated do
     begin
-      ATicked.Count := 0;
-      ATicks := GetExactTickCount;
+      LTicked.Count := 0;
+      LTicks := GetExactTickCount;
 
-      AList := FOwner.FHighResolutionTimers.LockList;
+      LList := FOwner.FHighResolutionTimers.LockList;
       try
-        ANextTick := ATicks + TimeToTickCount(1000);
-        for I := 0 to AList.Count - 1 do
+        LNextTick := LTicks + TimeToTickCount(1000);
+        for I := 0 to LList.Count - 1 do
         begin
-          ATimer := AList.List[I];
-          if ATimer.FHighResolutionCounter <= ATicks then
+          LTimer := LList.List[I];
+          if LTimer.FHighResolutionCounter <= LTicks then
           begin
-            ATimer.FHighResolutionCounter := ATicks + TimeToTickCount(ATimer.Interval);
-            ATicked.Add(ATimer);
+            LTimer.FHighResolutionCounter := LTicks + TimeToTickCount(LTimer.Interval);
+            LTicked.Add(LTimer);
           end;
-          ANextTick := Min(ANextTick, ATimer.FHighResolutionCounter);
+          LNextTick := Min(LNextTick, LTimer.FHighResolutionCounter);
         end;
       finally
         FOwner.FHighResolutionTimers.UnlockList;
       end;
 
-      if ATicked.Count > 0 then
+      if LTicked.Count > 0 then
       begin
       {$IFDEF FPC}
-        Synchronize(procedure begin FOwner.SafeCallTimerProcs(ATicked); end);
+        Synchronize(procedure begin FOwner.SafeCallTimerProcs(LTicked); end);
       {$ELSE}
-        SendMessage(FOwner.FHandle, WM_USER, 0, LPARAM(ATicked));
+        SendMessage(FOwner.FHandle, WM_USER, 0, LPARAM(LTicked));
       {$ENDIF}
-        ATicks := GetExactTickCount;
+        LTicks := GetExactTickCount;
       end;
 
-      ASleepTime := TickCountToTime(ANextTick - ATicks);
-      ASleepTime := Max(ASleepTime, 1); //#AI: always call sleep to take main thread some time to process message queue
-      if ASleepTime > 0 then
-        Sleep(ASleepTime);
+      LSleepTime := TickCountToTime(LNextTick - LTicks);
+      LSleepTime := Max(LSleepTime, 1); //#AI: always call sleep to take main thread some time to process message queue
+      if LSleepTime > 0 then
+        Sleep(LSleepTime);
       WaitForUnpause;
     end;
   finally
-    ATicked.Free;
+    LTicked.Free;
   end;
 end;
 

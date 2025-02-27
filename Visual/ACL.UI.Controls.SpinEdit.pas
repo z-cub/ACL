@@ -6,7 +6,7 @@
 //  Purpose:   SpinEdit
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -162,13 +162,13 @@ type
   strict private
     FChanging: Boolean;
     FOptionsValue: TACLSpinEditOptionsValue;
-    FValidateDelayTimer: TACLTimer;
+    FValidationDelay: TACLTimer;
     FValue: Variant;
 
     FOnGetDisplayText: TACLEditGetDisplayTextEvent;
 
     function FormatValue(const AValue: Variant): string;
-    procedure HandlerDelayValidate(Sender: TObject);
+    procedure HandlerDelayedValidation(Sender: TObject);
     function GetInnerEdit: TACLInnerEdit;
     function IsValueStored: Boolean;
     procedure SetOnGetDisplayText(const Value: TACLEditGetDisplayTextEvent);
@@ -546,7 +546,7 @@ end;
 
 destructor TACLSpinEdit.Destroy;
 begin
-  FreeAndNil(FValidateDelayTimer);
+  FreeAndNil(FValidationDelay);
   FreeAndNil(FOptionsValue);
   inherited Destroy;
 end;
@@ -590,9 +590,9 @@ begin
   begin
     FChanging := True;
     try
-      FreeAndNil(FValidateDelayTimer);
+      FreeAndNil(FValidationDelay);
       InplaceSetValue(InnerEdit.Text);
-      FValidateDelayTimer := TACLTimer.CreateEx(HandlerDelayValidate, 750, True);
+      FValidationDelay := TACLTimer.CreateEx(HandlerDelayedValidation).Start;
     finally
       FChanging := False;
     end;
@@ -664,14 +664,14 @@ begin
   Value := StrToFloatDef(AValue, 0);
 end;
 
-procedure TACLSpinEdit.HandlerDelayValidate(Sender: TObject);
+procedure TACLSpinEdit.HandlerDelayedValidation(Sender: TObject);
 var
   LPrevValue: string;
 begin
   LPrevValue := InnerEdit.Text;
   if (InnerEdit.SelLength = 0) and (LPrevValue <> '') then
   begin
-    FreeAndNil(FValidateDelayTimer);
+    FreeAndNil(FValidationDelay);
     UpdateDisplayValue;
     if InnerEdit.Text <> LPrevValue then Beep;
   end;

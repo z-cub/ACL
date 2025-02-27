@@ -882,7 +882,10 @@ begin
   if UseCpuUsageMonitor <> AValue then
   begin
     if AValue then
-      FCpuUsageMonitor := TACLTimer.CreateEx(HandlerCpuUsageMonitor, CpuUsageMonitorUpdateInterval, True)
+    begin
+      TACLTimer(FCpuUsageMonitor) := TACLTimer.CreateEx(HandlerCpuUsageMonitor, CpuUsageMonitorUpdateInterval);
+      TACLTimer(FCpuUsageMonitor).Enabled := True;
+    end
     else
       FreeAndNil(FCpuUsageMonitor);
   end;

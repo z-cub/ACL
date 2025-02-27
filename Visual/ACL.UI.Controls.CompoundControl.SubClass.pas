@@ -2062,8 +2062,9 @@ begin
       ADelta := CalculateScrollDelta(AHitTestInfo.HitPoint);
       if ADelta <> 0 then
       begin
-        FScrollTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay, True);
+        FScrollTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay);
         FScrollTimer.Tag := ADelta;
+        FScrollTimer.Start;
         ScrollTimerHandler(nil);
       end;
     end;
@@ -2221,7 +2222,7 @@ begin
   if AButton = mbLeft then
   begin
     Click;
-    FTimer := TACLTimer.CreateEx(TimerHandler, acScrollBarTimerInitialDelay, True);
+    FTimer := TACLTimer.CreateEx(TimerHandler, acScrollBarTimerInitialDelay).Start;
   end;
   inherited MouseDown(AButton, AShift, AHitTestInfo);
 end;

@@ -524,7 +524,7 @@ begin
   FButtonDown := TACLScrollBarViewInfoItem.Create(Self, sbpLineDown);
   FThumbnail := TACLScrollBarViewInfoItem.Create(Self, sbpThumbnail);
   FButtonUp := TACLScrollBarViewInfoItem.Create(Self, sbpLineUp);
-  FTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay, False);
+  FTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay);
 end;
 
 destructor TACLScrollBarSubClass.Destroy;

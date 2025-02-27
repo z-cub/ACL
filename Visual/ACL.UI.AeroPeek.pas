@@ -372,7 +372,7 @@ end;
 procedure TACLAeroPeek.StartLivePreviewTimer;
 begin
   if FLivePreviewTimer = nil then
-    FLivePreviewTimer := TACLTimer.CreateEx(LivePreviewTimerHandler, 40, True);
+    FLivePreviewTimer := TACLTimer.CreateEx(LivePreviewTimerHandler, 40).Start;
   UpdatePreview;
 end;
 

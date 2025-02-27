@@ -645,7 +645,7 @@ begin
             HintData.AlignVert);
 
         if FDeactivateTimer = nil then
-          FDeactivateTimer := TACLTimer.CreateEx(DeactivateTimerHandler, 10, True);
+          FDeactivateTimer := TACLTimer.CreateEx(DeactivateTimerHandler, 10).Start;
         FPauseTimer.Interval := Application.HintHidePause;
         FPauseMode := hpmBeforeHide;
       end;
