@@ -176,7 +176,7 @@ begin
       begin
         MeasureCanvas.Font.Name := AName;
         MeasureCanvas.Font.Height := 750;
-        GetTextMetrics(MeasureCanvas.Handle, LMetrics);
+        GetTextMetrics(MeasureCanvas.Handle, LMetrics{%H-});
         S.Add(Format('  Add(''%s'', TMetrics.Create(%d, %d, %d, %d));', [AName,
           LMetrics.tmHeight, LMetrics.tmAscent, LMetrics.tmDescent, LMetrics.tmInternalLeading]));
       end);

@@ -420,6 +420,7 @@ begin
     AVarType := AVarType and varTypeMask;
     if AVarType = varVariant then
     begin
+      LVarPtr := nil;
       VarResultCheck(SafeArrayPtrOfIndex(AVarArray, @LIndex, LVarPtr));
       LHash := GetVarDataHash(PVarData(LVarPtr)^);
     end

@@ -345,7 +345,6 @@ type
       5{alNone}, 0{alTop}, 1{alBottom}, 2{alLeft}, 3{alRight}, 4{alClient}, 6{alCustom}
     );
   strict private
-    class var FWorkInfo: TAlignInfo;
     class var FWorkList: TTabOrderList;
     class function Compare(const L, R: TControl): Integer; static;
   public
@@ -510,7 +509,6 @@ type
     FCurrentPPI: Integer;
 
     procedure DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy; const X, Y: Double); override;
-    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override;
   {$ELSE}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override; final;
   {$ENDIF}
@@ -561,6 +559,9 @@ type
     procedure ApplyColorSchema(const ASchema: TACLColorSchema); virtual;
     // IACLControl
     procedure InvalidateRect(const R: TRect); virtual;
+  {$IFDEF FPC}
+    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override; final;
+  {$ENDIF}
     // Properties
     property Canvas;
   published
@@ -590,13 +591,13 @@ type
   {$IFDEF FPC}
   protected
     FCurrentPPI: Integer;
-    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
-      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
     procedure ChangeScale(M, D: Integer); overload; override; final;
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); overload; virtual;
     procedure DoAutoAdjustLayout(const AMode: TLayoutAdjustmentPolicy; const X, Y: Double); override;
   public
     constructor Create(AOwner: TComponent); override;
+    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
   {$ENDIF}
   public
     procedure ScaleForPPI(NewPPI: Integer); {$IFNDEF FPC}override;{$ENDIF}
@@ -669,7 +670,7 @@ type
   {$IFDEF FPC}
     function DoAlignChildControls(AAlign: TAlign; AControl: TControl;
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
-    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override; final;
+    procedure KeyDownBeforeInterface(var Key: Word; Shift: TShiftState); override;
     procedure InitializeWnd; override;
   {$ENDIF}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
@@ -732,6 +733,9 @@ type
     procedure ApplyColorSchema(const ASchema: TACLColorSchema); virtual;
     // IACLLocalizableComponent
     procedure Localize(const ASection, AName: string); virtual;
+  {$IFDEF FPC}
+    procedure GetPreferredSize(var W, H: Integer; R1, R2: Boolean); override; final;
+  {$ENDIF}
   published
     property Align;
     property AlignOrder: Integer read FAlignOrder write SetAlignOrder default 0;
@@ -1876,6 +1880,7 @@ var
   LList: TTabOrderList;
   LSizes: array[TOriginalParentCalcType] of TPoint;
   LParent: TWinControlAccess absolute AParent;
+  LWorkInfo: TAlignInfo;
 begin
   LList := nil;
   try
@@ -1897,7 +1902,7 @@ begin
           LCtrl.Margins.SetControlBounds(ARect, True)
         else
           LParent.ArrangeControl(LCtrl,
-            LSizes[LCtrl.FOriginalParentCalcType], LCtrl.Align, FWorkInfo, ARect);
+            LSizes[LCtrl.FOriginalParentCalcType], LCtrl.Align, LWorkInfo, ARect);
       end;
     end;
   finally
@@ -3021,6 +3026,19 @@ begin
   Result := False;
 end;
 
+procedure TACLCustomControl.KeyDownBeforeInterface(var Key: Word; Shift: TShiftState);
+begin
+  inherited;
+  case Key of
+    VK_TAB:
+      if Perform(WM_GETDLGCODE, 0, 0) and DLGC_WANTTAB <> 0 then
+        Key := VK_UNKNOWN; // иначе gtk2 уведет фокус на другой контрол самостоятельно
+    VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN:
+      if Perform(WM_GETDLGCODE, 0, 0) and DLGC_WANTARROWS <> 0 then
+        Key := VK_UNKNOWN; // иначе gtk2 уведет фокус на другой контрол самостоятельно
+  end;
+end;
+
 procedure TACLCustomControl.GetPreferredSize(var W, H: Integer; R1, R2: Boolean);
 begin
   H := Height;
@@ -3307,7 +3325,7 @@ var
   LMemDC: HDC;
   LPaintStruct: TPaintStruct;
 begin
-  BeginPaint(ACaller.Handle, LPaintStruct);
+  BeginPaint(ACaller.Handle, LPaintStruct{%H-});
   try
     if not LPaintStruct.rcPaint.IsEmpty then
     begin
