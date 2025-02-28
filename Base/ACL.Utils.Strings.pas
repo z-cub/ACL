@@ -101,7 +101,8 @@ type
 
   TACLSearchString = class
   strict private const
-    JoinChars = '-&.'#39;
+    JoinCharsToRemove = '-.'#39;
+    JoinCharsToReplace = '&_';
   strict private
     FLock: TACLCriticalSection;
     FEmpty: Boolean;
@@ -2645,7 +2646,11 @@ begin
   if IgnoreCase then
     Result := acUpperCase(Result);
   if IgnoreJoinChars then
-    Result := acRemoveChar(acReplaceChars(Result, JoinChars, #1), #1);
+  begin
+    Result := acReplaceChars(Result, JoinCharsToRemove, #1);
+    Result := acReplaceChars(Result, JoinCharsToReplace, ' ');
+    Result := acRemoveChar(Result, #1);
+  end;
 end;
 
 procedure TACLSearchString.SetValue(AValue: string);
