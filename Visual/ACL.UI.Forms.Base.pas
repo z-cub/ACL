@@ -27,6 +27,7 @@ uses
   Winapi.CommDlg,
   Winapi.DwmApi,
   Winapi.Windows,
+  AppEvnts,
 {$ENDIF}
   {Winapi.}Messages,
   // System
@@ -73,6 +74,7 @@ const
 {$ENDIF}
 
 type
+  TShowMode = (smDefault, smActivate, smNoActivate);
 {$IFDEF FPC}
   TWindowHook = function (var Message: TMessage): Boolean of object;
   TWMNCActivate = TLMNCActivate;
@@ -119,16 +121,16 @@ type
     FIScaling: Boolean;
     ScalingFlags: TScalingFlags;
 
-    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
-      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
     function DoAlignChildControls(AAlign: TAlign; AControl: TControl;
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
+  public
+    procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
+      const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
   {$ELSE}
   protected
     procedure ChangeScale(M, D: Integer; IsDpiChange: Boolean); override; final;
   {$ENDIF}
   protected
-    procedure AdjustSize; override;
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     function DialogChar(var Message: TWMKey): Boolean; {$IFDEF FPC}override;{$ELSE}virtual;{$ENDIF}
     procedure DoShow; override;
@@ -150,6 +152,7 @@ type
     property LoadedClientWidth: Integer read FLoadedClientWidth;
   public
     constructor CreateNew(AOwner: TComponent; ADummy: Integer = 0); override;
+    procedure AdjustSize; override;
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
     procedure InitPopupMode(AControl: TWinControl);
@@ -160,6 +163,7 @@ type
     procedure ScaleForPPI(ATargetPPI: Integer); overload; {$IFNDEF FPC}override; final;{$ENDIF}
     procedure ScaleForPPI(ATargetPPI: Integer; AWindowRect: PRect); reintroduce; overload; virtual;
     function SetFocusedControl(Control: TWinControl): Boolean; override;
+    procedure Show(AMode: TShowMode = smDefault);
     //# Properties
     property CurrentDpi: Integer read FCurrentPPI;
   published
@@ -272,7 +276,6 @@ type
     constructor CreateNew(AOwner: TComponent; Dummy: Integer = 0); override;
     destructor Destroy; override;
     procedure AfterConstruction; override;
-    procedure ShowAndActivate; virtual;
     //# Hooks
     procedure HookWndProc(AHook: TWindowHook; AMode: TACLWindowHookMode = whmPreprocess);
     procedure UnhookWndProc(AHook: TWindowHook);
@@ -318,9 +321,9 @@ function acFormSetCorners(AHandle: TWndHandle; ACorners: TACLFormCorners): Boole
 procedure acSwitchToWindow(AHandle: TWndHandle);
 implementation
 
-{$IFNDEF FPC}
+{$IFDEF LCLGtk2}
 uses
-  Vcl.AppEvnts;
+  ACL.UI.Core.Impl.Gtk2;
 {$ENDIF}
 
 type
@@ -982,6 +985,43 @@ begin
 {$ENDIF}
 end;
 
+procedure TACLBasicForm.Show(AMode: TShowMode = smDefault);
+var
+  LValue: LongWord;
+begin
+  if AMode = smNoActivate then
+  begin
+    LValue := GetWindowLong(Handle, GWL_EXSTYLE);
+    try
+      // Флаг WS_EX_NOACTIVATE дополнительно обрабатывается на нашей стороне
+      SetWindowLong(Handle, GWL_EXSTYLE, LValue or WS_EX_NOACTIVATE);
+      Show(smDefault);
+    finally
+      SetWindowLong(Handle, GWL_EXSTYLE, LValue);
+    end;
+  end
+  else
+  begin
+    if (AMode = smActivate) and (Application.MainForm = Self) then
+      TACLApplication.RestoreIfMinimized;
+
+  {$IFDEF MSWINDOWS}
+    //  if TACLApplication.IsMinimized then
+    //    Visible := False;
+    if Visible and HandleAllocated and not IsWindowVisible(WindowHandle) then
+      Perform(CM_SHOWINGCHANGED, 0, 0)
+    else
+  {$ENDIF}
+      inherited Show;
+
+    if AMode = smActivate then
+    begin
+      acSwitchToWindow(Handle);
+      DoShow;
+    end;
+  end;
+end;
+
 procedure TACLBasicForm.WndProc(var Message: TMessage);
 begin
   if not TACLControls.WndProc(Self, Message) then
@@ -1057,9 +1097,6 @@ end;
 
 procedure TACLBasicForm.CMShowingChanged(var Message: TMessage);
 begin
-{$IFDEF FPC}
-  inherited;
-{$ELSE}
   if GetWindowLong(WindowHandle, GWL_EXSTYLE) and WS_EX_NOACTIVATE <> 0 then
   begin
     SetWindowPos(WindowHandle, 0, 0, 0, 0, 0,
@@ -1068,7 +1105,6 @@ begin
   end
   else
     inherited;
-{$ENDIF}
 end;
 
 procedure TACLBasicForm.WMAppCommand(var Message: TMessage);
@@ -1366,14 +1402,6 @@ begin
     AConfig.WriteBool(LCfgSection, 'WindowMaximized', LIsMaximized);
     AConfig.WriteRect(LCfgSection, 'WindowRect', LBounds);
   end;
-end;
-
-procedure TACLCustomForm.ShowAndActivate;
-begin
-  if TACLApplication.IsMinimized then
-    Visible := False;
-  Show;
-  acSwitchToWindow(Handle);
 end;
 
 procedure TACLCustomForm.UpdateImageLists;

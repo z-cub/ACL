@@ -81,6 +81,7 @@ type
 {$ENDIF}
 
 type
+  TShowMode = ACL.UI.Forms.Base.TShowMode;
 
 {$REGION ' Popup Window '}
 
