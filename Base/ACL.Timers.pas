@@ -46,20 +46,19 @@ type
 
   { TACLTimer }
 
-  TACLTimerMode = (tmDefault, tmHighResolution, tmTickOnce);
   TACLTimer = class(TComponent)
   public const
     DefaultInterval = 1000;
   strict private
     FEnabled: Boolean;
+    FHighResolution: Boolean;
     FInterval: Cardinal;
-    FMode: TACLTimerMode;
 
     FOnTimer: TNotifyEvent;
 
     procedure SetEnabled(Value: Boolean);
     procedure SetInterval(Value: Cardinal);
-    procedure SetMode(Value: TACLTimerMode);
+    procedure SetHighResolution(Value: Boolean);
     procedure SetOnTimer(Value: TNotifyEvent);
     procedure UpdateTimer;
   private
@@ -70,16 +69,16 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     constructor CreateEx(AEvent: TNotifyEvent;
-      AInterval: Cardinal = DefaultInterval;
-      AMode: TACLTimerMode = tmDefault);
+      AInterval: Cardinal = DefaultInterval);
     procedure BeforeDestruction; override;
     procedure Restart; overload;
     procedure Restart(AInterval: Cardinal); overload;
     function Start: TACLTimer;
+    procedure Stop;
   published
     property Enabled: Boolean read FEnabled write SetEnabled default True;
     property Interval: Cardinal read FInterval write SetInterval default DefaultInterval;
-    property Mode: TACLTimerMode read FMode write SetMode default tmDefault;
+    property HighResolution: Boolean read FHighResolution write SetHighResolution default False;
     // Events
     property OnTimer: TNotifyEvent read FOnTimer write SetOnTimer;
   end;
@@ -214,10 +213,9 @@ begin
   FEnabled := True;
 end;
 
-constructor TACLTimer.CreateEx(AEvent: TNotifyEvent; AInterval: Cardinal; AMode: TACLTimerMode);
+constructor TACLTimer.CreateEx(AEvent: TNotifyEvent; AInterval: Cardinal);
 begin
   Create(nil);
-  FMode := AMode;
   FEnabled := False;
   FInterval := AInterval;
   FOnTimer := AEvent;
@@ -271,11 +269,11 @@ begin
   end;
 end;
 
-procedure TACLTimer.SetMode(Value: TACLTimerMode);
+procedure TACLTimer.SetHighResolution(Value: Boolean);
 begin
-  if FMode <> Value then
+  if HighResolution <> Value then
   begin
-    FMode := Value;
+    FHighResolution := Value;
     UpdateTimer;
   end;
 end;
@@ -290,6 +288,11 @@ function TACLTimer.Start: TACLTimer;
 begin
   Enabled := True;
   Result := Self;
+end;
+
+procedure TACLTimer.Stop;
+begin
+  Enabled := False;
 end;
 
 procedure TACLTimer.UpdateTimer;
@@ -397,7 +400,7 @@ begin
   FLock.Enter;
   try;
     FTimers.Add(ATimer);
-    if (ATimer.Mode = tmHighResolution) and (ATimer.Interval < 1000) then
+    if ATimer.HighResolution and (ATimer.Interval < 1000) then
     begin
       FHighResolutionTimers.Add(ATimer);
       SafeUpdateHighResolutionThread;
@@ -472,11 +475,7 @@ end;
 procedure TACLTimerManager.SafeCallTimerProc(ATimer: TACLTimer);
 begin
   if FTimers.Contains(ATimer) then
-  begin
-    if ATimer.Mode = tmTickOnce then
-      ATimer.Enabled := False;
     ATimer.Timer;
-  end;
 end;
 
 procedure TACLTimerManager.SafeCallTimerProcs(AList: TList);
