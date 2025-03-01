@@ -201,7 +201,6 @@ type
   protected
     procedure CreateEditors(AValueCount: Integer); virtual;
     function GetEditClass: TControlClass; virtual; abstract;
-    procedure Initialize(AValueCount: Integer);
     procedure InitializeEdit(AEdit: TWinControl); virtual; abstract;
     procedure PlaceControl(var R: TRect; AControl: TControl; AIndent: Integer);
     procedure PlaceControls(var R: TRect); override;
@@ -211,6 +210,7 @@ type
     property Labels: TACLObjectListOf<TACLLabel> read FLabels;
   public
     destructor Destroy; override;
+    procedure Initialize(AValueCount: Integer);
   end;
 
   { TACLInputQueryDialog }
@@ -225,25 +225,22 @@ type
     function CanApply: Boolean; override;
     procedure DoModified(Sender: TObject = nil); override;
     function GetEditClass: TControlClass; override;
-    function GetFieldValue(AIndex: Integer): Variant;
     procedure InitializeEdit(AEdit: TWinControl); override;
-  protected
-    procedure InitializeField(AIndex: Integer; const AFieldName: string;
-      const AValue: Variant; ASelStart: Integer = 0; ASelLength: Integer = MaxInt);
-    //# Events
-    property OnValidate: TACLInputQueryValidateEvent read FOnValidate write FOnValidate;
   public
     class function Execute(const ACaption, APrompt: string; var AStr: string;
       AOwner: TComponent = nil; AValidateEvent: TACLInputQueryValidateEvent = nil): Boolean; overload;
-    class function Execute(const ACaption, APrompt: string; var AStr: string;
-      ASelStart, ASelLength: Integer; AOwner: TComponent = nil;
-      AValidateEvent: TACLInputQueryValidateEvent = nil): Boolean; overload;
     class function Execute(const ACaption: string; const APrompt: string;
       var AValue: Variant; AOwner: TComponent = nil;
       AValidateEvent: TACLInputQueryValidateEvent = nil): Boolean; overload;
     class function Execute(const ACaption: string; const APrompts: array of string;
       var AValues: array of Variant; AOwner: TComponent = nil;
       AValidateEvent: TACLInputQueryValidateEvent = nil): Boolean; overload;
+    //# Instance
+    procedure InitializeField(AIndex: Integer; const AFieldName: string;
+      const AValue: Variant; ASelStart: Integer = 0; ASelLength: Integer = MaxInt);
+    function GetFieldValue(AIndex: Integer): Variant;
+    //# Events
+    property OnValidate: TACLInputQueryValidateEvent read FOnValidate write FOnValidate;
   end;
 
   { TACLMemoQueryDialog }
@@ -1018,57 +1015,50 @@ end;
 { TACLInputQueryDialog }
 
 class function TACLInputQueryDialog.Execute(const ACaption, APrompt: string;
-  var AStr: string; ASelStart, ASelLength: Integer; AOwner: TComponent;
-  AValidateEvent: TACLInputQueryValidateEvent): Boolean;
-var
-  ADialog: TACLInputQueryDialog;
-begin
-  ADialog := CreateNew(AOwner);
-  try
-    ADialog.Caption := ACaption;
-    ADialog.OnValidate := AValidateEvent;
-    ADialog.Initialize(1);
-    ADialog.InitializeField(0, APrompt, AStr, ASelStart, ASelLength);
-    Result := ADialog.ShowModal = mrOk;
-    if Result then
-      AStr := ADialog.GetFieldValue(0);
-  finally
-    ADialog.Free;
-  end;
-end;
-
-class function TACLInputQueryDialog.Execute(const ACaption, APrompt: string;
   var AStr: string; AOwner: TComponent; AValidateEvent: TACLInputQueryValidateEvent): Boolean;
+var
+  LDialog: TACLInputQueryDialog;
 begin
-  Result := Execute(ACaption, APrompt, AStr, 0, MaxInt, AOwner, AValidateEvent);
+  LDialog := CreateNew(AOwner);
+  try
+    LDialog.Caption := ACaption;
+    LDialog.OnValidate := AValidateEvent;
+    LDialog.Initialize(1);
+    LDialog.InitializeField(0, APrompt, AStr);
+    Result := LDialog.ShowModal = mrOk;
+    if Result then
+      AStr := LDialog.GetFieldValue(0);
+  finally
+    LDialog.Free;
+  end;
 end;
 
 class function TACLInputQueryDialog.Execute(const ACaption: string;
   const APrompts: array of string; var AValues: array of Variant;
   AOwner: TComponent; AValidateEvent: TACLInputQueryValidateEvent): Boolean;
 var
-  ADialog: TACLInputQueryDialog;
+  LDialog: TACLInputQueryDialog;
   I: Integer;
 begin
   if Length(AValues) <> Length(APrompts) then
     raise EInvalidArgument.Create(ClassName);
 
-  ADialog := CreateNew(AOwner);
+  LDialog := CreateNew(AOwner);
   try
-    ADialog.Caption := ACaption;
-    ADialog.OnValidate := AValidateEvent;
-    ADialog.Initialize(Length(AValues));
+    LDialog.Caption := ACaption;
+    LDialog.OnValidate := AValidateEvent;
+    LDialog.Initialize(Length(AValues));
     for I := 0 to Length(AValues) - 1 do
-      ADialog.InitializeField(I, APrompts[I], AValues[I]);
+      LDialog.InitializeField(I, APrompts[I], AValues[I]);
 
-    Result := ADialog.ShowModal = mrOk;
+    Result := LDialog.ShowModal = mrOk;
     if Result then
     begin
       for I := 0 to Length(AValues) - 1 do
-        AValues[I] := ADialog.GetFieldValue(I);
+        AValues[I] := LDialog.GetFieldValue(I);
     end;
   finally
-    ADialog.Free;
+    LDialog.Free;
   end;
 end;
 
