@@ -246,9 +246,7 @@ function IsBadWritePtr(Ptr: Pointer; Size: Integer): Boolean; deprecated 'not im
 implementation
 
 uses
-{$IFDEF MSWINDOWS}
   ACL.Utils.FileSystem,
-{$ENDIF}
   ACL.Utils.Strings;
 
 {$IFDEF MSWINDOWS}
@@ -466,11 +464,13 @@ begin
 var
   LActualLibPath: string;
 begin
-  if ExtractFilePath(AFileName) <> '' then
-    LActualLibPath := AFileName
+  if CharInSet(AFileName[1], ['.', '/']) then
+    LActualLibPath := AFileName // relative (./lib.so) or absolute (/lib64/lib.so)
   else
   begin
-    LActualLibPath := IncludeTrailingPathDelimiter(GetCurrentDir) + AFileName;
+    LActualLibPath := acGetCurrentDir + AFileName;
+    if not FileExists(LActualLibPath) then
+      LActualLibPath := acSelfPath + AFileName;
     if not FileExists(LActualLibPath) then
       LActualLibPath := ResolveLibraryPath(AFileName);
   end;
