@@ -268,7 +268,8 @@ function acOSGetDescription: string;
 var
   LBuilder: TACLStringBuilder;
 {$IFDEF LINUX}
-  LDistroName: string;
+  LDescription: string;
+  LRelease: string;
 {$ENDIF}
 begin
   LBuilder := TACLStringBuilder.Get(32);
@@ -276,9 +277,15 @@ begin
     LBuilder.Append(TOSVersion.Name);
     LBuilder.Append(' / ');
   {$IFDEF LINUX}
-    LDistroName := TACLProcess.ExecuteToString('lsb_release -d');
-    LDistroName := acTrim(Copy(LDistroName, Pos(':', LDistroName) + 1));
-    LBuilder.Append(LDistroName);
+    // Description
+    LDescription := TACLProcess.ExecuteToString('lsb_release -d');
+    LDescription := acTrim(Copy(LDescription, Pos(':', LDescription) + 1));
+    LBuilder.Append(LDescription);
+    // Release
+    LRelease := TACLProcess.ExecuteToString('lsb_release -r');
+    LRelease := acTrim(Copy(LRelease, Pos(':', LRelease) + 1));
+    if not LDescription.Contains(LRelease) then
+      LBuilder.Append(' ').Append(LRelease);
   {$ENDIF}
   {$IFDEF MSWINDOWS}
     LBuilder.Append(TOSVersion.Major);
