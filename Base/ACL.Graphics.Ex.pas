@@ -56,6 +56,7 @@ type
   strict private
     FDirty: Boolean;
     FMask: PByte;
+    FMaskCapacity: Integer;
     FMaskFrame: Integer;
     FMaskInfo: TACLSkinImageFrameState;
     FMaskInfoValid: Boolean;
@@ -1374,10 +1375,10 @@ end;
 
 procedure TACLDibEx.ApplyMask(AClipArea: PRect);
 var
-  AIndex: Integer;
-  AMask: PByte;
-  ARange1: TPoint;
-  ARange2: TPoint;
+  LIndex: Integer;
+  LMask: PByte;
+  LRange1: TPoint;
+  LRange2: TPoint;
 begin
   if FMaskInfoValid then
   begin
@@ -1390,76 +1391,81 @@ begin
     end;
   end;
 
-  AMask := FMask;
+  LMask := FMask;
 
-  ARange1.X := 0;
-  ARange1.Y := ColorCount;
-  ARange2.X := 0;
-  ARange2.Y := 0;
+  LRange1.X := 0;
+  LRange1.Y := ColorCount;
+  LRange2.X := 0;
+  LRange2.Y := 0;
 
   if FOpaqueRange <> NullPoint then
   begin
-    ARange1.Y := Min(ARange1.Y, FOpaqueRange.X - 1);
-    ARange2.X := FOpaqueRange.Y;
-    ARange2.Y := ColorCount;
+    LRange1.Y := Min(LRange1.Y, FOpaqueRange.X - 1);
+    LRange2.X := FOpaqueRange.Y;
+    LRange2.Y := ColorCount;
   end;
 
   if AClipArea <> nil then
   begin
-    AIndex := CoordToFlatIndex(AClipArea^.Left, AClipArea^.Top);
-    if AIndex > 0 then
+    LIndex := CoordToFlatIndex(AClipArea^.Left, AClipArea^.Top);
+    if LIndex > 0 then
     begin
-      ARange1.X := Max(ARange1.X, AIndex);
-      ARange2.X := Max(ARange2.X, AIndex);
+      LRange1.X := Max(LRange1.X, LIndex);
+      LRange2.X := Max(LRange2.X, LIndex);
     end;
 
-    AIndex := CoordToFlatIndex(AClipArea^.Right, AClipArea^.Bottom);
-    if AIndex > 0 then
+    LIndex := CoordToFlatIndex(AClipArea^.Right, AClipArea^.Bottom);
+    if LIndex > 0 then
     begin
-      ARange1.Y := Min(ARange1.Y, AIndex);
-      ARange2.Y := Min(ARange2.Y, AIndex);
+      LRange1.Y := Min(LRange1.Y, LIndex);
+      LRange2.Y := Min(LRange2.Y, LIndex);
     end;
   end;
 
-  if ARange1.Y > ARange1.X then
-    ApplyMask(AMask + ARange1.X, @Colors^[ARange1.X], ARange1.Y - ARange1.X);
-  if ARange2.Y > ARange2.X then
-    ApplyMask(AMask + ARange2.X, @Colors^[ARange2.X], ARange2.Y - ARange2.X);
+  if LRange1.Y > LRange1.X then
+    ApplyMask(LMask + LRange1.X, @Colors^[LRange1.X], LRange1.Y - LRange1.X);
+  if LRange2.Y > LRange2.X then
+    ApplyMask(LMask + LRange2.X, @Colors^[LRange2.X], LRange2.Y - LRange2.X);
 end;
 
 procedure TACLDibEx.LoadMask;
 var
-  AColor: PACLPixel32;
-  AColorIndex: Integer;
-  AMask: PByte;
-  AOpaqueCounter: Integer;
+  LColor: PACLPixel32;
+  LColorIndex: Integer;
+  LMask: PByte;
+  LOpaqueCounter: Integer;
 begin
+  if (FMask <> nil) and (ColorCount > FMaskCapacity) then
+    FreeMemAndNil(FMask);
+  if (FMask = nil) then
+  begin
+    FMask := AllocMem(ColorCount);
+    FMaskCapacity := ColorCount;
+  end;
+
+  LMask := FMask;
+  LColor := @Colors^[0];
+  LOpaqueCounter := 0;
   FOpaqueRange := NullPoint;
   FMaskInfoValid := False;
-  if FMask = nil then
-    FMask := AllocMem(ColorCount);
-
-  AMask := FMask;
-  AColor := @Colors^[0];
-  AOpaqueCounter := 0;
-  for AColorIndex := 0 to ColorCount - 1 do
+  for LColorIndex := 0 to ColorCount - 1 do
   begin
-    AMask^ := AColor^.A;
+    LMask^ := LColor^.A;
 
-    if AMask^ = 255 then
-      Inc(AOpaqueCounter)
+    if LMask^ = 255 then
+      Inc(LOpaqueCounter)
     else
     begin
-      if AOpaqueCounter > FOpaqueRange.Y - FOpaqueRange.X then
+      if LOpaqueCounter > FOpaqueRange.Y - FOpaqueRange.X then
       begin
-        FOpaqueRange.Y := AColorIndex - 1;
-        FOpaqueRange.X := FOpaqueRange.Y - AOpaqueCounter;
+        FOpaqueRange.Y := LColorIndex - 1;
+        FOpaqueRange.X := FOpaqueRange.Y - LOpaqueCounter;
       end;
-      AOpaqueCounter := 0;
+      LOpaqueCounter := 0;
     end;
 
-    Inc(AMask);
-    Inc(AColor);
+    Inc(LMask);
+    Inc(LColor);
   end;
 
   if FOpaqueRange.Y - FOpaqueRange.X < ColorCount div 3 then
@@ -1477,6 +1483,7 @@ begin
     begin
       FreeMemAndNil(FMask);
       FMaskInfoValid := True;
+      FMaskCapacity := 0;
     end
     else
     begin
