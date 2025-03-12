@@ -8,7 +8,7 @@
 //             https://github.com/microsoft/referencesource/tree/master/System.Xml/System/Xml/Core
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -266,6 +266,7 @@ type
 
   { TACLXMLNodeLoaders }
 
+  TACLXMLAttrLoader = procedure (AContext: TObject; AReader: TACLXMLReader) of object;
   TACLXMLTextLoader = procedure (AContext: TObject; const AText: string) of object;
 
   TACLXMLNodeLoaders = class
@@ -295,6 +296,7 @@ type
     procedure Add(const ANamespace, ANodeName: string; AProc: TACLXMLTextLoader); overload;
     procedure Add(const ANodeName: string; ALoader: TACLXMLNodeLoader); overload;
     procedure Add(const ANodeName: string; ALoader: TACLXMLNodeLoaderClass); overload;
+    procedure Add(const ANodeName: string; AProc: TACLXMLAttrLoader); overload;
     procedure Add(const ANodeName: string; AProc: TACLXMLTextLoader); overload;
     procedure EnsureCapacity(ACount: Integer); inline;
     procedure SetDefault(AValue: TACLXMLNodeLoaderClass);
@@ -423,13 +425,17 @@ type
     procedure RemoveNamespace(const APrefix: string; const AUri: string);
   end;
 
-  { TACLXMLNodeTextLoader }
+  { TACLXMLCallbackLoader }
 
-  TACLXMLNodeTextLoader = class(TACLXMLNodeLoader)
+  TACLXMLCallbackLoader = class(TACLXMLNodeLoader)
   strict private
-    FProc: TACLXMLTextLoader;
+    FOnAttr: TACLXMLAttrLoader;
+    FOnText: TACLXMLTextLoader;
   public
-    constructor Create(ANameTable: TACLXMLNameTable; AProc: TACLXMLTextLoader); reintroduce;
+    constructor Create(ANameTable: TACLXMLNameTable;
+      AOnAttr: TACLXMLAttrLoader;
+      AOnText: TACLXMLTextLoader); reintroduce;
+    procedure OnAttributes(AContext: TObject; AReader: TACLXMLReader); override;
     procedure OnText(AContext: TObject; AReader: TACLXMLReader); override;
   end;
 
@@ -5584,7 +5590,12 @@ end;
 
 procedure TACLXMLNodeLoaders.Add(const ANodeName: string; AProc: TACLXMLTextLoader);
 begin
-  Add(ANodeName, TACLXMLNodeTextLoader.Create(FNameTable, AProc));
+  Add(ANodeName, TACLXMLCallbackLoader.Create(FNameTable, nil, AProc));
+end;
+
+procedure TACLXMLNodeLoaders.Add(const ANodeName: string; AProc: TACLXMLAttrLoader);
+begin
+  Add(ANodeName, TACLXMLCallbackLoader.Create(FNameTable, AProc, nil));
 end;
 
 procedure TACLXMLNodeLoaders.Add(const ANamespace, ANodeName: string; ALoader: TACLXMLNodeLoaderClass);
@@ -5781,18 +5792,26 @@ begin
   end;
 end;
 
-{ TACLXMLNodeTextLoader }
+{ TACLXMLCallbackLoader }
 
-constructor TACLXMLNodeTextLoader.Create(
-  ANameTable: TACLXMLNameTable; AProc: TACLXMLTextLoader);
+constructor TACLXMLCallbackLoader.Create(ANameTable: TACLXMLNameTable;
+  AOnAttr: TACLXMLAttrLoader; AOnText: TACLXMLTextLoader);
 begin
   inherited Create(ANameTable);
-  FProc := AProc;
+  FOnAttr := AOnAttr;
+  FOnText := AOnText;
 end;
 
-procedure TACLXMLNodeTextLoader.OnText(AContext: TObject; AReader: TACLXMLReader);
+procedure TACLXMLCallbackLoader.OnAttributes(AContext: TObject; AReader: TACLXMLReader);
 begin
-  FProc(AContext, AReader.Text);
+  if Assigned(FOnAttr) then
+    FOnAttr(AContext, AReader);
+end;
+
+procedure TACLXMLCallbackLoader.OnText(AContext: TObject; AReader: TACLXMLReader);
+begin
+  if Assigned(FOnText) then
+    FOnText(AContext, AReader.Text);
 end;
 
 {$ENDREGION}

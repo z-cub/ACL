@@ -120,6 +120,7 @@ type
       const Name: string; out Value: string): Boolean;
     class function TryGetValue(Obj: TJSONValue;
       const Name: string; ValueClass: TJSONValueClass; out Value): Boolean;
+    class function TryLoad(AStream: TStream): TJSONValue;
   end;
 
 implementation
@@ -308,6 +309,21 @@ begin
   Result := (LValue <> nil) and LValue.InheritsFrom(ValueClass);
   if Result then
     TObject(Value) := LValue;
+end;
+
+class function JSON.TryLoad(AStream: TStream): TJSONValue;
+var
+  LData: TBytes;
+begin
+  if AStream is TBytesStream then
+    Result := TJSONObject.ParseJSONValue(TBytesStream(AStream).Bytes, 0, AStream.Size)
+  else
+  begin
+    SetLength(LData, AStream.Size);
+    AStream.Position := 0;
+    AStream.ReadBuffer(LData, Length(LData));
+    Result := TJSONObject.ParseJSONValue(LData, 0, Length(LData));
+  end;
 end;
 
 {$IFDEF MSWINDOWS}

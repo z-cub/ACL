@@ -196,6 +196,7 @@ type
 
     // Abbreviations
     function N(const AName: string): TACLSQLQueryBuilder; overload; inline;
+    function N(const AName, AField: string): TACLSQLQueryBuilder; overload; inline;
     function V(const AValue: Single): TACLSQLQueryBuilder; overload; inline;
     function V(const AValue: Double): TACLSQLQueryBuilder; overload; inline;
     function V(const AValue: Int64): TACLSQLQueryBuilder; overload; inline;
@@ -206,25 +207,27 @@ type
     function VBlob: TACLSQLQueryBuilder; overload; inline;
 
     // Operators
-    function Above: TACLSQLQueryBuilder; inline;
-    function AboveOrEqual: TACLSQLQueryBuilder; inline;
     function &And: TACLSQLQueryBuilder; inline;
     function &As: TACLSQLQueryBuilder; inline;
+    function &Not: TACLSQLQueryBuilder; inline;
+    function &On: TACLSQLQueryBuilder; inline;
+    function &Or: TACLSQLQueryBuilder; inline;
+    function Above: TACLSQLQueryBuilder; inline;
+    function AboveOrEqual: TACLSQLQueryBuilder; inline;
     function Asterisk: TACLSQLQueryBuilder; inline;
     function Below: TACLSQLQueryBuilder; inline;
     function BelowOrEqual: TACLSQLQueryBuilder; inline;
+    function Dot: TACLSQLQueryBuilder; inline;
     function Equal: TACLSQLQueryBuilder; reintroduce; inline;
-    function &Not: TACLSQLQueryBuilder; inline;
     function Minus: TACLSQLQueryBuilder; inline;
     function NotEquals: TACLSQLQueryBuilder; inline;
-    function &On: TACLSQLQueryBuilder; inline;
-    function &Or: TACLSQLQueryBuilder; inline;
     function Plus: TACLSQLQueryBuilder; inline;
 
     // Directives
     function AlterTable: TACLSQLQueryBuilder; inline;
     function Comma: TACLSQLQueryBuilder; inline;
     function Count: TACLSQLQueryBuilder; inline;
+    function CountAll: TACLSQLQueryBuilder; inline;
     function CreateIndex: TACLSQLQueryBuilder; inline;
     function CreateTable: TACLSQLQueryBuilder; inline;
     function Delete: TACLSQLQueryBuilder; inline;
@@ -1121,6 +1124,11 @@ begin
   Free;
 end;
 
+function TACLSQLQueryBuilder.Dot: TACLSQLQueryBuilder;
+begin
+  Result := Raw('.');
+end;
+
 function TACLSQLQueryBuilder.DropTable: TACLSQLQueryBuilder;
 begin
   Result := Raw('DROP TABLE ');
@@ -1141,6 +1149,11 @@ end;
 function TACLSQLQueryBuilder.Replace: TACLSQLQueryBuilder;
 begin
   Result := Raw('REPLACE ');
+end;
+
+function TACLSQLQueryBuilder.N(const AName, AField: string): TACLSQLQueryBuilder;
+begin
+  Result := N(AName).Dot.N(AField);
 end;
 
 function TACLSQLQueryBuilder.N(const AName: string): TACLSQLQueryBuilder;
@@ -1311,6 +1324,11 @@ begin
   Result := Raw('Count');
 end;
 
+function TACLSQLQueryBuilder.CountAll: TACLSQLQueryBuilder;
+begin
+  Result := Raw('Count(*)');
+end;
+
 function TACLSQLQueryBuilder.Delete: TACLSQLQueryBuilder;
 begin
   Result := Raw('DELETE ');
@@ -1452,7 +1470,7 @@ end;
 
 function TACLSQLQueryBuilder.Unique: TACLSQLQueryBuilder;
 begin
-  Result := Raw(' UNIQUE ');
+  Result := TypeCore(' UNIQUE ');
 end;
 
 function TACLSQLQueryBuilder.Update: TACLSQLQueryBuilder;

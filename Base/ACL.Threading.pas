@@ -799,10 +799,18 @@ end;
 class procedure TACLMainThread.Execute(ARecord: PSynchronizeRecord);
 begin
   try
-    if Assigned(ARecord^.Method) then
-      ARecord^.Method();
-    if Assigned(ARecord^.Proc) then
-      ARecord^.Proc();
+    try
+      if Assigned(ARecord^.Method) then
+        ARecord^.Method();
+      if Assigned(ARecord^.Proc) then
+        ARecord^.Proc();
+    except
+      on E: Exception do
+      begin
+        if Assigned(ApplicationHandleException) then
+          ApplicationHandleException(E);
+      end;
+    end;
   finally
     Dispose(ARecord);
   end;
