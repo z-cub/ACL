@@ -39,6 +39,7 @@ uses
   Gtk2Globals,
   Gtk2WSControls,
   Gtk2WSForms,
+  Gtk2WSStdCtrls,
   WSLCLClasses,
   // System
   Classes,
@@ -78,6 +79,13 @@ const
 
 type
   TGtk2EventCallback = procedure (AEvent: PGdkEvent; var AHandled: Boolean) of object;
+
+  { IACLLayeredPaint }
+
+  IACLLayeredPaint = interface
+  ['{3FE006F2-67DE-4317-B402-D872A77373E4}']
+    procedure PaintTo(ACairo: Pcairo_t);
+  end;
 
   { TGtk2App }
 
@@ -140,11 +148,18 @@ type
       const ALeft, ATop, AWidth, AHeight: Integer); override;
   end;
 
-  { IACLLayeredPaint }
+  { TACLGtk2WSEdit }
 
-  IACLLayeredPaint = interface
-  ['{3FE006F2-67DE-4317-B402-D872A77373E4}']
-    procedure PaintTo(ACairo: Pcairo_t);
+  TACLGtk2WSEdit = class(TGtk2WSCustomEdit)
+  published
+    class procedure SetColor(const AWinControl: TWinControl); override;
+  end;
+
+  { TACLGtk2WSMemo }
+
+  TACLGtk2WSMemo = class(TGtk2WSCustomMemo)
+  published
+    class procedure SetColor(const AWinControl: TWinControl); override;
   end;
 
   { TACLGtk2WSAdvancedForm }
@@ -681,6 +696,25 @@ begin
     gtk_container_set_border_width(GTK_CONTAINER(LWidget), ASize);
     ConnectSignalAfter(GTK_OBJECT(LWidget), 'expose-event', @DoDrawNonClientBorder, AControl);
   end;
+end;
+
+{ TACLGtk2WSEdit }
+
+class procedure TACLGtk2WSEdit.SetColor(const AWinControl: TWinControl);
+var
+  LWidget: PGtkWidget;
+begin
+  LWidget := {%H-}PGtkWidget(AWinControl.Handle);
+  LWidget := GetOrCreateWidgetInfo(LWidget)^.CoreWidget;
+  Gtk2WidgetSet.SetWidgetColor(LWidget, clNone, AWinControl.Color,
+    [GTK_STATE_NORMAL, GTK_STATE_INSENSITIVE, GTK_STYLE_BASE]);
+end;
+
+{ TACLGtk2WSMemo }
+
+class procedure TACLGtk2WSMemo.SetColor(const AWinControl: TWinControl);
+begin
+  TACLGtk2WSEdit.SetColor(AWinControl);
 end;
 
 { TACLGtk2WSAdvancedForm }

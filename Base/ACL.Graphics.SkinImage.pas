@@ -6,7 +6,7 @@
 //  Purpose:   Skinned Image
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -264,11 +264,12 @@ type
       AFrameIndex: Integer = 0; AAlpha: Byte = MaxByte); overload;
     procedure Draw(ACanvas: TCanvas; const R: TRect;
       AFrameIndex: Integer; AEnabled: Boolean; AAlpha: Byte = MaxByte); overload;
+    // Pixels
+    // Returns nil if point is out of bounds
+    function GetPixel(X, Y: Integer): PACLPixel32;
     // HitTest
     function HitTest(const ABounds: TRect; X, Y: Integer): Boolean;
     function HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Integer): Boolean;
-    // Pixels
-    function GetPixel(X, Y: Integer; out APixel: TACLPixel32): Boolean;
     // Listeners
     procedure ListenerAdd(AEvent: TNotifyEvent);
     procedure ListenerRemove(AEvent: TNotifyEvent);
@@ -1038,33 +1039,33 @@ function TACLSkinImage.HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Inte
   end;
 
 var
-  APixel: TACLPixel32;
-  APoint: TPoint;
+  LPixel: PACLPixel32;
+  LPoint: TPoint;
 begin
-  if not Empty then
+  if Empty then
+    Exit(True);
+
+  Result := False;
+  LPoint := Point(X, Y);
+  if ConvertPointToLocalCoords(LPoint, ABounds, FrameRect[AFrameIndex]) then
   begin
-    Result := False;
-    APoint := Point(X, Y);
-    if ConvertPointToLocalCoords(APoint, ABounds, FrameRect[AFrameIndex]) then
-    begin
-      if GetPixel(APoint.X, APoint.Y, APixel) then
-        Result := APixel.A >= HitTestThreshold;
-    end;
-  end
-  else
-    Result := True;
+    LPixel := GetPixel(LPoint.X, LPoint.Y);
+    Result := (LPixel <> nil) and (LPixel^.A >= HitTestThreshold);
+  end;
 end;
 
-function TACLSkinImage.GetPixel(X, Y: Integer; out APixel: TACLPixel32): Boolean;
+function TACLSkinImage.GetPixel(X, Y: Integer): PACLPixel32;
 var
-  AOffset: Integer;
+  LOffset: Integer;
 begin
-  CheckUnpacked;
-  CheckBitsState(ibsPremultiplied);
-  AOffset := X + Y * Width;
-  Result := InRange(AOffset, 0, BitCount - 1);
-  if Result then
-    APixel := Bits^[AOffset];
+  LOffset := X + Y * Width;
+  if InRange(LOffset, 0, BitCount - 1) then
+  begin
+    CheckUnpacked;
+    Result := @Bits^[LOffset];
+  end
+  else
+    Result := nil;
 end;
 
 procedure TACLSkinImage.ListenerAdd(AEvent: TNotifyEvent);
@@ -1430,17 +1431,17 @@ end;
 
 procedure TACLSkinImage.CheckUnpacked;
 var
-  AData: TACLSkinImageBitsStorage;
+  LData: TACLSkinImageBitsStorage;
 begin
   if (FBits = nil) and (FDormantData <> nil) then
   begin
-    AData := FDormantData;
+    LData := FDormantData;
     try
       FDormantData := nil;
       DoCreateBits(Width, Height);
-      AData.Restore(Bits, BitCount, FHasAlpha, FBitsState);
+      LData.Restore(Bits, BitCount, FHasAlpha, FBitsState);
     finally
-      FreeAndNil(AData);
+      FreeAndNil(LData);
     end;
   end;
 end;

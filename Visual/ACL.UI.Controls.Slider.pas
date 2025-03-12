@@ -3,10 +3,10 @@
 //  Project:   Artem's Controls Library aka ACL
 //             v6.0
 //
-//  Purpose:   Slider
+//  Purpose:   Slider (TrackBar)
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -44,6 +44,7 @@ uses
   ACL.Graphics.SkinImage,
   ACL.Math,
   ACL.Timers,
+  ACL.UI.Animation,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.Buttons,
   ACL.UI.HintWindow,
@@ -93,7 +94,7 @@ type
     property MagnetToDefaultValue: Boolean read FMagnetToDefaultValue write FMagnetToDefaultValue default False;
     property MarkSize: TACLSliderMarkSize read FMarkSize write SetMarkSize default 3;
     property MarkVisible: Boolean read FMarkVisible write SetMarkVisible default True;
-    property TrackAreaOffset: Integer read FTrackAreaOffset write SetTrackAreaOffset default 5;
+    property TrackAreaOffset: Integer read FTrackAreaOffset write SetTrackAreaOffset default 6;
   end;
 
   { TACLSliderOptionsLabels }
@@ -222,6 +223,7 @@ type
     function GetStyle: TACLStyleSlider; inline;
   protected const
     DefaultValueAreaSize = 1;
+    IndentBetweenThumbAndMarks = 2;
   protected
     FDefaultValueRect: TRect;
     FLabelCurrentValue: TACLSliderTextViewInfo;
@@ -243,6 +245,7 @@ type
     procedure CalculateTickMarks; overload;
     procedure CalculateTrackBarRect; virtual; abstract;
     function GetDefaultValuePosition: Integer;
+    function GetMarkGap: Integer;
     function GetMarkSize: Integer;
     function GetThumbSize: Integer; virtual; abstract;
     function GetTrackAreaOffset: Integer;
@@ -308,7 +311,7 @@ type
 
   { TACLSlider }
 
-  TACLSlider = class(TACLContainer)
+  TACLSlider = class(TACLContainer, IACLAnimateControl)
   strict private
     FOptions: TACLSliderOptions;
     FOptionsLabels: TACLSliderOptionsLabels;
@@ -384,6 +387,10 @@ type
     procedure DrawTrackBar(ACanvas: TCanvas; const ARect: TRect); virtual;
     procedure Paint; override;
 
+    // IACLAnimateControl
+    procedure IACLAnimateControl.Animate = InvalidateThumb;
+    procedure InvalidateThumb;
+
     // Messages
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
@@ -450,7 +457,7 @@ begin
   FMarkSize := 3;
   FMarkVisible := True;
   FImmediateUpdate := True;
-  FTrackAreaOffset := 5;
+  FTrackAreaOffset := 6;
 end;
 
 procedure TACLSliderOptions.DoAssign(Source: TPersistent);
@@ -900,6 +907,11 @@ begin
   Result := GetThumbSize div 2 + FastTrunc(GetTrackSize * AValue / OptionsValue.Range);
 end;
 
+function TACLSliderViewInfo.GetMarkGap: Integer;
+begin
+  Result := dpiApply(IndentBetweenThumbAndMarks, CurrentDpi);
+end;
+
 function TACLSliderViewInfo.GetMarkSize: Integer;
 begin
   if Options.MarkVisible then
@@ -1078,7 +1090,7 @@ end;
 procedure TACLSliderHorizontalViewInfo.CalculateThumbBarRect(const R: TRect);
 begin
   FThumbBarRect := R;
-  FThumbBarRect.Inflate(0, -(GetMarkSize + 1));
+  FThumbBarRect.Inflate(0, -(GetMarkSize + GetMarkGap));
 end;
 
 procedure TACLSliderHorizontalViewInfo.CalculateThumbRect(AProgress: Single);
@@ -1103,8 +1115,8 @@ begin
   LMarkSize := GetMarkSize;
 
   X0 := FThumbBarRect.Left;
-  Y1 := FThumbBarRect.Top - 1 - GetMarkSize;
-  Y2 := FThumbBarRect.Bottom + 1;
+  Y1 := FThumbBarRect.Top - GetMarkGap - GetMarkSize;
+  Y2 := FThumbBarRect.Bottom + GetMarkGap;
 
   while LPosition <= LMaxPosition do
   begin
@@ -1290,7 +1302,7 @@ end;
 procedure TACLSliderVerticalViewInfo.CalculateThumbBarRect(const R: TRect);
 begin
   FThumbBarRect := R;
-  FThumbBarRect.Inflate(-(GetMarkSize + 1), 0);
+  FThumbBarRect.Inflate(-(GetMarkSize + GetMarkGap), 0);
 
   if OptionsValue.IsDefaultAssigned then
   begin
@@ -1325,8 +1337,8 @@ begin
   LMarkSize := GetMarkSize;
 
   Y0 := FThumbBarRect.Top;
-  X1 := FThumbBarRect.Left - 1 - GetMarkSize;
-  X2 := FThumbBarRect.Right + 1;
+  X1 := FThumbBarRect.Left - GetMarkGap - GetMarkSize;
+  X2 := FThumbBarRect.Right + GetMarkGap;
 
   while LPosition <= LMaxPosition do
   begin
@@ -1645,28 +1657,31 @@ end;
 
 procedure TACLSlider.DrawTickMarks(ACanvas: TCanvas);
 var
-  AColor: TAlphaColor;
+  LColor: TAlphaColor;
   I: Integer;
 begin
-  AColor := Style.MarkColor[Enabled];
-  if AColor.IsValid then
+  LColor := Style.MarkColor[Enabled];
+  if LColor.IsValid then
   begin
     for I := 0 to ViewInfo.TickMarks.Count - 1 do
-      acFillRect(ACanvas, ViewInfo.TickMarks.List[I], AColor);
+      acFillRect(ACanvas, ViewInfo.TickMarks.List[I], LColor);
   end;
 end;
 
 procedure TACLSlider.DrawThumbBar(ACanvas: TCanvas; const ARect: TRect);
 begin
-  if not CallCustomDrawEvent(Self, OnDrawThumb, ACanvas, ARect) then
-    Style.DrawThumb(ACanvas, ARect, FThumbState);
+  if not AnimationManager.Draw(Self, ACanvas, ARect) then
+  begin
+    if not CallCustomDrawEvent(Self, OnDrawThumb, ACanvas, ARect) then
+      Style.DrawThumb(ACanvas, ARect, FThumbState);
+  end;
 end;
 
 procedure TACLSlider.DrawTrackBar(ACanvas: TCanvas; const ARect: TRect);
 begin
   if not CallCustomDrawEvent(Self, OnDrawBackground, ACanvas, ARect) then
     Style.Draw(ACanvas, ARect, Enabled);
-  if not ViewInfo.DefaultValueRect.IsEmpty then
+  if not ViewInfo.DefaultValueRect.IsEmpty and Enabled then
     acFillRect(ACanvas, ViewInfo.DefaultValueRect, Style.ColorDefaultValue.Value);
 end;
 
@@ -1701,13 +1716,22 @@ end;
 
 procedure TACLSlider.UpdateThumbState(const P: TPoint);
 var
-  ANewState: TACLButtonState;
+  LAnimation: TACLBitmapAnimation;
+  LState: TACLButtonState;
 begin
-  ANewState := CalculateThumbState(P);
-  if ANewState <> FThumbState then
+  LState := CalculateThumbState(P);
+  if LState <> FThumbState then
   begin
-    FThumbState := ANewState;
-    InvalidateRect(ViewInfo.ThumbRect);
+    if (FThumbState = absHover) and (LState in [absActive, absNormal]) and not ViewInfo.ThumbRect.IsEmpty then
+    begin
+      LAnimation := TACLBitmapAnimation.Create(Self, ViewInfo.ThumbRect, TACLAnimatorFadeOut.Create);
+      LAnimation.BuildFrame1(DrawThumbBar);
+      FThumbState := LState;
+      LAnimation.BuildFrame2(DrawThumbBar);
+      LAnimation.Run;
+    end;
+    FThumbState := LState;
+    InvalidateThumb;
   end;
 end;
 
@@ -1759,6 +1783,11 @@ begin
 
   ViewInfo.Calculate;
   Invalidate;
+end;
+
+procedure TACLSlider.InvalidateThumb;
+begin
+  InvalidateRect(ViewInfo.ThumbRect);
 end;
 
 procedure TACLSlider.SetOptions(AValue: TACLSliderOptions);

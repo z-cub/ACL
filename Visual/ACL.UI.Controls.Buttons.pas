@@ -54,7 +54,7 @@ uses
 
 const
   DefaultButtonHeight = 25;
-  DefaultButtonWidth = 120;
+  DefaultButtonWidth = 100;
 
 type
   TACLCustomButtonSubClass = class;
@@ -497,7 +497,6 @@ type
   TACLCheckBoxSubClass = class(TACLCustomButtonSubClass)
   strict private
     FCheckState: TCheckBoxState;
-    FLineRect: TRect;
     FShowCheckMark: Boolean;
     FShowLine: Boolean;
     FTextSize: TSize;
@@ -510,7 +509,6 @@ type
     procedure SetWordWrap(AValue: Boolean);
   protected
     procedure CalculateButtonRect(var R: TRect); virtual;
-    procedure CalculateLineRect(var R: TRect); virtual;
     procedure CalculateTextRect(var R: TRect); virtual;
     procedure CalculateTextSize(var R: TRect; out ATextSize: TSize); virtual;
     function GetTransparent: Boolean; override;
@@ -522,7 +520,6 @@ type
     procedure CalculateAutoSize(var AWidth, AHeight: Integer); virtual;
     //# Properties
     property CheckState: TCheckBoxState read FCheckState write SetCheckState;
-    property LineRect: TRect read FLineRect;
     property ShowCheckMark: Boolean read FShowCheckMark write SetShowCheckMark;
     property ShowLine: Boolean read FShowLine write SetShowLine;
     property Style: TACLStyleCheckBox read GetStyle;
@@ -544,6 +541,7 @@ type
     function GetSubClass: TACLCheckBoxSubClass;
     function GetWordWrap: Boolean;
     function IsCursorStored: Boolean;
+    function IsWidthMatters: Boolean;
     procedure SetChecked(AValue: Boolean);
     procedure SetShowCheckMark(AValue: Boolean);
     procedure SetShowLine(AValue: Boolean);
@@ -566,6 +564,9 @@ type
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
     procedure SetState(AValue: TCheckBoxState); virtual;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
     procedure UpdateSubControlEnabled;
     //# Properties
     property AllowGrayed: Boolean read FAllowGrayed write FAllowGrayed default False;
@@ -1619,6 +1620,7 @@ end;
 procedure TACLButton.Paint;
 begin
   inherited Paint;
+  DropDownSubClass.IsDefault := SubClass.IsDefault or SubClass.IsFocused;
   DropDownSubClass.Draw(Canvas);
 end;
 
@@ -1683,6 +1685,11 @@ procedure TACLButton.SetKind(AValue: TACLButtonKind);
 begin
   if FKind <> AValue then
   begin
+    if [csDesigning, csReading, csLoading] * ComponentState = [csDesigning] then
+    begin
+      if (Kind = sbkDropDownButton) <> (AValue = sbkDropDownButton) then
+        Width := Width + Signs[AValue = sbkDropDownButton] * DropDownSubClass.TextureSize.cx;
+    end;
     FKind := AValue;
     UpdateTransparency;
     FullRefresh;
@@ -1818,7 +1825,6 @@ begin
   inherited Calculate(R);
   CalculateButtonRect(R);
   CalculateTextRect(R);
-  CalculateLineRect(R);
 end;
 
 procedure TACLCheckBoxSubClass.CalculateAutoSize(var AWidth, AHeight: Integer);
@@ -1867,19 +1873,6 @@ begin
   end
   else
     FButtonRect := NullRect;
-end;
-
-procedure TACLCheckBoxSubClass.CalculateLineRect(var R: TRect);
-begin
-  if ShowLine then
-  begin
-    if Odd(R.Height) then
-      Inc(R.Bottom);
-    FLineRect := R;
-    FLineRect.CenterVert(2);
-  end
-  else
-    FLineRect := NullRect;
 end;
 
 procedure TACLCheckBoxSubClass.CalculateTextRect(var R: TRect);
@@ -1963,7 +1956,7 @@ begin
       DT_VCENTER or acTextAlignHorz[Alignment] or IfThen(WordWrap, DT_WORDBREAK));
   end;
   if ShowLine then
-    acDrawLabelLine(ACanvas, FLineRect, TextRect, Style.ColorLine1.Value, Style.ColorLine2.Value);
+    acDrawLabelLine(ACanvas, Bounds, TextRect, Style.ColorLine1.Value, Style.ColorLine2.Value);
 end;
 
 procedure TACLCheckBoxSubClass.SetCheckState(AValue: TCheckBoxState);
@@ -2073,13 +2066,21 @@ end;
 function TACLCustomCheckBox.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
 begin
   NewHeight := -1;
-  if not ((Align in [alTop, alBottom, alClient]) or WordWrap or ShowLine) then
+  if not IsWidthMatters then
     NewWidth := -1;
   SubControl.BeforeAutoSize(NewWidth, NewHeight);
   SubClass.CalculateAutoSize(NewWidth, NewHeight);
   SubControl.AfterAutoSize(NewWidth, NewHeight);
   Result := True;
 end;
+
+{$IFDEF FPC}
+procedure TACLCustomCheckBox.ShouldAutoAdjust(var AWidth, AHeight: Boolean);
+begin
+  AWidth  := not AutoSize or IsWidthMatters;
+  AHeight := not AutoSize;
+end;
+{$ENDIF}
 
 function TACLCustomCheckBox.CreateStyle: TACLStyleButton;
 begin
@@ -2123,7 +2124,7 @@ begin
   Message.Result := Ord(
     PtInRect(SubClass.ButtonRect, P) or
     PtInRect(SubClass.FocusRect, P) or
-    PtInRect(SubClass.LineRect, P) or
+    ShowLine and PtInRect(SubClass.Bounds, P) or
     MouseCapture);
 end;
 
@@ -2196,6 +2197,11 @@ begin
     Result := Cursor <> crHandPoint
   else
     Result := Cursor <> crDefault;
+end;
+
+function TACLCustomCheckBox.IsWidthMatters: Boolean;
+begin
+  Result := (Align in [alTop, alBottom, alClient]) or WordWrap or ShowLine;
 end;
 
 procedure TACLCustomCheckBox.Loaded;

@@ -510,7 +510,7 @@ end;
 
 function TACLColorPickerColorInfo.GetColor: TColor;
 begin
-  TACLColors.HSLtoRGB(H, S, L, Result);
+  Result := TACLColors.HSLtoRGB(H, S, L);
 end;
 
 function TACLColorPickerColorInfo.GetGrayScale: Single;

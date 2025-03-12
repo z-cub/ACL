@@ -49,6 +49,7 @@ type
   TACLImageFormatClass = class of TACLImageFormat;
   TACLImageFormat = class;
 
+  TACLImageHandle = {$IFDEF FPC}TACLDib{$ELSE}GpImage{$ENDIF};
   TACLImagePixelOffsetMode = (ipomDefault, ipomHalf, ipomNone);
 
   { EACLImageFormatError }
@@ -61,8 +62,6 @@ type
   public
     constructor Create;
   end;
-
-  TACLImageHandle = {$IFDEF FPC}TACLDib{$ELSE}GpImage{$ENDIF};
 
   { TACLImage }
 
@@ -122,6 +121,8 @@ type
       AAlpha: Byte = MaxByte; ATile: Boolean = False); overload;
     procedure Draw(ACanvas: TCanvas; const ATarget: TRect;
       AAlpha: Byte = MaxByte; ATile: Boolean = False); overload;
+    procedure Draw(ACanvas: TCanvas; const ATarget: TRect;
+      AFitMode: TACLFitMode); overload;
   {$IFNDEF FPC}
     procedure Draw(Graphics: GpGraphics; const R, ASource, AMargins: TRect;
       AAlpha: Byte = MaxByte; ATile: Boolean = False); overload;
@@ -164,6 +165,29 @@ type
     //# Draw Settings
     property PixelOffsetMode: TACLImagePixelOffsetMode read FPixelOffsetMode write FPixelOffsetMode;
     property SmoothStretching: TACLBoolean read FSmoothStretching write FSmoothStretching;
+  end;
+
+  { IACLImage }
+
+  IACLImage = interface
+  ['{4ABFA907-5F43-4D23-97B0-411091720C1C}']
+    function Inst: TACLImage;
+  end;
+
+  { TACLImageKeeper }
+
+  TACLImageKeeper = class(TInterfacedObject, IACLImage)
+  strict private
+    FOwned: TACLImage;
+  public
+    constructor Create; overload;
+    constructor Create(AOwned: TACLImage); overload;
+    constructor CreateFrom(ASource: IACLDataContainer); overload;
+    constructor CreateFrom(ASource: TBitmap); overload;
+    constructor CreateFrom(ASource: TStream); overload;
+    destructor Destroy; override;
+    // IACLImage
+    function Inst: TACLImage;
   end;
 
   { TACLImageFormat }
@@ -695,6 +719,18 @@ begin
 end;
 {$ENDIF}
 
+procedure TACLImage.Draw(ACanvas: TCanvas; const ATarget: TRect; AFitMode: TACLFitMode);
+var
+  LClipping: TRegionHandle;
+begin
+  if acStartClippedDraw(ACanvas.Handle, ATarget, LClipping) then
+  try
+    Draw(ACanvas, acFitRect(ATarget, Width, Height, AFitMode));
+  finally
+    acRestoreClipRegion(ACanvas.Handle, LClipping);
+  end;
+end;
+
 {$IFNDEF FPC}
 procedure TACLImage.Draw(DC: HDC; const R, ASource: TRect; AAlpha: Byte = MaxByte);
 var
@@ -781,9 +817,9 @@ end;
 
 procedure TACLImage.CropAndResize(const ACropMargins: TRect; AWidth, AHeight: Integer);
 var
-  AHandle: TACLImageHandle;
+  LHandle: TACLImageHandle;
 {$IFDEF MSWINDOWS}
-  AGraphics: GpGraphics;
+  LGraphics: GpGraphics;
 {$ENDIF}
 begin
   if (AWidth <> Width) or (AHeight <> Height) or (ACropMargins <> NullRect) then
@@ -791,19 +827,19 @@ begin
     if (AWidth <= 0) or (AHeight <= 0) then
       raise EInvalidOperation.CreateFmt('The %dx%d is not valid resolution for an image', [AWidth, AHeight]);
   {$IFDEF MSWINDOWS}
-    AHandle := GpCreateBitmap(AWidth, AHeight);
-    if AHandle <> nil then
+    LHandle := GpCreateBitmap(AWidth, AHeight);
+    if LHandle <> nil then
     begin
-      GdipGetImageGraphicsContext(AHandle, AGraphics);
-      GdipSetPixelOffsetMode(AGraphics, PixelOffsetModeHalf);
-      Draw(AGraphics, Rect(0, 0, AWidth, AHeight), ClientRect.Split(ACropMargins));
-      GdipDeleteGraphics(AGraphics);
-      SetHandle(AHandle);
+      GdipGetImageGraphicsContext(LHandle, LGraphics);
+      GdipSetPixelOffsetMode(LGraphics, PixelOffsetModeHalf);
+      Draw(LGraphics, Rect(0, 0, AWidth, AHeight), ClientRect.Split(ACropMargins));
+      GdipDeleteGraphics(LGraphics);
+      SetHandle(LHandle);
     end;
   {$ELSE}
-    AHandle := TACLImageHandle.Create(AWidth, AHeight);
-    Draw(AHandle.Canvas, Rect(0, 0, AWidth, AHeight), ClientRect.Split(ACropMargins));
-    SetHandle(AHandle);
+    LHandle := TACLImageHandle.Create(AWidth, AHeight);
+    Draw(LHandle.Canvas, Rect(0, 0, AWidth, AHeight), ClientRect.Split(ACropMargins));
+    SetHandle(LHandle);
   {$ENDIF}
   end;
 end;
@@ -1176,6 +1212,51 @@ begin
     FHandle := AValue;
     Changed;
   end;
+end;
+
+{ TACLImageKeeper }
+
+constructor TACLImageKeeper.Create;
+begin
+  Create(TACLImage.Create);
+end;
+
+constructor TACLImageKeeper.Create(AOwned: TACLImage);
+begin
+  FOwned := AOwned;
+end;
+
+constructor TACLImageKeeper.CreateFrom(ASource: IACLDataContainer);
+var
+  LStream: TStream;
+begin
+  LStream := ASource.LockData;
+  try
+    CreateFrom(LStream);
+  finally
+    ASource.UnlockData;
+  end;
+end;
+
+constructor TACLImageKeeper.CreateFrom(ASource: TStream);
+begin
+  Create(TACLImage.Create(ASource));
+end;
+
+constructor TACLImageKeeper.CreateFrom(ASource: TBitmap);
+begin
+  Create(TACLImage.Create(ASource));
+end;
+
+destructor TACLImageKeeper.Destroy;
+begin
+  FreeAndNil(FOwned);
+  inherited;
+end;
+
+function TACLImageKeeper.Inst: TACLImage;
+begin
+  Result := FOwned;
 end;
 
 { TACLImageFormat }

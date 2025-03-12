@@ -6,7 +6,7 @@
 //  Purpose:   Docking Layout Manager
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -298,6 +298,9 @@ type
     procedure ControlsAligning; virtual;
     function CreateStyle: TACLStyleDocking; virtual;
     procedure DefineProperties(Filer: TFiler); override;
+    procedure SetParent(AParent: TWinControl); override;
+    //# IACLResourceCollection
+    function GetCollection: TACLCustomResourceCollection; override;
     //# IACLCursorProvider
     function GetCursor(const P: TPoint): TCursor; reintroduce; virtual;
     //# Dragging
@@ -392,6 +395,7 @@ type
     procedure ControlsAligning; override;
     function HasTabs: Boolean; inline;
     function ResizeChild(AChild: TACLDockControl; ASide: TACLBorder; ADelta: Integer): Integer;
+    procedure ResourceCollectionChanged; override;
     procedure ValidateInsert(AComponent: TComponent); override;
     // IACLCursorProvider
     function GetCursor(const P: TPoint): TCursor; override;
@@ -678,6 +682,7 @@ type
     procedure LayoutSave(const AFileName: string); reintroduce; overload;
   published
     property Align default alClient;
+    property ResourceCollection;
     property Style: TACLStyleDockSite read GetStyle write SetStyle;
   end;
 
@@ -1610,6 +1615,13 @@ begin
   // suppress Explicit // inherited;
 end;
 
+function TACLDockControl.GetCollection: TACLCustomResourceCollection;
+begin
+  Result := ResourceCollection;
+  if (Result = nil) and (Parent is TACLDockControl) then
+    Result := TACLDockControl(Parent).GetCollection;
+end;
+
 function TACLDockControl.GetCursor(const P: TPoint): TCursor;
 var
   ACtrl: TACLDockControl;
@@ -1836,38 +1848,45 @@ end;
 
 procedure TACLDockControl.SetCustomHeight(AValue: Integer);
 var
-  ASite: TACLDockGroup;
+  LSite: TACLDockGroup;
 begin
   if csLoading in ComponentState then
     FCustomSize.cy := AValue
   else
-    if Safe.Cast(Parent, TACLDockGroup, ASite) then
+    if Safe.Cast(Parent, TACLDockGroup, LSite) then
     begin
-      ASite.DisableAlign;
+      LSite.DisableAlign;
       try
-        ASite.ResizeChild(Self, mBottom, AValue - CustomHeight);
+        LSite.ResizeChild(Self, mBottom, AValue - CustomHeight);
       finally
-        ASite.EnableAlign;
+        LSite.EnableAlign;
       end;
     end;
 end;
 
 procedure TACLDockControl.SetCustomWidth(AValue: Integer);
 var
-  ASite: TACLDockGroup;
+  LSite: TACLDockGroup;
 begin
   if csLoading in ComponentState then
     FCustomSize.cx := AValue
   else
-    if Safe.Cast(Parent, TACLDockGroup, ASite) then
+    if Safe.Cast(Parent, TACLDockGroup, LSite) then
     begin
-      ASite.DisableAlign;
+      LSite.DisableAlign;
       try
-        ASite.ResizeChild(Self, mRight, AValue - CustomWidth);
+        LSite.ResizeChild(Self, mRight, AValue - CustomWidth);
       finally
-        ASite.EnableAlign;
+        LSite.EnableAlign;
       end;
     end;
+end;
+
+procedure TACLDockControl.SetParent(AParent: TWinControl);
+begin
+  inherited;
+  if Parent <> nil then
+    ResourceCollectionChanged;
 end;
 
 procedure TACLDockControl.SetSideBar(AValue: TACLDockSiteSideBar);
@@ -1975,7 +1994,6 @@ begin
 
   AClipRgn := acSaveClipRegion(ACanvas.Handle);
   try
-    ACanvas.Brush.Style := bsClear;
     ACanvas.Font.Assign(Style.TabFontActive);
     if InRange(FTabActiveIndex, Low(FTabs), High(FTabs)) then
     begin
@@ -2005,6 +2023,7 @@ end;
 
 procedure TACLDockGroup.DrawTabText(ACanvas: TCanvas; const ATab: TTab);
 begin
+  ACanvas.Brush.Style := bsClear;
   acTextDraw(ACanvas, ATab.Control.ToString,
     ATab.Bounds.Split(Style.GetTabMargins),
     taCenter, taVerticalCenter, True, True);
@@ -2778,6 +2797,15 @@ begin
       EnableAlign;
     end;
   end;
+end;
+
+procedure TACLDockGroup.ResourceCollectionChanged;
+var
+  I: Integer;
+begin
+  Style.Refresh;
+  for I := ControlCount - 1 downto 0 do
+    Controls[I].ResourceCollectionChanged;
 end;
 
 procedure TACLDockGroup.SetLayout(AValue: TACLDockGroupLayout);

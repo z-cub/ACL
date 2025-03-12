@@ -6,7 +6,7 @@
 //  Purpose:   Base classes for controls
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -427,7 +427,7 @@ type
     class var FInstance: TACLMouseTracker;
     class function Get: TACLMouseTracker;
   protected
-    procedure DoAdding(const AObject: IACLMouseTracking); override;
+    function DoAdding(const AObject: IACLMouseTracking): Boolean; override;
     procedure TimerObject(const AObject: IACLMouseTracking); override;
   public
     class destructor Destroy;
@@ -533,7 +533,7 @@ type
     procedure ResourceChanged; overload; virtual;
     procedure ResourceCollectionChanged; virtual;
     // IACLResourceCollection
-    function GetCollection: TACLCustomResourceCollection;
+    function GetCollection: TACLCustomResourceCollection; virtual;
 
     // Messages
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
@@ -706,7 +706,7 @@ type
       Shift: TShiftState; const MousePos: TPoint): Boolean; virtual;
 
     // IACLResourceCollection
-    function GetCollection: TACLCustomResourceCollection;
+    function GetCollection: TACLCustomResourceCollection; virtual;
 
     // IACLResourcesChangeListener
     procedure ResourceChanged(Sender: TObject; Resource: TACLResource = nil); overload;
@@ -905,7 +905,10 @@ function acCalculateScrollToDelta(AObjectTopValue, AObjectBottomValue: Integer;
 
 procedure acDrawTransparentControlBackground(AControl: TWinControl;
   DC: HDC; R: TRect; APaintWithChildren: Boolean = True);
-procedure acInvalidateRect(AControl: TWinControl; const ARect: TRect; AErase: Boolean = True);
+procedure acInvalidateBorders(AControl: TWinControl;
+  const ARect, ABorderWidths: TRect; AErase: Boolean = True);
+procedure acInvalidateRect(AControl: TWinControl;
+  const ARect: TRect; AErase: Boolean = True);
 
 function acCanStartDragging(AControl: TWinControl; X, Y: Integer): Boolean; overload;
 function acCanStartDragging(const ADeltaX, ADeltaY, ATargetDpi: Integer): Boolean; overload;
@@ -1075,6 +1078,23 @@ begin
     finally
       RestoreDC(DC, ASaveIndex);
     end;
+  end;
+end;
+
+procedure acInvalidateBorders(AControl: TWinControl;
+  const ARect, ABorderWidths: TRect; AErase: Boolean);
+var
+  LRegion1: HRGN;
+  LRegion2: HRGN;
+begin
+  if (ABorderWidths <> NullRect) and AControl.HandleAllocated then
+  begin
+    LRegion1 := CreateRectRgnIndirect(ARect);
+    LRegion2 := CreateRectRgnIndirect(ARect.Split(ABorderWidths));
+    CombineRgn(LRegion1, LRegion1, LRegion2, RGN_DIFF);
+    InvalidateRgn(AControl.Handle, LRegion1, AErase);
+    DeleteObject(LRegion2);
+    DeleteObject(LRegion1);
   end;
 end;
 
@@ -2083,10 +2103,10 @@ end;
 
 class procedure TACLMouseTracker.Release(const AObj: TObject);
 var
-  ATracker: IACLMouseTracking;
+  LTracker: IACLMouseTracking;
 begin
-  if Supports(AObj, IACLMouseTracking, ATracker) then
-    Release(ATracker);
+  if Supports(AObj, IACLMouseTracking, LTracker) then
+    Release(LTracker);
 end;
 
 class procedure TACLMouseTracker.Start(const AIntf: IACLMouseTracking);
@@ -2094,9 +2114,11 @@ begin
   Get.Add(AIntf);
 end;
 
-procedure TACLMouseTracker.DoAdding(const AObject: IACLMouseTracking);
+function TACLMouseTracker.DoAdding(const AObject: IACLMouseTracking): Boolean;
 begin
-  AObject.MouseEnter;
+  Result := AObject.IsMouseAtControl;
+  if Result then
+    AObject.MouseEnter;
 end;
 
 class function TACLMouseTracker.Get: TACLMouseTracker;
@@ -2370,7 +2392,7 @@ end;
 
 procedure TACLGraphicControl.MouseMove(Shift: TShiftState; X, Y: Integer);
 begin
-  inherited MouseMove(Shift, X, Y);
+  inherited;
   TACLMouseTracker.Start(Self);
 end;
 
@@ -2965,8 +2987,7 @@ end;
 
 procedure TACLCustomControl.WMMouseMove(var Message: TWMMouseMove);
 begin
-  if IsMouseAtControl then
-    TACLMouseTracker.Start(Self);
+  TACLMouseTracker.Start(Self);
   inherited;
 end;
 

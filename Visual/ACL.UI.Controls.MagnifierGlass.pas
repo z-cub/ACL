@@ -249,7 +249,7 @@ var
   H, S, L: Byte;
 begin
   TACLColors.RGBtoHSLi(ABackgroundColor, H, S, L);
-  TACLColors.HSLtoRGBi((Integer(H) + 128) mod 256, MaxByte, 128, Result);
+  Result := TACLColors.HSLtoRGBi((Integer(H) + 128) mod 256, MaxByte, 128);
 end;
 
 function TACLMagnifierGlass.GetStyle: TACLStyleMagnifierGlass;

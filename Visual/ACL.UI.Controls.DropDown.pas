@@ -6,7 +6,7 @@
 //  Purpose:   DropDown
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -79,7 +79,7 @@ type
   protected
     function CanDropDown(X, Y: Integer): Boolean; virtual;
     function CanOpenEditor: Boolean; override;
-    procedure CalculateButtons(var R: TRect); override;
+    procedure CalculateButtons(var R: TRect; AIntent: Integer); override;
     procedure DrawContent(ACanvas: TCanvas); override;
     function GetCursor(const P: TPoint): TCursor; override;
 
@@ -226,18 +226,18 @@ begin
   inherited Destroy;
 end;
 
-procedure TACLCustomDropDownEdit.CalculateButtons(var R: TRect);
+procedure TACLCustomDropDownEdit.CalculateButtons(var R: TRect; AIntent: Integer);
 var
   LRect: TRect;
 begin
-  inherited CalculateButtons(R);
-  LRect := R;
-  LRect.Inflate(-dpiApply(ButtonsIndent, FCurrentPPI));
+  inherited;
   DropDownButton.IsEnabled := Enabled and DropDownButtonVisible;
   DropDownButton.IsDown := DropDownWindow <> nil;
   if DropDownButtonVisible then
   begin
-    DropDownButton.Calculate(LRect.Split(srRight, LRect.Height));
+    LRect := R;
+    LRect.Inflate(-AIntent);
+    DropDownButton.Calculate(LRect.Split(srRight, StyleButton.Texture.FrameWidth));
     R.Right := DropDownButton.Bounds.Left;
   end
   else

@@ -3,10 +3,10 @@
 //  Project:   Artem's Controls Library aka ACL
 //             v6.0
 //
-//  Purpose:   search thougth app controls
+//  Purpose:   Search thougth app controls
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -84,7 +84,7 @@ type
     FText: string;
   public
     function Clone: TACLUIInsightCandidate;
-
+    // Properties
     property Location: TArray<TObject> read FLocation;
     property LocationText: string read FLocationText;
     property Text: string read FText;
@@ -157,7 +157,7 @@ type
       read FStyleSearchResults write SetStyleSearchResults;
     property StyleSearchResultsScrollBox: TACLStyleScrollBox
       read FStyleSearchResultsScrollBox write SetStyleSearchResultsScrollBox;
-
+    // Events
     property OnSearchQuery: TACLUIInsightButtonSearchQueryEvent read FOnSearchQuery write FOnSearchQuery;
   end;
 
@@ -278,7 +278,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure AfterConstruction; override;
-
+    // Properties
     property Owner: TACLUIInsightButton read FOwner;
     property SearchEdit: TACLSearchEdit read FSearchEdit;
     property SearchResults: TACLTreeList read FSearchResults;
@@ -657,7 +657,7 @@ begin
   FHintFont := TFont.Create;
   FCandidates := TACLUIInsightCandidates.Create;
   FCandidates.Capacity := 10240;
-  Constraints.MinWidth := 400;
+  Constraints.MinWidth := 600;
 
   FSearchEdit := TACLUIInsightSearchBox.Create(Self);
   FSearchEdit.Parent := Self;
@@ -865,11 +865,11 @@ begin
 
   ACanvas.Font := Font;
   ACanvas.Font.Color := SearchResults.Style.RowColorsText[True];
-  acSysDrawText(ACanvas, LRect, ANode.Caption, DT_TOP or DT_SINGLELINE or DT_END_ELLIPSIS);
+  acSysDrawText(ACanvas, LRect, ANode.Values[0], DT_TOP or DT_SINGLELINE or DT_END_ELLIPSIS);
 
   ACanvas.Font := FHintFont;
   ACanvas.Font.Color := SearchResults.Style.RowColorsText[ANode.Selected];
-  acSysDrawText(ACanvas, LRect, ANode.Caption, DT_BOTTOM or DT_SINGLELINE or DT_END_ELLIPSIS);
+  acSysDrawText(ACanvas, LRect, ANode.Values[1], DT_BOTTOM or DT_SINGLELINE or DT_END_ELLIPSIS);
 
   AHandled := True;
 end;

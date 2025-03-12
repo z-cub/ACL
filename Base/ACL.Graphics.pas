@@ -93,7 +93,7 @@ type
     Hue: Byte;
     HueIntensity: Byte;
 
-    constructor Create(AHue: Byte; AHueIntensity: Byte = 100);
+    constructor Create(AHue: Byte; AIntensity: Byte = MaxByte);
     class function CreateFromColor(AColor: TAlphaColor): TACLColorSchema; static;
     class function Default: TACLColorSchema; static;
     function IsAssigned: Boolean;
@@ -130,7 +130,7 @@ type
   end;
 
   PACLPixel32Array = ^TACLPixel32Array;
-  TACLPixel32Array = array [0..0] of TACLPixel32;
+  TACLPixel32Array = array [0..High(Integer) div SizeOf(TACLPixel32) - 1] of TACLPixel32;
   TACLPixel32DynArray = array of TACLPixel32;
 
   PACLPixelMap = ^TACLPixelMap;
@@ -345,7 +345,6 @@ type
   { TACLRegion }
 
   TACLRegionCombineFunc = (rcmOr, rcmAnd, rcmXor, rcmDiff, rcmCopy);
-
   TACLRegion = class
   strict private const
     CombineFuncMap: array[TACLRegionCombineFunc] of Integer = (
@@ -445,6 +444,9 @@ type
   public const
     MaskPixel: TACLPixel32 = (B: 255; G: 0; R: 255; A: 0); // clFuchsia
     NullPixel: TACLPixel32 = (B:   0; G: 0; R:   0; A: 0);
+    LumB = 29;
+    LumG = 150;
+    LumR = 76;
   public class var
     PremultiplyTable: TACLPixelMap;
     UnpremultiplyTable: TACLPixelMap;
@@ -461,12 +463,12 @@ type
     class procedure Flush(var P: TACLPixel32); inline; static;
     class procedure Grayscale(P: PACLPixel32; Count: Integer); overload; static;
     class procedure Grayscale(var P: TACLPixel32); overload; inline; static;
-    class function Hue(Color: TColor): Single; overload; static;
-    class function Lightness(Color: TColor): Single; overload; static;
-    class procedure MakeDisabled(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False); overload; static;
-    class procedure MakeDisabled(var P: TACLPixel32; IgnoreMask: Boolean = False); overload; inline; static;
+    class function Hue(Color: TColor): Single; static;
+    class function Invert(Color: TColor): TColor; static;
+    class function Lightness(Color: TColor): Single; static;
+    class procedure MakeDisabled(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False); static;
     class procedure MakeOpaque(P: PACLPixel32; Count: Integer); overload; static;
-    class procedure MakeTransparent(P: PACLPixel32; ACount: Integer; const AColor: TACLPixel32); overload;
+    class procedure MakeTransparent(P: PACLPixel32; Count: Integer; const ATransparentColor: TACLPixel32);
     class procedure Mix(var D: TACLPixel32; const S: TACLPixel32; AAlpha: Byte = 255); overload; inline; static;
 
     // ApplyColorSchema
@@ -487,18 +489,16 @@ type
     // Coloration
     // Pixels must be unpremultiplied
     class procedure ChangeColor(P: PACLPixel32; ACount: Integer; const AColor: TACLPixel32); static;
-    class procedure ChangeHue(P: PACLPixel32; ACount: Integer; AHue: Byte; AIntensity: Byte = 100); overload; static;
-    class procedure ChangeHue(var P: TACLPixel32; AHue: Byte; AIntensity: Byte = 100); overload; inline; static;
-    class procedure Tint(P: PACLPixel32; ACount: Integer; const ATintColor: TACLPixel32); overload; static;
+    class procedure ChangeHue(P: PACLPixel32; ACount: Integer; AHue: Byte; AIntensity: Byte = MaxByte); static;
+    class procedure Tint(P: PACLPixel32; ACount: Integer; const ATintColor: TACLPixel32); static;
 
     // BGRA <-> RGBA
     class procedure BGRAtoRGBA(P: PACLPixel32; ACount: Integer); static;
 
     // RGB <-> HSL
     class function HSLtoRGB(H, S, L: Single): TColor; overload;
-    class procedure HSLtoRGB(H, S, L: Single; out AColor: TColor); overload;
+    class function HSLtoRGBi(H, S, L: Byte): TColor; overload;
     class procedure HSLtoRGB(H, S, L: Single; out R, G, B: Byte); overload;
-    class procedure HSLtoRGBi(H, S, L: Byte; out AColor: TColor); overload;
     class procedure HSLtoRGBi(H, S, L: Byte; out R, G, B: Byte); overload;
     class procedure RGBtoHSL(AColor: TColor; out H, S, L: Single); overload;
     class procedure RGBtoHSL(R, G, B: Byte; out H, S, L: Single); overload;
@@ -506,10 +506,7 @@ type
     class procedure RGBtoHSLi(R, G, B: Byte; out H, S, L: Byte); overload;
 
     // RGB <-> HSV
-    class function HSVtoRGB(H, S, V: Single): TColor; overload;
-    class procedure HSVtoRGB(H, S, V: Single; out AColor: TColor); overload;
     class procedure HSVtoRGB(H, S, V: Single; out R, G, B: Byte); overload;
-    class procedure RGBtoHSV(AColor: TColor; out H, S, V: Single); overload;
     class procedure RGBtoHSV(R, G, B: Byte; out H, S, V: Single); overload;
   end;
 
@@ -1676,9 +1673,11 @@ begin
 end;
 
 procedure acDrawFocusRect(ACanvas: TCanvas; const R: TRect; AColor: TColor);
-{$IFDEF MSWINDOWS}
 var
-  AOrg, APrevOrg: TPoint;
+  LClipping: TRegionHandle;
+  LDC: HDC;
+{$IFDEF MSWINDOWS}
+  LOrg, LPrevOrg: TPoint;
 {$ENDIF}
 begin
   if AColor = clDefault then
@@ -1687,22 +1686,21 @@ begin
     AColor := clWindowText;
   if AColor <> clNone then
   begin
+    LDC := ACanvas.Handle;
+    LClipping := acSaveClipRegion(LDC);
   {$IFDEF MSWINDOWS}
-    GetWindowOrgEx(ACanvas.Handle, AOrg);
-    SetBrushOrgEx(ACanvas.Handle, AOrg.X, AOrg.Y, @APrevOrg);
-    try
-      ExPainter.BeginPaint(ACanvas);
-      ExPainter.DrawRectangle(R, TAlphaColor.FromColor(AColor), 1, ssDot);
-      ExPainter.EndPaint;
-    finally
-      SetBrushOrgEx(ACanvas.Handle, APrevOrg.X, APrevOrg.Y, nil);
-    end;
-  {$ELSE}
-    ACanvas.Pen.Color := AColor;
-    ACanvas.Pen.Style := psDot;
-    ACanvas.Pen.Width := 1;
-    ACanvas.Rectangle(R);
+    GetWindowOrgEx(LDC, LOrg);
+    SetBrushOrgEx(LDC, LOrg.X, LOrg.Y, @LPrevOrg);
   {$ENDIF}
+    try
+      acExcludeFromClipRegion(LDC, R.InflateTo(-1));
+      acDrawHatch(LDC, R, ACanvas.Pixels[R.Left, R.Top], AColor, 1);
+    finally
+   {$IFDEF MSWINDOWS}
+      SetBrushOrgEx(LDC, LPrevOrg.X, LPrevOrg.Y, nil);
+   {$ENDIF}
+      acRestoreClipRegion(LDC, LClipping);
+    end;
   end;
 end;
 
@@ -2029,7 +2027,7 @@ begin
     ADelta := 1.0 / R.Width;
     for I := R.Left to R.Right do
     begin
-      TACLColors.HSLtoRGB(AHue / 255, AValue, 0.5, AColor);
+      AColor := TACLColors.HSLtoRGB(AHue / 255, AValue, 0.5);
       acFillRect(ACanvas, Rect(I, R.Top, I + 1, R.Bottom), AColor);
       AValue := AValue + ADelta;
     end;
@@ -2049,7 +2047,7 @@ begin
     ADelta := 1.0 / R.Width;
     for I := R.Left to R.Right do
     begin
-      TACLColors.HSLtoRGB(AValue, 1.0, 0.5, AColor);
+      AColor := TACLColors.HSLtoRGB(AValue, 1.0, 0.5);
       acFillRect(ACanvas, Rect(I, R.Top, I + 1, R.Bottom), AColor);
       AValue := AValue + ADelta;
     end;
@@ -2512,10 +2510,10 @@ end;
 
 { TACLColorSchema }
 
-constructor TACLColorSchema.Create(AHue, AHueIntensity: Byte);
+constructor TACLColorSchema.Create(AHue, AIntensity: Byte);
 begin
   Hue := AHue;
-  HueIntensity := AHueIntensity;
+  HueIntensity := AIntensity;
 end;
 
 class function TACLColorSchema.CreateFromColor(AColor: TAlphaColor): TACLColorSchema;
@@ -2525,7 +2523,7 @@ begin
   if AColor.IsValid then
   begin
     TACLColors.RGBtoHSLi(AColor.R, AColor.G, AColor.B, H, S, L);
-    Result := TACLColorSchema.Create(H, MulDiv(100, S, MaxByte));
+    Result := TACLColorSchema.Create(H, S);
   end
   else
     Result := TACLColorSchema.Default;
@@ -3404,7 +3402,8 @@ class constructor TACLColors.Create;
 var
   I, J: Integer;
 begin
-  for I := 1 to 255 do
+  for I := 0 to 255 do
+  begin
     for J := I to 255 do
     begin
       PremultiplyTable[I, J] := MulDiv(I, J, 255);
@@ -3413,6 +3412,7 @@ begin
       UnpremultiplyTable[I, J] := MulDiv(I, 255, J);
       UnpremultiplyTable[J, I] := UnpremultiplyTable[I, J];
     end;
+  end;
 end;
 
 class function TACLColors.CompareRGB(const Q1, Q2: TACLPixel32): Boolean;
@@ -3427,7 +3427,9 @@ end;
 
 class function TACLColors.IsMask(const P: TACLPixel32): Boolean;
 begin
-  Result := (P.G = MaskPixel.G) and (P.B = MaskPixel.B) and (P.R = MaskPixel.R);
+  Result := (TAlphaColor(P) and TACLPixel32.EssenceMask) =
+    (TAlphaColor(MaskPixel) and TACLPixel32.EssenceMask);
+//  Result := (P.G = MaskPixel.G) and (P.B = MaskPixel.B) and (P.R = MaskPixel.R);
 end;
 
 class procedure TACLColors.AlphaBlend(var D: TColor; S: TColor; AAlpha: Byte = 255);
@@ -3489,13 +3491,13 @@ end;
 
 class procedure TACLColors.ApplyColorSchema(var AColor: TAlphaColor; const AValue: TACLColorSchema);
 var
-  P: TACLPixel32;
+  LColor: TACLPixel32;
 begin
   if AColor.IsValid and AValue.IsAssigned then
   begin
-    P := TACLPixel32.Create(AColor);
-    ApplyColorSchema(P, AValue);
-    AColor := TAlphaColor.FromColor(P);
+    LColor := TACLPixel32.Create(AColor);
+    ChangeHue(@LColor, 1, AValue.Hue, AValue.HueIntensity);
+    AColor := TAlphaColor.FromColor(LColor);
   end;
 end;
 
@@ -3503,7 +3505,7 @@ class procedure TACLColors.ApplyColorSchema(
   var AColor: TACLPixel32; const AValue: TACLColorSchema);
 begin
   if AValue.IsAssigned then
-    ChangeHue(AColor, AValue.Hue, AValue.HueIntensity);
+    ChangeHue(@AColor, 1, AValue.Hue, AValue.HueIntensity);
 end;
 
 //#AI: https://github.com/chromium/chromium/blob/master/ui/base/clipboard/clipboard_win.cc#L652
@@ -3542,14 +3544,37 @@ begin
   end;
 end;
 
-class procedure TACLColors.ChangeHue(var P: TACLPixel32; AHue: Byte; AIntensity: Byte = 100);
+class procedure TACLColors.ChangeHue(
+  P: PACLPixel32; ACount: Integer; AHue: Byte; AIntensity: Byte);
 var
   H, S, L: Byte;
+//  LInc: Integer;
+//  LLum1: Integer;
+//  LLum2: Integer;
+//  LMax: Integer;
+//  LMin: Integer;
 begin
-  if not IsMask(P) then
+  while ACount > 0 do
   begin
-    TACLColors.RGBtoHSLi(P.R, P.G, P.B, H, S, L);
-    TACLColors.HSLtoRGBi(AHue, MulDiv(S, AIntensity, 100), L, P.R, P.G, P.B);
+    if not IsMask(P^) then
+    begin
+      RGBtoHSLi(P^.R, P^.G, P^.B, H, S, L);
+      HSLtoRGBi(AHue, PremultiplyTable[S, AIntensity], L, P^.R, P^.G, P^.B);
+//      LLum1 := PremultiplyTable[P.R, LumR] + PremultiplyTable[P.G, LumG] + PremultiplyTable[P.B, LumB];
+//      HSLtoRGBi(AHue, PremultiplyTable[S, AIntensity], L, P^.R, P^.G, P^.B);
+//      LLum2 := PremultiplyTable[P.R, LumR] + PremultiplyTable[P.G, LumG] + PremultiplyTable[P.B, LumB];
+//      if LLum2 < LLum1 then
+//      begin
+//        LMin := Min(P^.G, Min(P^.B, P^.R));
+//        LMax := Max(P^.G, Max(P^.B, P^.R));
+//        LInc := Min((LLum1 - LLum2) div 2, LMax - LMin);
+//        P^.R := Min(LMax, P^.R + LInc);
+//        P^.G := Min(LMax, P^.G + LInc);
+//        P^.B := Min(LMax, P^.B + LInc);
+//      end;
+    end;
+    Dec(ACount);
+    Inc(P);
   end;
 end;
 
@@ -3561,17 +3586,7 @@ begin
   LSrc := Colors;
   LNum := Width * Height * SizeOf(TACLPixel32);
   Colors := AllocMem(LNum);
-  Move(LSrc^, Colors^, LNum);
-end;
-
-class procedure TACLColors.ChangeHue(P: PACLPixel32; ACount: Integer; AHue: Byte; AIntensity: Byte = 100);
-begin
-  while ACount > 0 do
-  begin
-    ChangeHue(P^, AHue, AIntensity);
-    Dec(ACount);
-    Inc(P);
-  end;
+  FastMove(LSrc^, Colors^, LNum);
 end;
 
 class procedure TACLColors.Flip(AColors: PACLPixel32Array;
@@ -3635,7 +3650,10 @@ end;
 
 class procedure TACLColors.Grayscale(var P: TACLPixel32);
 begin
-  P.B := PremultiplyTable[P.B, 77] + PremultiplyTable[P.G, 150] + PremultiplyTable[P.R, 28];
+  P.B :=
+    PremultiplyTable[P.R, LumR] +
+    PremultiplyTable[P.G, LumG] +
+    PremultiplyTable[P.B, LumB];
   P.G := P.B;
   P.R := P.B;
 end;
@@ -3648,28 +3666,23 @@ begin
 end;
 
 class procedure TACLColors.MakeDisabled(P: PACLPixel32; Count: Integer; IgnoreMask: Boolean = False);
+var
+  LPx: Byte;
 begin
   while Count > 0 do
   begin
-    MakeDisabled(P^, IgnoreMask);
+    if (P.A > 0) and (IgnoreMask or not IsMask(P^)) then
+    begin
+      Unpremultiply(P^);
+      P.A := PremultiplyTable[P.A, 128];
+      LPx := PremultiplyTable[P.R, LumR] + PremultiplyTable[P.G, LumG] + PremultiplyTable[P.B, LumB];
+      LPx := PremultiplyTable[LPx, P.A];
+      P.B := LPx;
+      P.G := LPx;
+      P.R := LPx;
+    end;
     Dec(Count);
     Inc(P);
-  end;
-end;
-
-class procedure TACLColors.MakeDisabled(var P: TACLPixel32; IgnoreMask: Boolean = False);
-var
-  APixel: Byte;
-begin
-  if (P.A > 0) and (IgnoreMask or not IsMask(P)) then
-  begin
-    Unpremultiply(P);
-    P.A := PremultiplyTable[P.A, 128];
-    APixel := PremultiplyTable[P.B, 77] + PremultiplyTable[P.G, 150] + PremultiplyTable[P.R, 28];
-    APixel := PremultiplyTable[APixel, P.A];
-    P.B := APixel;
-    P.G := APixel;
-    P.R := APixel;
   end;
 end;
 
@@ -3683,15 +3696,16 @@ begin
   end;
 end;
 
-class procedure TACLColors.MakeTransparent(P: PACLPixel32; ACount: Integer; const AColor: TACLPixel32);
+class procedure TACLColors.MakeTransparent(
+  P: PACLPixel32; Count: Integer; const ATransparentColor: TACLPixel32);
 begin
-  while ACount > 0 do
+  while Count > 0 do
   begin
-    if CompareRGB(P^, AColor) then
+    if CompareRGB(P^, ATransparentColor) then
       PDWORD(P)^ := 0
     else
       P^.A := MaxByte;
-    Dec(ACount);
+    Dec(Count);
     Inc(P);
   end;
 end;
@@ -3838,12 +3852,12 @@ begin
   end;
 end;
 
-class procedure TACLColors.HSLtoRGBi(H, S, L: Byte; out AColor: TColor);
+class function TACLColors.HSLtoRGBi(H, S, L: Byte): TColor;
 var
   R, G, B: Byte;
 begin
   HSLtoRGBi(H, S, L, R, G, B);
-  AColor := RGB(R, G, B);
+  Result := RGB(R, G, B);
 end;
 
 class procedure TACLColors.HSLtoRGBi(H, S, L: Byte; out R, G, B: Byte);
@@ -3894,16 +3908,11 @@ begin
 end;
 
 class function TACLColors.HSLtoRGB(H, S, L: Single): TColor;
-begin
-  HSLtoRGB(H, S, L, Result);
-end;
-
-class procedure TACLColors.HSLtoRGB(H, S, L: Single; out AColor: TColor);
 var
   R, G, B: Byte;
 begin
   HSLtoRGB(H, S, L, R, G, B);
-  AColor := RGB(R, G, B);
+  Result := RGB(R, G, B);
 end;
 
 class procedure TACLColors.RGBtoHSL(AColor: TColor; out H, S, L: Single);
@@ -3981,19 +3990,6 @@ begin
   end;
 end;
 
-class function TACLColors.HSVtoRGB(H, S, V: Single): TColor;
-var
-  R, G, B: Byte;
-begin
-  HSVtoRGB(H, S, V, R, G, B);
-  Result := RGB(R, G, B);
-end;
-
-class procedure TACLColors.HSVtoRGB(H, S, V: Single; out AColor: TColor);
-begin
-  AColor := HSVtoRGB(H, S, V);
-end;
-
 class procedure TACLColors.HSVtoRGB(H, S, V: Single; out R, G, B: Byte);
 
   procedure SetResult(RS, GS, BS: Single);
@@ -4013,8 +4009,8 @@ var
 begin
   AMax := V * 255;
   AMin := AMax * (1 - S);
-  ASector := Trunc(H / 60) mod 6;
-  AFrac := H / 60 - ASector;
+  ASector := Trunc(H * 6);
+  AFrac := H * 6 - ASector;
   AMid1 := AMax * (1 - AFrac * S);
   AMid2 := AMax * (1 - (1 - AFrac) * S);
   case ASector of
@@ -4035,38 +4031,40 @@ begin
   RGBToHSL(Color, Result, S, L);
 end;
 
+class function TACLColors.Invert(Color: TColor): TColor;
+var
+  H, S, L: Byte;
+begin
+  RGBtoHSLi(Color, H, S, L);
+  Result := HSLtoRGBi(H, S, 255 - L);
+end;
+
 class procedure TACLColors.RGBtoHSV(R, G, B: Byte; out H, S, V: Single);
 var
-  AMax, AMin: Byte;
+  LMax, LMin: Byte;
 begin
-  AMax := Max(Max(B, G), R);
-  AMin := Min(Min(B, G), R);
+  LMax := Max(Max(B, G), R);
+  LMin := Min(Min(B, G), R);
 
-  V := AMax / 255;
+  V := LMax / 255;
   if V = 0 then
     S := 0
   else
-    S := 1 - AMin / AMax;
+    S := 1 - LMin / LMax;
 
-  if AMax = AMin then
+  if LMax = LMin then
     H := 0
-  else if AMax = R then
-    H := 60 * (G - B) / (AMax - AMin) + 0
-  else if AMax = G then
-    H := 60 * (B - R) / (AMax - AMin) + 120
-  else if AMax = B then
-    H := 60 * (R - G) / (AMax - AMin) + 240
+  else if LMax = R then
+    H := 1/6 * (G - B) / (LMax - LMin)
+  else if LMax = G then
+    H := 1/6 * (B - R) / (LMax - LMin) + 1/3
+  else if LMax = B then
+    H := 1/6 * (R - G) / (LMax - LMin) + 2/3
   else
     H := 0;
 
   if H < 0 then
-    H := H + 360;
-end;
-
-class procedure TACLColors.RGBtoHSV(AColor: TColor; out H, S, V: Single);
-begin
-  AColor := ColorToRGB(AColor);
-  RGBtoHSV(GetRValue(AColor), GetGValue(AColor), GetBValue(AColor), H, S, V);
+    H := H + 1;
 end;
 
 { TACLRegionManager }

@@ -119,7 +119,7 @@ type
 
   TACLAnimationManager = class(TACLTimerListOf<TACLAnimation>)
   protected
-    procedure DoAdding(const AObject: TACLAnimation); override;
+    function DoAdding(const AObject: TACLAnimation): Boolean; override;
     procedure TimerObject(const AObject: TACLAnimation); override;
   public
     constructor Create; reintroduce;
@@ -563,7 +563,7 @@ begin
   end;
 end;
 
-procedure TACLAnimationManager.DoAdding(const AObject: TACLAnimation);
+function TACLAnimationManager.DoAdding(const AObject: TACLAnimation): Boolean;
 var
   I: Integer;
 begin
@@ -572,6 +572,7 @@ begin
     if not FList.List[I].IsCompatible(AObject) then
       FList.List[I].Terminate;
   end;
+  Result := True;
 end;
 
 procedure TACLAnimationManager.TimerObject(const AObject: TACLAnimation);

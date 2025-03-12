@@ -253,7 +253,8 @@ type
     procedure ResourceChanged; overload; virtual;
 
     // IACLResourceProvider
-    function GetResource(const ID: string; AResourceClass: TClass; ASender: TObject = nil): TObject;
+    function GetResource(const ID: string;
+      AResourceClass: TClass; ASender: TObject = nil): TObject; virtual;
 
     // IACLApplicationListener
     procedure ApplicationSettingsChanged(AChanges: TACLApplicationChanges); override;

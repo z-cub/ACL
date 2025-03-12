@@ -99,10 +99,8 @@ type
   strict private
     FAlignment: TAlignment;
     FAlignmentVert: TVerticalAlignment;
-    FLineRect: TRect;
     FStyle: TACLStyleLabel;
     FSubControl: TACLLabelSubControlOptions;
-    FTextRect: TRect;
     FTransparent: Boolean;
     FURL: string;
 
@@ -120,9 +118,14 @@ type
     procedure CMTextChanged(var Message: TMessage); message CM_TEXTCHANGED;
     procedure CMVisibleChanged(var Message: TMessage); message CM_VISIBLECHANGED;
   protected
+    FTextRect: TRect;
+
     function CanAutoSize(var ANewWidth, ANewHeight: Integer): Boolean; override;
     function CreateStyle: TACLStyleLabel; virtual;
     function CreateSubControlOptions: TACLLabelSubControlOptions; virtual;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
 
     procedure BoundsChanged; override;
     procedure Calculate(const R: TRect); virtual;
@@ -136,7 +139,6 @@ type
 
     //# Drawing
     procedure DrawBackground(ACanvas: TCanvas); virtual;
-    procedure DrawLabelLine(ACanvas: TCanvas); virtual;
     procedure DrawText(ACanvas: TCanvas; const R: TRect; AColor: TColor); virtual;
     procedure DrawTextEffects(ACanvas: TCanvas; var R: TRect); virtual;
     procedure Paint; override;
@@ -211,7 +213,7 @@ type
   end;
 
 procedure acDrawLabelLine(ACanvas: TCanvas;
-  const ALineRect, ATextRect: TRect; AColor1, AColor2: TAlphaColor);
+  const AClientRect, ATextRect: TRect; AColor1, AColor2: TAlphaColor);
 implementation
 
 {$IFNDEF FPC}
@@ -220,17 +222,19 @@ uses
 {$ENDIF}
 
 procedure acDrawLabelLine(ACanvas: TCanvas;
-  const ALineRect, ATextRect: TRect; AColor1, AColor2: TAlphaColor);
+  const AClientRect, ATextRect: TRect; AColor1, AColor2: TAlphaColor);
 var
-  LClipRgn: TRegionHandle;
+  LLineRect: TRect;
 begin
-  LClipRgn := acSaveClipRegion(ACanvas.Handle);
-  try
-    acExcludeFromClipRegion(ACanvas.Handle, ATextRect.InflateTo(4, 0));
-    acDrawComplexFrame(ACanvas, ALineRect, AColor1, AColor2, [mTop]);
-  finally
-    acRestoreClipRegion(ACanvas.Handle, LClipRgn);
-  end;
+  LLineRect := AClientRect;
+  LLineRect.Left := ATextRect.Right + 4;
+  LLineRect.CenterVert(2);
+  if Odd(ATextRect.Height) then
+    LLineRect.Offset(0, 1);
+  LLineRect.Height := 1;
+  acFillRect(ACanvas, LLineRect, AColor1);
+  LLineRect.Offset(0, 1);
+  acFillRect(ACanvas, LLineRect, AColor2);
 end;
 
 { TACLStyleLabel }
@@ -365,19 +369,7 @@ procedure TACLLabel.Calculate(const R: TRect);
 var
   LTextSize: TSize;
 begin
-  FTextRect := R;
-  MeasureCanvas.SetScaledFont(Font);
-  if Style.WordWrap then
-    LTextSize := acTextSizeMultiline(MeasureCanvas, Caption, FTextRect.Width)
-  else
-    LTextSize := acTextSize(MeasureCanvas, Caption);
-
-  if Style.Effect <> sleNone then
-  begin
-    Inc(LTextSize.cx, 2 * Abs(Style.EffectSize));
-    Inc(LTextSize.cy, 2 * Abs(Style.EffectSize));
-  end;
-
+  LTextSize := MeasureSize(R.Width);
   FTextRect := R;
   case AlignmentVert of
     taAlignTop:
@@ -396,14 +388,6 @@ begin
     taCenter:
       FTextRect.CenterHorz(LTextSize.cx);
   end;
-
-  FTextRect.Intersect(R);
-  FLineRect := FTextRect;
-  if Odd(FLineRect.Height) then
-    Inc(FLineRect.Bottom);
-  FLineRect.CenterVert(2);
-  FLineRect.Left := R.Left;
-  FLineRect.Right := R.Right;
 end;
 
 procedure TACLLabel.SetTargetDPI(AValue: Integer);
@@ -480,11 +464,9 @@ procedure TACLLabel.DrawBackground(ACanvas: TCanvas);
 begin
   if not Transparent then
     acFillRect(ACanvas, ClientRect, Style.ColorContent.Value);
-end;
-
-procedure TACLLabel.DrawLabelLine(ACanvas: TCanvas);
-begin
-  acDrawLabelLine(ACanvas, FLineRect, FTextRect, Style.ColorLine1.Value, Style.ColorLine2.Value);
+  if Style.ShowLine then
+    acDrawLabelLine(ACanvas, ClientRect, FTextRect,
+      Style.ColorLine1.Value, Style.ColorLine2.Value);
 end;
 
 procedure TACLLabel.DrawText(ACanvas: TCanvas; const R: TRect; AColor: TColor);
@@ -558,17 +540,14 @@ end;
 
 procedure TACLLabel.Paint;
 var
-  R: TRect;
+  LRect: TRect;
 begin
   inherited;
   DrawBackground(Canvas);
 
-  R := FTextRect;
-  DrawTextEffects(Canvas, R);
-  DrawText(Canvas, R, TextColor);
-
-  if Style.ShowLine then
-    DrawLabelLine(Canvas);
+  LRect := FTextRect;
+  DrawTextEffects(Canvas, LRect);
+  DrawText(Canvas, LRect, TextColor);
 end;
 
 function TACLLabel.GetTextColor: TColor;
@@ -590,6 +569,14 @@ begin
   else
     Result := Cursor <> crDefault;
 end;
+
+{$IFDEF FPC}
+procedure TACLLabel.ShouldAutoAdjust(var AWidth, AHeight: Boolean);
+begin
+  AWidth  := not AutoSize or Style.WordWrap or Style.ShowLine;
+  AHeight := not AutoSize;
+end;
+{$ENDIF}
 
 procedure TACLLabel.SetAlignment(AValue: TAlignment);
 begin
@@ -702,12 +689,9 @@ begin
 end;
 
 procedure TACLValidationLabel.Calculate(const R: TRect);
-var
-  R1: TRect;
 begin
-  R1 := R;
-  Inc(R1.Left, GetTextOffset);
-  inherited Calculate(R1);
+  inherited;
+  Inc(FTextRect.Left, GetTextOffset);
 end;
 
 function TACLValidationLabel.CreateStyle: TACLStyleLabel;

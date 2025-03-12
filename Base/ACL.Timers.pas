@@ -91,7 +91,7 @@ type
   protected
     FList: TACLListOf<T>;
 
-    procedure DoAdding(const AObject: T); virtual;
+    function DoAdding(const AObject: T): Boolean; virtual;
     procedure DoRemoving(const AObject: T); virtual;
 
     function CanSetTimer: Boolean; override;
@@ -323,9 +323,11 @@ procedure TACLTimerListOf<T>.Add(const AObject: T);
 begin
   if FList.IndexOf(AObject) < 0 then
   begin
-    DoAdding(AObject);
-    FList.Add(AObject);
-    CheckState;
+    if DoAdding(AObject) then
+    begin
+      FList.Add(AObject);
+      CheckState;
+    end;
   end;
 end;
 
@@ -347,9 +349,9 @@ begin
   end;
 end;
 
-procedure TACLTimerListOf<T>.DoAdding(const AObject: T);
+function TACLTimerListOf<T>.DoAdding(const AObject: T): Boolean;
 begin
-  // do nothing
+  Result := True;
 end;
 
 procedure TACLTimerListOf<T>.DoRemoving(const AObject: T);

@@ -6,7 +6,7 @@
 //  Purpose:   ScrollBox
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -160,6 +160,7 @@ type
 
   TACLInnerScrollBar = class(TACLScrollBar)
   protected
+    procedure MouseEnter; override;
     procedure UpdateTransparency; override;
   end;
 
@@ -214,6 +215,7 @@ begin
   FBorders := bsSingle;
   FSizeGrip := TACLSizeGrip.Create(Self);
   FSizeGrip.Align := alCustom;
+  FSizeGrip.Enabled := False;
   FSizeGrip.Visible := False;
   FSizeGrip.Parent := Self;
   FStyle := CreateStyle;
@@ -273,8 +275,8 @@ end;
 function TACLCustomScrollingControl.CreateScrollBar(AKind: TScrollBarKind): TACLScrollBar;
 begin
   Result := TACLInnerScrollBar.CreateEx(Self, AKind, Style, soReference);
-  Result.Align := alCustom;
   Result.OnScroll := Scroll;
+  Result.Align := alCustom;
   Result.Parent := Self;
 end;
 
@@ -291,7 +293,10 @@ end;
 
 function TACLCustomScrollingControl.IsInternalControl(AControl: TControl): Boolean;
 begin
-  Result := (AControl = HorzScrollBar) or (AControl = VertScrollBar) or (AControl = FSizeGrip);
+  Result :=
+    (AControl = HorzScrollBar) or
+    (AControl = VertScrollBar) or
+    (AControl = FSizeGrip);
 end;
 
 procedure TACLCustomScrollingControl.Paint;
@@ -663,6 +668,12 @@ begin
 end;
 
 { TACLInnerScrollBar }
+
+procedure TACLInnerScrollBar.MouseEnter;
+begin
+  inherited;
+  TACLMouseTracker.Start(Parent as TACLCustomScrollingControl);
+end;
 
 procedure TACLInnerScrollBar.UpdateTransparency;
 begin

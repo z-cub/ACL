@@ -206,7 +206,7 @@ type
   public
     procedure InitailizeDefaults(const DefaultID: string); overload; override;
     procedure InitailizeDefaults(const DefaultID: string; const DefaultValue: T); reintroduce; overload; virtual;
-    //
+    // Properties
     property Value: T read GetValue write SetValue stored IsValueStored;
     property ValueDefault: T read FValueDefault;
   end;
@@ -2838,7 +2838,7 @@ end;
 function TACLResourceCollectionItem.GetDisplayName: string;
 begin
   if FResource <> nil then
-    Result := FResource.TypeName + ' - ' + IfThenW(Description, ID)
+    Result := {FResource.TypeName + ' - ' + }IfThenW(Description, ID)
   else
     Result := '<empty>';
 end;
@@ -3452,13 +3452,13 @@ begin
   BeginUpdate;
   try
     LoadFromResource(HInstance, 'ACLDEFAULTSKIN' + IfThenW(TACLApplication.IsDarkMode, '_DARK'));
+  {$IFDEF MSWINDOWS}
     if acOSCheckVersion(10, 0, 22000) then
     begin
-      InheritIfNecessary('Buttons.Textures.Button', '.W11');
       InheritIfNecessary('Popup.Margins.Borders', '.W11');
       InheritIfNecessary('Popup.Margins.CornerRadius', '.W11');
-      InheritIfNecessary('Slider.Textures.Thumb', '.W11');
     end;
+  {$ENDIF}
     if TACLApplication.ColorSchema.IsAssigned then
       ApplyColorSchema(TACLApplication.ColorSchema);
   finally

@@ -6,7 +6,7 @@
 //  Purpose:   CompoundControl Classes
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -801,6 +801,7 @@ type
     procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); virtual;
     procedure ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState); virtual;
     procedure ProcessMouseDown(AButton: TMouseButton; AShift: TShiftState); virtual;
+    procedure ProcessMouseLeave; virtual;
     procedure ProcessMouseMove(AShift: TShiftState; X, Y: Integer); virtual;
     procedure ProcessMouseUp(AButton: TMouseButton; AShift: TShiftState); virtual;
     procedure ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState); virtual;
@@ -2222,7 +2223,9 @@ begin
   if AButton = mbLeft then
   begin
     Click;
-    FTimer := TACLTimer.CreateEx(TimerHandler, acScrollBarTimerInitialDelay).Start;
+    if FTimer = nil then
+      FTimer := TACLTimer.CreateEx(TimerHandler, acScrollBarTimerInitialDelay);
+    FTimer.Restart;
   end;
   inherited MouseDown(AButton, AShift, AHitTestInfo);
 end;
@@ -2236,6 +2239,7 @@ end;
 
 procedure TACLCompoundControlScrollBarButtonViewInfo.TimerHandler(Sender: TObject);
 begin
+  if FTimer = nil then Exit;
   FTimer.Interval := acScrollBarTimerScrollInterval;
   Click;
 end;
@@ -2824,6 +2828,7 @@ begin
     HitTest.Reset;
     HintController.Cancel;
     SetHoveredObject(nil);
+    ProcessMouseLeave;
   end;
 end;
 
@@ -3091,6 +3096,11 @@ begin
     APressable.MouseDown(AButton, AShift, HitTest);
   if AButton = mbLeft then
     DragAndDropController.MouseDown(AShift, HitTest.HitPoint.X, HitTest.HitPoint.Y);
+end;
+
+procedure TACLCompoundControlSubClass.ProcessMouseLeave;
+begin
+  // do nothing
 end;
 
 procedure TACLCompoundControlSubClass.ProcessMouseMove(AShift: TShiftState; X, Y: Integer);

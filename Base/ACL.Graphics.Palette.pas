@@ -164,7 +164,7 @@ end;
 function TACLPaletteSwatch.ToColor: TColor;
 begin
   if Population > 0 then
-    TACLColors.HSLtoRGBi(H, S, L, Result)
+    Result := TACLColors.HSLtoRGBi(H, S, L)
   else
     Result := clDefault;
 end;

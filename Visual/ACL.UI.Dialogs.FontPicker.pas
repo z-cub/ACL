@@ -340,18 +340,18 @@ begin
 end;
 
 procedure TACLFontPickerDialog.PopulateFonts;
+var
+  LName: string;
+  LNode: TACLTreeListNode;
 begin
-  TACLFontCache.EnumFonts(
-    procedure (const S: string)
-    var
-      ANode: TACLTreeListNode;
+  for LName in TACLFontCache.Enumerate do
+  begin
+    if not acBeginsWith(LName, '@', False) then
     begin
-      if not acBeginsWith(S, '@', False) then
-      begin
-        if not FontName.RootNode.Find(ANode, S) then
-          FontName.RootNode.AddChild([S]);
-      end;
-    end);
+      if not FontName.RootNode.Find(LNode, LName) then
+        FontName.RootNode.AddChild([LName]);
+    end;
+  end;
 end;
 
 procedure TACLFontPickerDialog.PopulateFontSize;

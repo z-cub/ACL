@@ -6,7 +6,7 @@
 //  Purpose:   Date-Time Utilitites
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -221,7 +221,7 @@ end;
 class constructor TACLDateUtils.Create;
 begin
   case GetCalendarID of
-    CAL_GREGORIAN, CAL_GREGORIAN_US, CAL_HIJRI:
+    {CAL_GREGORIAN, }CAL_GREGORIAN_US, CAL_HIJRI:
       SetFirstDayInWeek(wdSunday);
     CAL_GREGORIAN_ARABIC:
       SetFirstDayInWeek(wdSaturday);

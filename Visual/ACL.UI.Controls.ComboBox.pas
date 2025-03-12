@@ -6,7 +6,7 @@
 //  Purpose:   ComboBox
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -55,6 +55,13 @@ uses
 
 type
   TACLComboBox = class;
+
+  { TACLStyleDropDownList }
+
+  TACLStyleDropDownList = class(TACLStyleTreeList)
+  protected
+    procedure InitializeResources; override;
+  end;
 
   { TACLCustomComboBox }
 
@@ -336,13 +343,21 @@ begin
 end;
 {$ENDIF}
 
+{ TACLStyleDropDownList }
+
+procedure TACLStyleDropDownList.InitializeResources;
+begin
+  inherited;
+  BorderColor.InitailizeDefaults('EditBox.Colors.BorderFocused', True);
+end;
+
 { TACLCustomComboBox }
 
 constructor TACLCustomComboBox.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   FDropDownListSize := 8;
-  FStyleDropDownList := TACLStyleTreeList.Create(Self);
+  FStyleDropDownList := TACLStyleDropDownList.Create(Self);
   FStyleDropDownListScrollBox := TACLStyleScrollBox.Create(Self);
 end;
 
@@ -741,8 +756,13 @@ begin
   Result := inherited;
   if not Result then
   begin
-    DoPrepareDropDownData;
-    ItemIndex := Max(0, ItemIndex - TACLMouseWheel.DirectionToInteger[Direction]);
+    if DroppedDown then
+      TACLBasicComboBoxDropDown(DropDownWindow).Control.SubClass.MouseWheel(Direction, Shift)
+    else
+    begin
+      DoPrepareDropDownData;
+      ItemIndex := Max(0, ItemIndex - TACLMouseWheel.DirectionToInteger[Direction]);
+    end;
     Result := True;
   end;
 end;

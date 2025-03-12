@@ -6,7 +6,7 @@
 //  Purpose:   TabControl/PageControl
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -65,7 +65,7 @@ type
   protected
     procedure InitializeResources; override;
   public
-    procedure DrawTab(ACanvas: TCanvas; const R: TRect; AActive, AFocused: Boolean; AStyle: TACLTabsStyle);
+    procedure DrawTab(ACanvas: TCanvas; const R: TRect; AActive: Boolean; AStyle: TACLTabsStyle);
   published
     property ColorBorder1: TACLResourceColor index 0 read GetColor write SetColor stored IsColorStored;
     property ColorBorder2: TACLResourceColor index 1 read GetColor write SetColor stored IsColorStored;
@@ -118,12 +118,12 @@ type
   TACLTabViewItem = class
   public
     Active: Boolean;
-    Hover: Boolean;
     Bounds: TRect;
+    FocusRect: TRect;
+    Hover: Boolean;
     Tab: TACLTab;
     TextRect: TRect;
     TextTruncated: Boolean;
-
     constructor Create(ATab: TACLTab);
   end;
 
@@ -379,7 +379,7 @@ const
 { TACLStyleTabControl }
 
 procedure TACLStyleTabControl.DrawTab(ACanvas: TCanvas;
-  const R: TRect; AActive, AFocused: Boolean; AStyle: TACLTabsStyle);
+  const R: TRect; AActive: Boolean; AStyle: TACLTabsStyle);
 begin
   case AStyle of
     tsHeader:
@@ -389,8 +389,6 @@ begin
   else
     HeaderTexture.Draw(ACanvas, R, Ord(AActive));
   end;
-  if AActive and AFocused then
-    acDrawFocusRect(ACanvas, R.Split(HeaderTexture.ContentOffsets));
 end;
 
 procedure TACLStyleTabControl.InitializeResources;
@@ -653,11 +651,18 @@ begin
         AItem.TextRect := AContentRect;
         AItem.TextRect.Center(ATextSize);
         AItem.TextTruncated := ATextSize.cx > AContentRect.Width;
-        IntersectRect(AItem.TextRect, AItem.TextRect, AContentRect);
+        AItem.TextRect.Intersect(AContentRect);
       end;
 
-      if AItem.Active and (OptionsView.Style = tsHeaderAlt) then
-        Inc(AItem.Bounds.Bottom, AIndentBetweenTabs + 1);
+      if AItem.Active then
+      begin
+        AItem.FocusRect := AItem.Bounds.Split(Style.HeaderTexture.ContentOffsets);
+        if OptionsView.Style = tsHeaderAlt then
+        begin
+          Inc(AItem.FocusRect.Bottom, AIndentBetweenTabs);
+          Inc(AItem.Bounds.Bottom, AIndentBetweenTabs + 2);
+        end;
+      end;
     end;
   finally
     ACalculator.Free;
@@ -739,26 +744,28 @@ end;
 
 procedure TACLCustomTabControl.DrawItem(ACanvas: TCanvas; AViewItem: TACLTabViewItem);
 var
-  ATemp: TACLDib;
+  LDib: TACLDib;
 begin
   if not AViewItem.Bounds.IsEmpty then
   begin
     if (OptionsView.Style = tsTab) and (OptionsView.TabPosition = tpBottom) then
     begin
-      ATemp := TACLDib.Create(AViewItem.Bounds);
+      LDib := TACLDib.Create(AViewItem.Bounds);
       try
-        acBitBlt(ATemp.Handle, ACanvas.Handle, ATemp.ClientRect, AViewItem.Bounds.TopLeft);
-        Style.DrawTab(ATemp.Canvas, ATemp.ClientRect, AViewItem.Active, Focused, OptionsView.Style);
-        ATemp.Flip(False, True);
-        ATemp.DrawCopy(ACanvas, AViewItem.Bounds.TopLeft);
+        acBitBlt(LDib.Handle, ACanvas.Handle, LDib.ClientRect, AViewItem.Bounds.TopLeft);
+        Style.DrawTab(LDib.Canvas, LDib.ClientRect, AViewItem.Active, OptionsView.Style);
+        LDib.Flip(False, True);
+        LDib.DrawCopy(ACanvas, AViewItem.Bounds.TopLeft);
       finally
-        ATemp.Free;
+        LDib.Free;
       end;
     end
     else
-      Style.DrawTab(ACanvas, AViewItem.Bounds, AViewItem.Active, Focused, OptionsView.Style);
+      Style.DrawTab(ACanvas, AViewItem.Bounds, AViewItem.Active, OptionsView.Style);
 
     DrawItemText(ACanvas, AViewItem);
+    if AViewItem.Active and Focused then
+      acDrawFocusRect(ACanvas, AViewItem.FocusRect);
   end;
 end;
 

@@ -447,7 +447,8 @@ begin
   end;
 end;
 
-function TACLSkinImageSet.Get(DPI: Integer; const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetItem;
+function TACLSkinImageSet.Get(DPI: Integer; const AColor: TAlphaColor;
+  AMode: TACLSkinImageColorationMode): TACLSkinImageSetItem;
 begin
   if AColor.IsValid then
     Result := TACLSkinImageSetTintedItemList(FTintedItems).GetOrCreate(DPI, AColor, AMode)
@@ -704,7 +705,7 @@ begin
     cmHue:
       begin
         TACLColors.RGBtoHSLi(AColor.ToColor, H, S, L);
-        TACLColors.ChangeHue(PACLPixel32(Bits), BitCount, H, MulDiv(100, S, MaxByte));
+        TACLColors.ChangeHue(PACLPixel32(Bits), BitCount, H, S);
       end;
   end;
 end;
@@ -740,7 +741,8 @@ begin
   inherited;
 end;
 
-function TACLSkinImageSetTintedItemList.Find(DPI: Integer; AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
+function TACLSkinImageSetTintedItemList.Find(DPI: Integer;
+  AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
 var
   I: Integer;
 begin
@@ -753,15 +755,17 @@ begin
   Result := nil;
 end;
 
-function TACLSkinImageSetTintedItemList.GetOrCreate(DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem;
+function TACLSkinImageSetTintedItemList.GetOrCreate(
+  DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem;
 var
   R, G, B: Byte;
 begin
-  TACLColors.HSLtoRGBi(AColorScheme.Hue, MulDiv(MaxByte, AColorScheme.HueIntensity, 100), 128, R, G, B);
+  TACLColors.HSLtoRGBi(AColorScheme.Hue, AColorScheme.HueIntensity, 128, R, G, B);
   Result := GetOrCreate(DPI, TAlphaColor.FromARGB(MaxByte, R, G, B), cmHue);
 end;
 
-function TACLSkinImageSetTintedItemList.GetOrCreate(DPI: Integer; const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
+function TACLSkinImageSetTintedItemList.GetOrCreate(DPI: Integer;
+  const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
 var
   ASource: TACLSkinImageSetItem;
 begin

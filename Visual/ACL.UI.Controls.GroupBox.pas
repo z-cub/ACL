@@ -112,7 +112,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
-    //
+    // Properties
     property CaptionSubClass: TACLCheckBoxSubClass read FCaptionSubClass;
     property ContentRect: TRect read GetContentRect;
   published

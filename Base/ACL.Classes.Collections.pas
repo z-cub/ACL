@@ -6,7 +6,7 @@
 //  Purpose:   Generics and Collections
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -42,7 +42,6 @@ const
   sErrorValueWasNotFoundInMap = 'This value was not found in map';
 
 type
-
   // Стандартные IEnumerable<T> зачем-то наследуются от IEnumerable,
   // заставляя нас реализовывать ненужные оверлоады.
 
@@ -60,6 +59,40 @@ type
     function GetEnumerator: IACLEnumerator<T>;
   end;
 
+  { TACLEnumerable }
+
+  TACLEnumerable<T> = class(TACLUnknownObject, IACLEnumerable<T>)
+  public
+    // IACLEnumerable<T>
+    function GetEnumerator: IACLEnumerator<T>; virtual; abstract;
+    function ToArray: TArray<T>; virtual;
+  end;
+
+  { TACLLockedEnumerable }
+
+  TACLLockedEnumerable<T> = class(TInterfacedObject, IACLEnumerable<T>)
+  strict private
+    FLock: TACLCriticalSection;
+    FSource: IACLEnumerable<T>;
+  public
+    constructor Create(ASource: IACLEnumerable<T>; ALock: TACLCriticalSection);
+    function GetEnumerator: IACLEnumerator<T>;
+  end;
+
+  { TACLLockedEnumerator }
+
+  TACLLockedEnumerator<T> = class(TInterfacedObject, IACLEnumerator<T>)
+  strict private
+    FLock: TACLCriticalSection;
+    FSource: IACLEnumerator<T>;
+  public
+    constructor Create(ASource: IACLEnumerator<T>; ALock: TACLCriticalSection);
+    destructor Destroy; override;
+    // IACLEnumerator<T>
+    function GetCurrent: T;
+    function MoveNext: Boolean;
+  end;
+
   { TACLArrayManager }
 
   TACLArrayManager<T> = class
@@ -69,15 +102,6 @@ type
     procedure Move(var FromArray, ToArray: array of T;
       FromIndex, ToIndex, Count: Integer); overload; virtual; abstract;
     procedure Finalize(var AArray: array of T; Index, Count: Integer); virtual; abstract;
-  end;
-
-  { TACLEnumerable }
-
-  TACLEnumerable<T> = class(TACLUnknownObject, IACLEnumerable<T>)
-  public
-    // IACLEnumerable<T>
-    function GetEnumerator: IACLEnumerator<T>; virtual; abstract;
-    function ToArray: TArray<T>; virtual;
   end;
 
   { TACLMoveArrayManager }
@@ -128,7 +152,7 @@ type
     function Extract(AItem: TACLLinkedListItem<T>): TACLLinkedListItem<T>;
     procedure InsertAfter(ASource, ATarget: TACLLinkedListItem<T>);
     procedure InsertBefore(ASource, ATarget: TACLLinkedListItem<T>);
-
+    //# Properties
     property First: TACLLinkedListItem<T> read FFirst;
     property Last: TACLLinkedListItem<T> read FLast;
   end;
@@ -171,12 +195,14 @@ type
   {$ENDIF}
   end;
 
+  { TACLListOf }
+
   TACLListCompareProc<T> = reference to function (const Left, Right: T): Integer;
   TACLListCompareProcPtr = TACLListCompareProc<Pointer>;
 
   TACLListOf<T> = class(TACLEnumerable<T>)
   strict private type
-  {$REGION 'Private Types'}
+  {$REGION ' Private Types '}
     TListItems = array of T;
 
     TCompareProcWrapper = class(TComparer<T>)
@@ -216,6 +242,7 @@ type
     constructor Create(const AComparer: IComparer<T>); overload;
     destructor Destroy; override;
     function GetEnumerator: IACLEnumerator<T>; override;
+    function ToArray: TArray<T>; override;
 
     // Adding
     function Add(const Value: T): Integer;
@@ -248,15 +275,14 @@ type
     procedure Sort(AComparer: IComparer<T>); overload;
     procedure Sort(AProc: TACLListCompareProc<T>); overload;
 
-    function ToArray: TArray<T>; override;
-
+    //# Properties
     property Capacity: Integer read GetCapacity write SetCapacity;
     property Count: Integer read FCount write SetCount;
     property Items[Index: Integer]: T read GetItem write SetItem; default;
     property List: TListItems read FItems;
     property First: T index 0 read GetItem write SetItem;
     property Last: T read GetLast write SetLast;
-
+    //# Events
     property OnNotify: TCollectionNotifyEvent<T> read FOnNotify write SetOnNotify;
   end;
 
@@ -288,10 +314,6 @@ type
     function Equals(const Left, Right: Variant): Boolean; reintroduce;
     function GetHashCode(const AValue: Variant): HashCode; reintroduce;
   end;
-
-  { TACLVariantList }
-
-  TACLVariantList = class(TACLListOf<Variant>);
 
   { TACLInterfaceList }
 
@@ -378,7 +400,7 @@ type
   strict private const
     EMPTY_HASH = -1;
   strict private type
-  {$REGION 'Internal Types'}
+  {$REGION ' Internal Types '}
 
     TCustomEnumerator = class(TInterfacedObject)
     protected
@@ -578,7 +600,8 @@ type
   protected const
     EMPTY_HASH = -1;
   strict private type
-  {$REGION 'Internal Types'}
+  {$REGION ' Internal Types '}
+
     TEnumerator = class(TInterfacedObject, IACLEnumerator<T>)
     strict private
       FIndex: Integer;
@@ -588,11 +611,14 @@ type
       function GetCurrent: T;
       function MoveNext: Boolean;
     end;
+
     TItem = record
       HashCode: Integer;
       Item: T;
     end;
+
     TItemArray = array of TItem;
+
   {$ENDREGION}
   strict private
     FComparer: IEqualityComparer<T>;
@@ -631,32 +657,6 @@ type
     function Include(const Item: PChar; ItemLength: Integer): Boolean; reintroduce; overload;
   end;
 
-//  { TACLStringSet }
-//
-//  TACLStringSet = class(TACLCustomHashSet<string>)
-//  strict private
-//    FData: TACLListOfString;
-//    FIgnoreCase: Boolean;
-//
-//    function FindCore(const Item: PWideChar; const ItemLength: Integer; out Index: Integer): Boolean;
-//    function IncludeCore(const Item: PWideChar; const ItemLength: Integer; B: PUnicodeString): Boolean;
-//  protected
-//    function DoGetEnumerator: TEnumerator<string>; override;
-//    function GetCount: Integer; override;
-//  public
-//    constructor Create(const IgnoreCase: Boolean; InitialCapacity: Integer = 0);
-//    destructor Destroy; override;
-//    procedure Clear; override;
-//    function Contains(const Item: string): Boolean; overload; override;
-//    function Contains(const Item: PWideChar; const ItemLength: Integer): Boolean; reintroduce; overload;
-//    function Exclude(const Item: string): Boolean; overload; override;
-//    function Exclude(const Item: PWideChar; const ItemLength: Integer): Boolean; reintroduce; overload;
-//    function Include(const Item: string): Boolean; overload; override;
-//    function Include(const Item: PWideChar; const ItemLength: Integer): Boolean; reintroduce; overload;
-//    function Include(const Items: TACLStringSet; AAutoFree: Boolean): Boolean; reintroduce; overload;
-//    function ToArray: TArray<string>; override;
-//  end;
-
   { TACLStringComparer }
 
   TACLStringComparer = class(TInterfacedObject,
@@ -674,10 +674,6 @@ type
     function Equals(const Left, Right: string): Boolean; reintroduce;
     function GetHashCode(const Value: string): HashCode; reintroduce;
   end;
-
-  { TACLStringsMap }
-
-  TACLStringsMap = class(TACLMap<string, string>);
 
   { TACLStringSharedTable }
 
@@ -705,54 +701,6 @@ type
     destructor Destroy; override;
     function Share(const P: PChar; const L: Integer): string; overload; inline;
     function Share(const U: string): string; overload; inline;
-  end;
-
-  { TACLOrderedDictionary }
-
-  TACLOrderedDictionary<TKey, TValue> = class(TACLDictionary<TKey, TValue>)
-  strict private type
-  {$REGION 'Internal Types'}
-
-    TEnumerator = class(TInterfacedObject)
-    protected
-      FIndex: Integer;
-      FOwner: TACLOrderedDictionary<TKey, TValue>;
-    public
-      constructor Create(AOwner: TACLOrderedDictionary<TKey, TValue>);
-      function MoveNext: Boolean;
-    end;
-
-    TPairEnumerator = class(TEnumerator, IACLEnumerator<TPair<TKey, TValue>>)
-    public
-      function GetCurrent: TPair<TKey, TValue>;
-    end;
-
-    TValueEnumerator = class(TEnumerator,
-      IACLEnumerable<TValue>,
-      IACLEnumerator<TValue>)
-    public
-      function GetCurrent: TValue;
-      function GetEnumerator: IACLEnumerator<TValue>;
-    end;
-
-  {$ENDREGION}
-  strict private
-    FOrder: TACLListOf<TKey>;
-
-    function GetKey(Index: Integer): TKey; inline;
-  protected
-    procedure KeyNotify(const Key: TKey; Action: TCollectionNotification); override;
-    procedure SetCapacity(AValue: Integer); override;
-  public
-    destructor Destroy; override;
-    procedure AfterConstruction; override;
-    procedure Clear(AKeepCapacity: Boolean = False); override;
-    procedure Enum(const AProc: TACLPairEnum<TKey, TValue>); override;
-    function GetEnumerator: IACLEnumerator<TPair<TKey, TValue>>; override;
-    function GetKeys: IACLEnumerable<TKey>; override;
-    function GetValues: IACLEnumerable<TValue>; override;
-    // Properties
-    property Keys[Index: Integer]: TKey read GetKey; default;
   end;
 
   { TACLValueCacheManager }
@@ -790,44 +738,12 @@ type
     property OnRemove: TRemoveEvent read FOnRemove write FOnRemove;
   end;
 
-  { TACLObjectDictionary }
-
-  TACLObjectDictionary = class(TACLDictionary<TObject, TObject>);
-
   { TACLFloatList }
 
   TACLFloatList = class(TACLListOf<Single>)
   public
     function Contains(const Value, Tolerance: Single): Boolean; overload;
     function IndexOf(const Value, Tolerance: Single): Integer; reintroduce; overload;
-  end;
-
-  { TACLFastObjectList }
-
-  TACLFastObjectList = class
-  public type
-    TPointerList = array of Pointer;
-  strict private type
-  {$REGION 'Internal'}
-    TMtChunk = class
-      Count: Integer;
-      Items: PObject;
-    end;
-  {$ENDREGION}
-  strict private
-    FCapacity: Integer;
-    FCount: Integer;
-    FItems: TPointerList;
-    procedure Flush(AKeepCapacity: Boolean = False);
-    class procedure RemoveCore(AChunk: TMtChunk); static;
-  public
-    destructor Destroy; override;
-    procedure Add(AObject: TObject);
-    procedure Clear(AKeepCapacity: Boolean = False);
-    procedure ClearMultithreaded(AKeepCapacity: Boolean = False);
-    procedure EnsureCapacity(ACount: Integer);
-    property Count: Integer read FCount;
-    property List: TPointerList read FItems;
   end;
 
   { TACLListOfDateTime }
@@ -842,13 +758,25 @@ type
 
   TACLListOfString = class(TACLListOf<string>);
 
-  { TACLStringIndexes }
+  { TACLObjectDictionary }
 
-  TACLStringIndexes = class(TACLDictionary<string, Integer>);
+  TACLObjectDictionary = class(TACLDictionary<TObject, TObject>);
 
   { TACLStringsDictionary }
 
   TACLStringsDictionary = class(TACLDictionary<string, string>);
+
+  { TACLStringIndexes }
+
+  TACLStringIndexes = class(TACLDictionary<string, Integer>);
+
+  { TACLStringsMap }
+
+  TACLStringsMap = class(TACLMap<string, string>);
+
+  { TACLVariantList }
+
+  TACLVariantList = class(TACLListOf<Variant>);
 
 {$IFDEF FPC}
 resourcestring
@@ -906,6 +834,46 @@ begin
     Inc(AIndex);
   end;
   SetLength(Result, AIndex);
+end;
+
+{ TACLLockedEnumerable }
+
+constructor TACLLockedEnumerable<T>.Create(
+  ASource: IACLEnumerable<T>; ALock: TACLCriticalSection);
+begin
+  FLock := ALock;
+  FSource := ASource;
+end;
+
+function TACLLockedEnumerable<T>.GetEnumerator: IACLEnumerator<T>;
+begin
+  Result := TACLLockedEnumerator<T>.Create(FSource.GetEnumerator, FLock);
+end;
+
+{ TACLLockedEnumerator }
+
+constructor TACLLockedEnumerator<T>.Create(
+  ASource: IACLEnumerator<T>; ALock: TACLCriticalSection);
+begin
+  FSource := ASource;
+  FLock := ALock;
+  FLock.Enter;
+end;
+
+destructor TACLLockedEnumerator<T>.Destroy;
+begin
+  FLock.Leave;
+  inherited Destroy;
+end;
+
+function TACLLockedEnumerator<T>.GetCurrent: T;
+begin
+  Result := FSource.GetCurrent;
+end;
+
+function TACLLockedEnumerator<T>.MoveNext: Boolean;
+begin
+  Result := FSource.MoveNext;
 end;
 
 { TACLMoveArrayManager<T> }
@@ -3087,143 +3055,6 @@ begin
   until False;
 end;
 
-//{ TACLStringSet }
-//
-//constructor TACLStringSet.Create(const IgnoreCase: Boolean; InitialCapacity: Integer = 0);
-//begin
-//  inherited Create;
-//  FIgnoreCase := IgnoreCase;
-//  FData := TACLListOfString.Create;
-//  FData.Capacity := InitialCapacity;
-//end;
-//
-//destructor TACLStringSet.Destroy;
-//begin
-//  FreeAndNil(FData);
-//  inherited;
-//end;
-//
-//function TACLStringSet.DoGetEnumerator: TEnumerator<string>;
-//begin
-//  Result := FData.GetEnumerator;
-//end;
-//
-//function TACLStringSet.Contains(const Item: string): Boolean;
-//begin
-//  Result := Contains(PWideChar(Item), Length(Item));
-//end;
-//
-//procedure TACLStringSet.Clear;
-//begin
-//  FData.Clear;
-//end;
-//
-//function TACLStringSet.Contains(const Item: PWideChar; const ItemLength: Integer): Boolean;
-//var
-//  AIndex: Integer;
-//begin
-//  Result := FindCore(Item, ItemLength, AIndex);
-//end;
-//
-//function TACLStringSet.Exclude(const Item: PWideChar; const ItemLength: Integer): Boolean;
-//var
-//  AIndex: Integer;
-//begin
-//  Result := FindCore(Item, ItemLength, AIndex);
-//  if Result then
-//    FData.Delete(AIndex);
-//end;
-//
-//function TACLStringSet.Exclude(const Item: string): Boolean;
-//begin
-//  Result := Exclude(PWideChar(Item), Length(Item));
-//end;
-//
-//function TACLStringSet.Include(const Item: string): Boolean;
-//begin
-//  Result := IncludeCore(PWideChar(Item), Length(Item), @Item);
-//end;
-//
-//function TACLStringSet.Include(const Item: PWideChar; const ItemLength: Integer): Boolean;
-//begin
-//  Result := IncludeCore(Item, ItemLength, nil);
-//end;
-//
-//function TACLStringSet.Include(const Items: TACLStringSet; AAutoFree: Boolean): Boolean;
-//var
-//  I: Integer;
-//begin
-//  Result := False;
-//  if Items <> nil then
-//  try
-//    for I := 0 to Items.FData.Count - 1 do
-//      Result := Include(Items.FData.List[I]) or Result;
-//  finally
-//    if AAutoFree then
-//      Items.Free;
-//  end;
-//end;
-//
-//function TACLStringSet.ToArray: TArray<string>;
-//begin
-//  Result := FData.ToArray;
-//end;
-//
-//function TACLStringSet.FindCore(const Item: PWideChar; const ItemLength: Integer; out Index: Integer): Boolean;
-//var
-//  L, H, I, C: Integer;
-//  S: UnicodeString;
-//begin
-//  Result := False;
-//  L := 0;
-//  H := FData.Count - 1;
-//  while L <= H do
-//  begin
-//    I := (L + H) shr 1;
-//    S := FData.List[I];
-//    C := Length(S) - ItemLength;
-//    if C = 0 then
-//    begin
-//      if FIgnoreCase then
-//        C := acCompareStrings(PWideChar(S), Item, ItemLength, ItemLength)
-//      else
-//        C := BinaryCompare(PWideChar(S), Item, ItemLength * SizeOf(WideChar));
-//    end;
-//    if C < 0 then
-//      L := I + 1
-//    else
-//    begin
-//      H := I - 1;
-//      if C = 0 then
-//      begin
-//        Result := True;
-//        L := I;
-//        Break;
-//      end;
-//    end;
-//  end;
-//  Index := L;
-//end;
-//
-//function TACLStringSet.GetCount: Integer;
-//begin
-//  Result := FData.Count;
-//end;
-//
-//function TACLStringSet.IncludeCore(const Item: PWideChar; const ItemLength: Integer; B: PUnicodeString): Boolean;
-//var
-//  AIndex: Integer;
-//begin
-//  Result := not FindCore(Item, ItemLength, AIndex);
-//  if Result then
-//  begin
-//    if B <> nil then
-//      FData.Insert(AIndex, B^)
-//    else
-//      FData.Insert(AIndex, acMakeString(Item, ItemLength));
-//  end;
-//end;
-
 { TACLStringSet }
 
 constructor TACLStringSet.Create(const IgnoreCase: Boolean; InitialCapacity: Integer);
@@ -3373,117 +3204,6 @@ begin
     SetString(Value, P, L);
 end;
 
-{ TACLOrderedDictionary<TKey, TValue> }
-
-procedure TACLOrderedDictionary<TKey, TValue>.AfterConstruction;
-begin
-  inherited;
-  FOrder := TACLListOf<TKey>.Create;
-  FOrder.Capacity := Capacity;
-end;
-
-destructor TACLOrderedDictionary<TKey, TValue>.Destroy;
-begin
-  FreeAndNil(FOrder);
-  inherited;
-end;
-
-procedure TACLOrderedDictionary<TKey, TValue>.Clear(AKeepCapacity: Boolean = False);
-begin
-  if AKeepCapacity then
-    FOrder.Count := 0
-  else
-    FOrder.Clear;
-
-  inherited;
-end;
-
-procedure TACLOrderedDictionary<TKey, TValue>.Enum(const AProc: TACLPairEnum<TKey, TValue>);
-var
-  AKey: TKey;
-  I: Integer;
-begin
-  for I := 0 to FOrder.Count - 1 do
-  begin
-    AKey := FOrder.List[I];
-    AProc(AKey, Items[AKey]);
-  end;
-end;
-
-procedure TACLOrderedDictionary<TKey, TValue>.KeyNotify(const Key: TKey; Action: TCollectionNotification);
-begin
-  case Action of
-    cnAdded:
-      FOrder.Add(Key);
-    cnRemoved, cnExtracted:
-      FOrder.Remove(Key);
-  end;
-  inherited;
-end;
-
-procedure TACLOrderedDictionary<TKey, TValue>.SetCapacity(AValue: Integer);
-begin
-  if FOrder <> nil then
-    FOrder.Capacity := AValue;
-  inherited;
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.GetEnumerator: IACLEnumerator<TPair<TKey, TValue>>;
-begin
-  Result := TPairEnumerator.Create(Self);
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.GetKey(Index: Integer): TKey;
-begin
-  Result := FOrder.List[Index];
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.GetKeys: IACLEnumerable<TKey>;
-begin
-  Result := FOrder;
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.GetValues: IACLEnumerable<TValue>;
-begin
-  Result := TValueEnumerator.Create(Self);
-end;
-
-{ TACLOrderedDictionary<TKey, TValue>.TEnumerator }
-
-constructor TACLOrderedDictionary<TKey, TValue>.TEnumerator.Create(AOwner: TACLOrderedDictionary<TKey, TValue>);
-begin
-  FOwner := AOwner;
-  FIndex := -1;
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.TEnumerator.MoveNext: Boolean;
-begin
-  Inc(FIndex);
-  Result := FIndex < FOwner.FOrder.Count;
-end;
-
-{ TACLOrderedDictionary<TKey, TValue>.TEnumerator }
-
-function TACLOrderedDictionary<TKey, TValue>.TPairEnumerator.GetCurrent: TPair<TKey, TValue>;
-var
-  AKey: TKey;
-begin
-  AKey := FOwner.FOrder.List[FIndex];
-  Result := TPair<TKey, TValue>.Create(AKey, FOwner.Items[AKey]);
-end;
-
-{ TACLOrderedDictionary<TKey, TValue>.TValueEnumerator }
-
-function TACLOrderedDictionary<TKey, TValue>.TValueEnumerator.GetCurrent: TValue;
-begin
-  Result := FOwner.Items[FOwner.FOrder.List[FIndex]];
-end;
-
-function TACLOrderedDictionary<TKey, TValue>.TValueEnumerator.GetEnumerator: IACLEnumerator<TValue>;
-begin
-  Result := Self;
-end;
-
 { TACLValueCacheManager<TKey, TValue> }
 
 constructor TACLValueCacheManager<TKey, TValue>.Create(ACapacity: Integer);
@@ -3598,95 +3318,6 @@ begin
       Exit(I);
   end;
   Result := -1;
-end;
-
-{ TACLFastObjectList }
-
-destructor TACLFastObjectList.Destroy;
-begin
-  Clear;
-  inherited;
-end;
-
-procedure TACLFastObjectList.Add(AObject: TObject);
-begin
-  if Count + 1 > FCapacity then // fast check
-    EnsureCapacity(Count + 1);
-  FItems[FCount] := AObject;
-  Inc(FCount);
-end;
-
-procedure TACLFastObjectList.Clear(AKeepCapacity: Boolean = False);
-var
-  I: Integer;
-begin
-  for I := 0 to Count - 1 do
-    FreeAndNil(FItems[I]);
-  Flush(AKeepCapacity);
-end;
-
-procedure TACLFastObjectList.ClearMultiThreaded(AKeepCapacity: Boolean = False);
-var
-  AChunkCount: Integer;
-  AChunks: array of TMtChunk;
-  ACountPerChunk: Integer;
-  AIndex: Integer;
-  I: Integer;
-begin
-  if Count = 0 then Exit;
-
-  AIndex := 0;
-  AChunkCount := EnsureRange(Min(CpuCount, 4), 1, Count);
-  SetLength(AChunks{%H-}, AChunkCount);
-  ACountPerChunk := Count div AChunkCount;
-  try
-    for I := 0 to AChunkCount - 1 do
-    begin
-      AChunks[I] := TMtChunk.Create;
-      AChunks[I].Items := @List[AIndex];
-      AChunks[I].Count := ACountPerChunk;
-      AIndex := AIndex + ACountPerChunk;
-    end;
-    Inc(AChunks[High(AChunks)].Count, Count - AIndex);
-    TACLMultithreadedOperation.Run(@AChunks[0], AChunkCount, @RemoveCore);
-    Flush(AKeepCapacity);
-  finally
-    for I := 0 to AChunkCount - 1 do
-      FreeAndNil(AChunks[I]);
-  end;
-end;
-
-procedure TACLFastObjectList.EnsureCapacity(ACount: Integer);
-begin
-  if Count + ACount >= FCapacity then
-  begin
-    repeat
-      FCapacity := Max(FCapacity * 2, 4);
-      if FCapacity < 0 then
-        OutOfMemoryError;
-    until FCapacity > Count + ACount;
-    SetLength(FItems, FCapacity);
-  end;
-end;
-
-procedure TACLFastObjectList.Flush(AKeepCapacity: Boolean);
-begin
-  FCount := 0;
-  if not AKeepCapacity then
-  begin
-    FCapacity := 0;
-    SetLength(FItems, 0);
-  end;
-end;
-
-class procedure TACLFastObjectList.RemoveCore(AChunk: TMtChunk);
-begin
-  while AChunk.Count > 0 do
-  begin
-    FreeAndNil(AChunk.Items^);
-    Dec(AChunk.Count);
-    Inc(AChunk.Items);
-  end;
 end;
 
 end.

@@ -67,15 +67,17 @@ type
     FWaitingMode: Boolean;
 
     function GetProgressAnimSize: Integer;
-    function GetProgressAreaRect: TRect;
     function GetProgressRange: Single;
     function IsIndexStored(Index: Integer): Boolean;
     procedure SetIndex(AIndex: Integer; AValue: Single);
     procedure SetStyle(const Value: TACLStyleProgress);
     procedure SetWaitingMode(AValue: Boolean);
   protected
-    procedure CalculateProgressRect(out R1, R2: TRect);
+    procedure CalculateProgressRect(const ABounds: TRect; out R1, R2, R1Clip, R2Clip: TRect);
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
     procedure SetTargetDPI(AValue: Integer); override;
     procedure DoTimer(Sender: TObject);
     procedure Paint; override;
@@ -83,7 +85,6 @@ type
     //# Properties
     property AnimPosition: Integer read FAnimPosition;
     property ProgressAnimSize: Integer read GetProgressAnimSize;
-    property ProgressAreaRect: TRect read GetProgressAreaRect;
     property ProgressRange: Single read GetProgressRange;
     property Timer: TACLTimer read FTimer;
   public
@@ -101,7 +102,7 @@ type
     property Progress: Single index 2 read FProgress write SetIndex stored IsIndexStored;
     property Visible;
     property WaitingMode: Boolean read FWaitingMode write SetWaitingMode default False;
-	//# Events
+	  //# Events
     property OnClick;
     property OnDblClick;
     property OnMouseDown;
@@ -154,46 +155,74 @@ begin
   inherited Destroy;
 end;
 
-procedure TACLProgressBar.CalculateProgressRect(out R1, R2: TRect);
+procedure TACLProgressBar.CalculateProgressRect(
+  const ABounds: TRect; out R1, R2, R1Clip, R2Clip: TRect);
+
+  function CalculateClipRect(var R: TRect): TRect;
+  begin
+    Result := R;
+    if R.Left > ABounds.Left then
+      Dec(R.Left, Style.Texture.ContentOffsets.Left);
+    if R.Right < ABounds.Right then
+      Inc(R.Right, Style.Texture.ContentOffsets.Right);
+  end;
+
 var
-  AHalfSize: Integer;
+  LHalf: Integer;
 begin
   R1 := NullRect;
+  R1Clip := NullRect;
   R2 := NullRect;
+  R2Clip := NullRect;
 
   if WaitingMode then
   begin
-    R1 := ProgressAreaRect;
-    AHalfSize := ProgressAnimSize div 2;
-    if AnimPosition < AHalfSize then
+    R1 := ABounds;
+    LHalf := ProgressAnimSize div 2;
+    if AnimPosition < LHalf then
     begin
       R2 := R1;
-      R2.Left := Width + AnimPosition - AHalfSize;
-      R2.Right := R2.Left + ProgressAnimSize;
+      R2.Left := Width + AnimPosition - LHalf;
+      R2.Width := LHalf * 2;
+      R2.Intersect(ABounds);
+      R2Clip := CalculateClipRect(R2);
     end;
-    if AnimPosition > Width - AHalfSize then
+    if AnimPosition > Width - LHalf then
     begin
       R2 := R1;
-      R2.Left := AnimPosition - Width - AHalfSize;
-      R2.Right := R2.Left + ProgressAnimSize;
+      R2.Left := AnimPosition - Width - LHalf;
+      R2.Width := 2 * LHalf;
+      R2.Intersect(ABounds);
+      R2Clip := CalculateClipRect(R2);
     end;
-    R1.Left := AnimPosition - AHalfSize;
-    R1.Right := AnimPosition + AHalfSize;
+    R1.Left := AnimPosition - LHalf;
+    R1.Right := AnimPosition + LHalf;
+    R1.Intersect(ABounds);
+    R1Clip := CalculateClipRect(R1);
   end
   else
     if ProgressRange > 0 then
     begin
-      R1 := ProgressAreaRect;
+      R1 := ABounds;
       R1.Right := R1.Left + Trunc(R1.Width * EnsureRange((Progress - Min) / ProgressRange, 0, 1));
+      R1Clip := CalculateClipRect(R1);
     end;
 end;
 
 function TACLProgressBar.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
 begin
   if AutoSize then
-    NewHeight := dpiApply(18, FCurrentPPI);
+    NewHeight := dpiApply(16, FCurrentPPI);
   Result := True;
 end;
+
+{$IFDEF FPC}
+procedure TACLProgressBar.ShouldAutoAdjust(var AWidth, AHeight: Boolean);
+begin
+  AWidth := True;
+  AHeight := not AutoSize;
+end;
+{$ENDIF}
 
 procedure TACLProgressBar.SetTargetDPI(AValue: Integer);
 begin
@@ -213,31 +242,32 @@ end;
 procedure TACLProgressBar.Paint;
 var
   LClipRgn: TRegionHandle;
-  R1, R2: TRect;
+  LPart1: TRect;
+  LPart1Clip: TRect;
+  LPart2: TRect;
+  LPart2Clip: TRect;
 begin
-  Style.DrawBackground(Canvas, ClientRect, Enabled);
   if Enabled then
   begin
-    if acStartClippedDraw(Canvas.Handle, ProgressAreaRect, LClipRgn) then
+    LClipRgn := acSaveClipRegion(Canvas.Handle);
     try
-      CalculateProgressRect(R1, R2);
-      Style.DrawProgress(Canvas, R1);
-      Style.DrawProgress(Canvas, R2);
+      CalculateProgressRect(ClientRect, LPart1, LPart2, LPart1Clip, LPart2Clip);
+      Style.DrawProgress(Canvas, LPart1);
+      Style.DrawProgress(Canvas, LPart2);
+      acExcludeFromClipRegion(Canvas.Handle, LPart1Clip);
+      acExcludeFromClipRegion(Canvas.Handle, LPart2Clip);
+      Style.DrawBackground(Canvas, ClientRect, Enabled);
     finally
       acRestoreClipRegion(Canvas.Handle, LClipRgn);
     end;
-  end;
+  end
+  else
+    Style.DrawBackground(Canvas, ClientRect, Enabled);
 end;
 
 function TACLProgressBar.GetProgressAnimSize: Integer;
 begin
   Result := Trunc(Width * 0.3);
-end;
-
-function TACLProgressBar.GetProgressAreaRect: TRect;
-begin
-  Result := ClientRect;
-  Result.Content(Rect(1, 0, 1, 0));
 end;
 
 function TACLProgressBar.GetProgressRange: Single;

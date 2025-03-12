@@ -6,7 +6,7 @@
 //  Purpose:   Memo
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       Partial (scrollbars are not get skinned)
@@ -21,6 +21,7 @@ uses
 {$IFDEF FPC}
   LCLIntf,
   LCLType,
+  WSLCLClasses,
 {$ELSE}
   {Winapi.}Windows,
 {$ENDIF}
@@ -79,6 +80,8 @@ type
     procedure EditorUpdateParamsCore; override;
     procedure EditorWndProc(var Message: TMessage); override;
     procedure FocusChanged; override;
+    procedure MouseEnter; override;
+    procedure MouseLeave; override;
     procedure SetTargetDPI(AValue: Integer); override;
 
     // ScrollBars
@@ -105,6 +108,9 @@ type
     procedure Change; override;
     // IACLInnerControl
     function GetInnerContainer: TWinControl;
+  {$IFDEF FPC}
+    class procedure WSRegisterClass; override;
+  {$ENDIF}
   {$IFDEF DELPHI110ALEXANDRIA}
     procedure UpdateEditMargins; override;
   {$ENDIF}
@@ -171,6 +177,9 @@ type
 implementation
 
 uses
+{$IFDEF LCLGtk2}
+  ACL.UI.Core.Impl.Gtk2,
+{$ENDIF}
   ACL.MUI,
   ACL.Utils.Common;
 
@@ -229,6 +238,8 @@ begin
   end;
   inherited;
   case Message.Msg of
+    WM_MOUSEMOVE:
+      TACLMouseTracker.Start(Self);
     WM_VSCROLL, WM_HSCROLL, WM_WINDOWPOSCHANGED:
       if not (csDestroying in ComponentState) then
       begin
@@ -247,6 +258,18 @@ end;
 function TACLCustomMemoContainer.GetStyleScrollBox: TACLStyleScrollBox;
 begin
   Result := inherited Style;
+end;
+
+procedure TACLCustomMemoContainer.MouseEnter;
+begin
+  inherited;
+  UpdateBorders;
+end;
+
+procedure TACLCustomMemoContainer.MouseLeave;
+begin
+  inherited;
+  UpdateBorders;
 end;
 
 procedure TACLCustomMemoContainer.Scroll(
@@ -360,7 +383,7 @@ var
   LEdit: TACLCustomMemoContainer;
 begin
   LEdit := TACLCustomMemoContainer(Owner);
-  LEdit.Style.DrawBorders(ACanvas, R, LEdit.Focused);
+  LEdit.Style.DrawBorders(ACanvas, R, LEdit.MouseInClient, LEdit.Focused);
   acDrawFrame(ACanvas, R.InflateTo(-1), LEdit.Style.ColorContent.AsColor);
 end;
 
@@ -388,6 +411,20 @@ function TACLInnerMemo.GetInnerContainer: TWinControl;
 begin
   Result := TWinControl(Owner);
 end;
+
+{$IFDEF FPC}
+class procedure TACLInnerMemo.WSRegisterClass;
+const
+  Done: Boolean = False;
+begin
+  inherited;
+  if not Done then
+  begin
+    Done := True;
+    RegisterWSComponent(Self, TACLGtk2WSMemo);
+  end;
+end;
+{$ENDIF}
 
 {$IFDEF DELPHI110ALEXANDRIA}
 procedure TACLInnerMemo.UpdateEditMargins;

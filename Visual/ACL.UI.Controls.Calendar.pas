@@ -6,7 +6,7 @@
 //  Purpose:   Calendar
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -14,6 +14,8 @@
 unit ACL.UI.Controls.Calendar;
 
 {$I ACL.Config.inc}
+
+{$R ACL.UI.Controls.Calendar.res}
 
 interface
 
@@ -35,6 +37,9 @@ uses
   // ACL
   ACL.Geometry,
   ACL.Graphics,
+  ACL.Graphics.Ex,
+  ACL.Graphics.Images,
+  ACL.Graphics.SkinImage,
   ACL.UI.Animation,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.CompoundControl,
@@ -88,6 +93,8 @@ type
     function GetFullRefreshChanges: TIntegerSet; override;
     procedure DoSelected; virtual;
     procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); override;
+    procedure ProcessMouseLeave; override;
+    procedure ProcessMouseMove(AShift: TShiftState; X, Y: Integer); override;
     procedure ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState); override;
   public
     constructor Create(AOwner: TComponent); override;
@@ -116,14 +123,8 @@ type
 
   { TACLCalendarViewCustomCell }
 
-  TACLCalendarViewCustomCell = class(TACLCalendarCustomViewInfo,
-    IACLAnimateControl,
-    IACLHotTrackObject)
-  protected const
-    TagAnimationFrame = 0;
+  TACLCalendarViewCustomCell = class(TACLCalendarCustomViewInfo, IACLHotTrackObject)
   strict private
-    // IACLAnimateControl
-    procedure IACLAnimateControl.Animate = Invalidate;
     // IACLHotTrackObject
     procedure OnHotTrack(Action: TACLHotTrackAction);
   protected
@@ -131,10 +132,10 @@ type
     procedure DoDraw(ACanvas: TCanvas); override;
     procedure DoDrawSelection(ACanvas: TCanvas; AColor: TAlphaColor);
     procedure PrepareCanvas(ACanvas: TCanvas); virtual;
-    function GetActualFrameColor: TAlphaColor;
     function GetDisplayValue: string; virtual; abstract;
     function GetTextColor: TColor; virtual;
     function GetTextStyle: TFontStyles; virtual;
+    function IsHovered: Boolean;
     function IsSelected: Boolean; virtual;
   public
     destructor Destroy; override;
@@ -215,6 +216,7 @@ type
   protected
     FOwner: TACLCalendarCustomViewViewInfo;
 
+    procedure DoDraw(ACanvas: TCanvas); override;
     function GetDisplayValue: string; override;
     function GetTextColor: TColor; override;
     function GetTextStyle: TFontStyles; override;
@@ -312,15 +314,18 @@ type
   strict private
     FActiveView: TACLCalendarCustomViewViewInfo;
     FDayView: TACLCalendarDayViewViewInfo;
+    FLightSource: TPoint;
     FMonthView: TACLCalendarMonthViewViewInfo;
 
-    // IACLAnimateControl
-    procedure IACLAnimateControl.Animate = Invalidate;
+    procedure SetLightSource(const AValue: TPoint);
   protected
     procedure DoActivateView(AView: TACLCalendarCustomViewViewInfo; const AInitialDate: TDate);
     procedure DoCalculate(AChanges: TIntegerSet); override;
     procedure DoDraw(ACanvas: TCanvas); override;
+    procedure DrawLanternLight(ACanvas: TCanvas);
     procedure PrepareAnimationFrame(AFrame: TACLDib; const P: TPoint);
+    // IACLAnimateControl
+    procedure IACLAnimateControl.Animate = Invalidate;
   public
     constructor Create(ASubClass: TACLCompoundControlSubClass); override;
     destructor Destroy; override;
@@ -332,6 +337,7 @@ type
     procedure Select(const ADate: TDateTime);
     //# Properties
     property ActiveView: TACLCalendarCustomViewViewInfo read FActiveView;
+    property LightSource: TPoint read FLightSource write SetLightSource;
   end;
 
   { TACLCustomCalendar }
@@ -377,12 +383,16 @@ implementation
 uses
   Math, DateUtils;
 
+const
+  LanternLightAlpha = 128;
+  LanternLightRadius = 32;
+
 { TACLStyleCalendar }
 
 procedure TACLStyleCalendar.InitializeResources;
 begin
   inherited;
-  ColorBackground.InitailizeDefaults('Common.Colors.Content', TAlphaColor.FromColor(clWhite));
+  ColorBackground.InitailizeDefaults('Common.Colors.Background1', TAlphaColor.FromColor(clWhite));
   ColorFrame.InitailizeDefaults('Calendar.Colors.Frame', TAlphaColor.FromColor(clHighlight));
   ColorText.InitailizeDefaults('Calendar.Colors.Text', clBlack);
   ColorTextDay.InitailizeDefaults('Calendar.Colors.TextDay', clBlack);
@@ -461,6 +471,18 @@ begin
     ViewInfo.Select(Now);
 end;
 
+procedure TACLCalendarSubClass.ProcessMouseLeave;
+begin
+  inherited;
+  ViewInfo.LightSource := InvalidPoint;
+end;
+
+procedure TACLCalendarSubClass.ProcessMouseMove(AShift: TShiftState; X, Y: Integer);
+begin
+  inherited;
+  ViewInfo.LightSource := Point(X, Y);
+end;
+
 procedure TACLCalendarSubClass.ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState);
 begin
   ViewInfo.NextRow(ADirection);
@@ -501,25 +523,29 @@ procedure TACLCalendarViewCustomCell.DoDraw(ACanvas: TCanvas);
 begin
   PrepareCanvas(ACanvas);
   acTextDraw(ACanvas, DisplayValue, Bounds, taCenter, taVerticalCenter);
-  DoDrawSelection(ACanvas, GetActualFrameColor);
 end;
 
 procedure TACLCalendarViewCustomCell.DoDrawSelection(ACanvas: TCanvas; AColor: TAlphaColor);
-const
-  FrameSize = 2;
 begin
   if AColor <> TAlphaColor.None then
-    acDrawFrame(ACanvas, Bounds, AColor, dpiApply(FrameSize, CurrentDpi));
 end;
 
 function TACLCalendarViewCustomCell.GetTextColor: TColor;
 begin
-  Result := Style.ColorText.AsColor;
+  if IsHovered then
+    Result := Style.ColorTextSelectedDay.AsColor
+  else
+    Result := Style.ColorText.AsColor;
 end;
 
 function TACLCalendarViewCustomCell.GetTextStyle: TFontStyles;
 begin
   Result := [];
+end;
+
+function TACLCalendarViewCustomCell.IsHovered: Boolean;
+begin
+  Result := SubClass.HoveredObject = Self;
 end;
 
 function TACLCalendarViewCustomCell.IsSelected: Boolean;
@@ -537,46 +563,8 @@ begin
 end;
 
 procedure TACLCalendarViewCustomCell.OnHotTrack(Action: TACLHotTrackAction);
-var
-  AAnimation: TACLAnimation;
 begin
-  case Action of
-    htaEnter:
-      begin
-        AnimationManager.RemoveOwner(Self);
-        Invalidate;
-      end;
-
-    htaLeave:
-      if not IsSelected then
-      begin
-        if acUIAnimations then
-        begin
-          AAnimation := TACLAnimation.Create(Self, acUIAnimationTime);
-          AAnimation.Tag := TagAnimationFrame;
-          AAnimation.Run;
-        end
-        else
-          Invalidate;
-      end;
-  else;
-  end
-end;
-
-function TACLCalendarViewCustomCell.GetActualFrameColor: TAlphaColor;
-var
-  AAnimation: TACLAnimation;
-begin
-  if AnimationManager.Find(Self, AAnimation, TagAnimationFrame) then
-  begin
-    Result := Style.ColorFrame.Value;
-    Result.A := Trunc(Result.A * (1 - AAnimation.Progress));
-  end
-  else
-    if (SubClass.HoveredObject = Self) or IsSelected then
-      Result := Style.ColorFrame.Value
-    else
-      Result := TAlphaColor.None;
+  Invalidate;
 end;
 
 { TACLCalendarCustomViewViewInfo }
@@ -803,6 +791,13 @@ begin
   FOwner := AOwner;
 end;
 
+procedure TACLCalendarCustomDateCell.DoDraw(ACanvas: TCanvas);
+begin
+  inherited;
+  if IsSelected then
+    acDrawFrame(ACanvas, Bounds, Style.ColorFrame.Value, dpiApply(1, CurrentDpi));
+end;
+
 function TACLCalendarCustomDateCell.GetDisplayValue: string;
 begin
   Result := IntToStr(DayOfTheMonth(Value));
@@ -810,16 +805,16 @@ end;
 
 function TACLCalendarCustomDateCell.GetTextColor: TColor;
 var
-  AColorResource: TACLResourceColor;
+  LColor: TACLResourceColor;
 begin
-  if IsSelected then
-    AColorResource := Style.ColorTextSelectedDay
+  if IsSelected or IsHovered then
+    LColor := Style.ColorTextSelectedDay
   else if FOwner.IsOutOfActualRange(Value) then
-    AColorResource := Style.ColorTextInactiveDay
+    LColor := Style.ColorTextInactiveDay
   else
-    AColorResource := Style.ColorTextDay;
+    LColor := Style.ColorTextDay;
 
-  Result := AColorResource.AsColor;
+  Result := LColor.AsColor;
 end;
 
 function TACLCalendarCustomDateCell.GetTextStyle: TFontStyles;
@@ -841,7 +836,7 @@ function TACLCalendarDayCell.GetTextColor: TColor;
 var
   AColorResource: TACLResourceColor;
 begin
-  if IsSelected then
+  if IsSelected or IsHovered then
     AColorResource := Style.ColorTextSelectedDay
   else if FIsToday then
     AColorResource := Style.ColorTextToday
@@ -947,7 +942,10 @@ end;
 
 function TACLCalendarTodayCell.GetTextStyle: TFontStyles;
 begin
-  Result := [];
+  if IsHovered then
+    Result := [fsUnderline]
+  else
+    Result := [];
 end;
 
 { TACLCalendarScrollButtonCell }
@@ -972,7 +970,6 @@ const
   Map: array[Boolean] of TACLArrowKind = (makLeft, makRight);
 begin
   acDrawArrow(ACanvas, Bounds, GetTextColor, Map[Direction = mwdDown], 192);
-  DoDrawSelection(ACanvas, GetActualFrameColor);
 end;
 
 { TACLCalendarTitleCell }
@@ -985,18 +982,18 @@ end;
 
 procedure TACLCalendarTitleCell.Calculate(const R: TRect; AChanges: TIntegerSet);
 var
-  AIndent: Integer;
-  ATextSize: TSize;
+  LIndent: Integer;
+  LSize: TSize;
 begin
   MeasureCanvas.SetScaledFont(SubClass.Font);
-  ATextSize := MeasureCanvas.TextExtent('Qq');
-  AIndent := (R.Width div 7 - ATextSize.cx) div 2;
+  LSize := MeasureCanvas.TextExtent('Qq');
+  LIndent := (R.Width div 7 - LSize.cx) div 2;
 
   PrepareCanvas(MeasureCanvas);
-  ATextSize := MeasureCanvas.TextExtent(DisplayValue);
+  LSize := MeasureCanvas.TextExtent(DisplayValue);
   inherited Calculate(TRect.Create(R.TopLeft,
-    ATextSize.cx + 2 * AIndent,
-    ATextSize.cy + 2 * Min(AIndent, acIndentBetweenElements)), AChanges);
+    LSize.cx + 2 * LIndent,
+    LSize.cy + 2 * Min(LIndent, acIndentBetweenElements)), AChanges);
 end;
 
 function TACLCalendarTitleCell.GetDisplayValue: string;
@@ -1015,6 +1012,7 @@ end;
 constructor TACLCalendarViewInfo.Create(ASubClass: TACLCompoundControlSubClass);
 begin
   inherited;
+  FLightSource := InvalidPoint;
   FDayView := TACLCalendarDayViewViewInfo.Create(ASubClass);
   FMonthView := TACLCalendarMonthViewViewInfo.Create(ASubClass);
   FActiveView := FDayView;
@@ -1131,34 +1129,80 @@ end;
 
 procedure TACLCalendarViewInfo.DoDraw(ACanvas: TCanvas);
 var
-  AAnimation: TACLAnimation;
-  APrevRgn: TRegionHandle;
+  LAnimation: TACLAnimation;
+  LClipping: TRegionHandle;
 begin
-  if AnimationManager.Find(Self, AAnimation, ContentSliding) then
+  if AnimationManager.Find(Self, LAnimation, ContentSliding) then
   begin
-    APrevRgn := acSaveClipRegion(ACanvas.Handle);
+    LClipping := acSaveClipRegion(ACanvas.Handle);
     try
-      AAnimation.Draw(ACanvas, ActiveView.CellsArea);
+      LAnimation.Draw(ACanvas, ActiveView.CellsArea);
       acExcludeFromClipRegion(ACanvas.Handle, ActiveView.CellsArea);
       ActiveView.Draw(ACanvas);
     finally
-      acRestoreClipRegion(ACanvas.Handle, APrevRgn);
+      acRestoreClipRegion(ACanvas.Handle, LClipping);
     end;
   end
   else
-    if not AnimationManager.Draw(Self, ACanvas, Bounds) then    
+    if not AnimationManager.Draw(Self, ACanvas, Bounds) then
+    begin
       ActiveView.Draw(ACanvas);
+      if LightSource <> InvalidPoint then
+        DrawLanternLight(ACanvas);
+    end;
+end;
+
+procedure TACLCalendarViewInfo.DrawLanternLight(ACanvas: TCanvas);
+var
+  LCell: TACLCalendarViewCustomCell;
+  LClipping: TRegionHandle;
+  LRect: TRect;
+  LTexture: TACLSkinImage;
+begin
+  if acStartClippedDraw(ACanvas.Handle, ActiveView.CellsArea, LClipping) then
+  try
+    for LCell in ActiveView.FCells do
+      acExcludeFromClipRegion(ACanvas.Handle, LCell.Bounds.InflateTo(-1));
+
+    LRect := TRect.Create(LightSource);
+    LRect.Inflate(dpiApply(LanternLightRadius, CurrentDpi));
+
+    LTexture := TACLSkinImage.Create;
+    try
+      LTexture.LoadFromResource(HInstance, 'ACLCALENDAR_LIGHT', RT_RCDATA);
+      LTexture.ApplyTint(TACLPixel32.Create(Style.ColorTextSelectedDay.Value));
+      LTexture.Draw(ACanvas, LRect, 0, LanternLightAlpha);
+    finally
+      LTexture.Free;
+    end;
+  finally
+    acRestoreClipRegion(ACanvas.Handle, LClipping);
+  end;
 end;
 
 procedure TACLCalendarViewInfo.PrepareAnimationFrame(AFrame: TACLDib; const P: TPoint);
 begin
   if SubClass.Transparent then
   begin
-    acDrawTransparentControlBackground(
-      SubClass.Container.GetControl, AFrame.Handle, AFrame.ClientRect, False);
+    acDrawTransparentControlBackground(SubClass.Container.GetControl,
+      AFrame.Handle, AFrame.ClientRect, False);
   end;
   DrawTo(AFrame.Canvas, Bounds.Left - P.X, Bounds.Top - P.Y);
   AFrame.MakeOpaque;
+end;
+
+procedure TACLCalendarViewInfo.SetLightSource(const AValue: TPoint);
+begin
+  if FLightSource <> AValue then
+  begin
+    if LanternLightRadius > 0 then
+    begin
+      FLightSource := AValue;
+      Invalidate;
+    end
+    else
+      FLightSource := InvalidPoint;
+  end;
 end;
 
 { TACLCustomCalendar }

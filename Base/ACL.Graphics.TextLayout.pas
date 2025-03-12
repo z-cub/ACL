@@ -3667,7 +3667,7 @@ var
 begin
   Result := GetDefaultTextColor;
   TACLColors.RGBtoHSLi(Result, H, S, L);
-  TACLColors.HSLtoRGBi(154, Max(S, 154), EnsureRange(L, 100, 200), Result);
+  Result := TACLColors.HSLtoRGBi(154, Max(S, 154), EnsureRange(L, 100, 200));
 end;
 
 function TACLTextLayout.GetDefaultRender: TACLTextLayoutCanvasRenderClass;

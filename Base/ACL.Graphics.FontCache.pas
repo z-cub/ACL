@@ -120,7 +120,7 @@ type
   public
     class constructor Create;
     class destructor Destroy;
-    class procedure EnumFonts(AProc: TACLStringEnumProc);
+    class function Enumerate: IACLEnumerable<string>;
     class function GetInfo(const AName: string; AStyle: TFontStyles;
       AHeight: Integer; ATargetDPI: Integer; AQuality: TFontQuality): TACLFontInfo; overload;
     class function GetInfo(const AFontData: TACLFontData): TACLFontInfo; overload;
@@ -154,7 +154,7 @@ type
 
   { TMetricsCache }
 
-  TMetricsCache = class(TACLDictionary<String, TMetrics>)
+  TMetricsCache = class(TACLDictionary<string, TMetrics>)
   strict private
     class var FInstance: TMetricsCache;
   public
@@ -165,21 +165,21 @@ type
 
 procedure DumpMetrics;
 var
+  LFontName: string;
+  LMetrics: TTextMetric;
   S: TStringList;
 begin
   S := TStringList.Create;
   try
-    TACLFontCache.EnumFonts(
-      procedure (const AName: string)
-      var
-        LMetrics: TTextMetric;
-      begin
-        MeasureCanvas.Font.Name := AName;
-        MeasureCanvas.Font.Height := 750;
-        GetTextMetrics(MeasureCanvas.Handle, LMetrics{%H-});
-        S.Add(Format('  Add(''%s'', TMetrics.Create(%d, %d, %d, %d));', [AName,
-          LMetrics.tmHeight, LMetrics.tmAscent, LMetrics.tmDescent, LMetrics.tmInternalLeading]));
-      end);
+    for LFontName in TACLFontCache.Enumerate do
+    begin
+      MeasureCanvas.Font.Name := LFontName;
+      MeasureCanvas.Font.Height := 750;
+      GetTextMetrics(MeasureCanvas.Handle, LMetrics{%H-});
+      S.Add(Format('  Add(''%s'', TMetrics.Create(%d, %d, %d, %d));', [
+        LFontName, LMetrics.tmHeight, LMetrics.tmAscent,
+        LMetrics.tmDescent, LMetrics.tmInternalLeading]));
+    end;
     S.Sort;
     S.SaveToFile(ParamStr(0) + 'fonts.dump');
   finally
@@ -504,40 +504,11 @@ begin
   FreeAndNil(FLock);
 end;
 
-class procedure TACLFontCache.EnumFonts(AProc: TACLStringEnumProc);
-var
-  LName: string;
+class function TACLFontCache.Enumerate: IACLEnumerable<string>;
 begin
   WaitForLoader;
-  FLock.Enter;
-  try
-    for LName in FFonts do
-      AProc(LName);
-  finally
-    FLock.Leave;
-  end;
+  Result := TACLLockedEnumerable<string>.Create(FFonts, FLock);
 end;
-
-//class function TACLFontCache.GetInfo(const AFont: TFont): TACLFontInfo;
-//var
-//  LFontData: TACLFontData;
-//begin
-//  FLock.Enter;
-//  try
-//    LFontData := TACLFontData.Create(AFont);
-//    if not FFontCache.TryGetValue(LFontData, Result) then
-//    begin
-//    {$IFDEF ACL_LOG_FONTCACHE}
-//      AddToDebugLog('FontCache', 'GetInfo(%s)', [LFontData.ToString]);
-//    {$ENDIF}
-//      Result := TACLFontInfo.Create;
-//      Result.Assign(AFont);
-//      FFontCache.Add(LFontData, Result);
-//    end;
-//  finally
-//    FLock.Leave;
-//  end;
-//end;
 
 class function TACLFontCache.GetInfo(const AFontData: TACLFontData): TACLFontInfo;
 begin

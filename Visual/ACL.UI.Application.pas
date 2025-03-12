@@ -379,13 +379,15 @@ begin
   if AValue = 0 then
     Result := TACLColorSchema.Default
   else
-    Result := TACLColorSchema.Create(AValue and $FF, AValue shr 8);
+    // backward compatibility, Intensity stored in range [0..100]
+    Result := TACLColorSchema.Create(AValue and $FF, MulDiv(255, AValue shr 8, 100));
 end;
 
 class function TACLApplication.EncodeColorScheme(const AValue: TACLColorSchema): Word;
 begin
   if AValue.IsAssigned then
-    Result := MakeWord(AValue.Hue, AValue.HueIntensity)
+    // backward compatibility, Intensity stored in range [0..100]
+    Result := MakeWord(AValue.Hue, MulDiv(100, AValue.HueIntensity, 255))
   else
     Result := 0;
 end;
