@@ -102,7 +102,6 @@ type
   TACLSearchString = class
   strict private const
     JoinCharsToRemove = '-.'#39;
-    JoinCharsToReplace = '&_';
   strict private
     FLock: TACLCriticalSection;
     FEmpty: Boolean;
@@ -2647,9 +2646,11 @@ begin
     Result := acUpperCase(Result);
   if IgnoreJoinChars then
   begin
-    Result := acReplaceChars(Result, JoinCharsToRemove, #1);
-    Result := acReplaceChars(Result, JoinCharsToReplace, ' ');
-    Result := acRemoveChar(Result, #1);
+    Result := acRemoveChar(acReplaceChars(Result, JoinCharsToRemove, #1), #1);
+    if acContains('_', Result) then
+      Result := acReplaceChars(Result, '_', ' ');
+    if acContains('&', Result) then
+      Result := acStringReplace(Result, '&', ' & ');
   end;
 end;
 
