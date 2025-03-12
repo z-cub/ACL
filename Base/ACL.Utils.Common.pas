@@ -227,7 +227,7 @@ function acLastSystemErrorMessage: string;
 function acLastSystemErrorHRESULT: HRESULT;
 function acObjectUID(AObject: TObject): string;
 function acSetThreadErrorMode(Mode: DWORD): DWORD; // MSWINDOWS only!
-procedure FreeMemAndNil(var P: Pointer);
+procedure FreeMemAndNil(var P);
 function IfThen(AValue: Boolean; ATrue, AFalse: TACLBoolean): TACLBoolean; overload;
 
 // Version
@@ -525,13 +525,15 @@ end;
 // Internal Tools
 // ---------------------------------------------------------------------------------------------------------------------
 
-procedure FreeMemAndNil(var P: Pointer);
+procedure FreeMemAndNil(var P);
+var
+  LRef: Pointer absolute P;
+  LPtr: Pointer;
 begin
-  if P <> nil then
-  begin
-    FreeMem(P);
-    P := nil;
-  end;
+  LPtr := LRef;
+  LRef := nil;
+  if LPtr <> nil then
+    FreeMem(LPtr);
 end;
 
 function IfThen(AValue: Boolean; ATrue, AFalse: TACLBoolean): TACLBoolean;

@@ -287,14 +287,14 @@ begin
       Used := Min(Used, AValue);
       ATempBuffer := AllocMem(AValue);
       FastMove(Data^, ATempBuffer^, Used);
-      FreeMemAndNil(Pointer(FData));
+      FreeMemAndNil(FData);
       FData := ATempBuffer;
     end
     else
     begin
       Used := 0;
       if Size > 0 then
-        FreeMemAndNil(Pointer(FData));
+        FreeMemAndNil(FData);
       if AValue > 0 then
         FData := AllocMem(AValue);
     end;

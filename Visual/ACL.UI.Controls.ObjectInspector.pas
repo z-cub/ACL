@@ -866,7 +866,7 @@ begin
     for I := 0 to ACount - 1 do
       LoadObjectProperty(AList[I], AObject, AParentNode);
   finally
-    FreeMemAndNil(Pointer(AList));
+    FreeMemAndNil(AList);
   end;
 end;
 

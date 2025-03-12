@@ -518,15 +518,15 @@ var
 begin
   for I := Low(FWorkChunks) to High(FWorkChunks) do
     FreeAndNil(FWorkChunks[I]);
-  FreeMemAndNil(Pointer(FAdditionMatrix));
-  FreeMemAndNil(Pointer(FDarkenMatrix));
-  FreeMemAndNil(Pointer(FDifferenceMatrix));
-  FreeMemAndNil(Pointer(FDivideMatrix));
-  FreeMemAndNil(Pointer(FLightenMatrix));
-  FreeMemAndNil(Pointer(FMultiplyMatrix));
-  FreeMemAndNil(Pointer(FOverlayMatrix));
-  FreeMemAndNil(Pointer(FScreenMatrix));
-  FreeMemAndNil(Pointer(FSubstractMatrix));
+  FreeMemAndNil(FAdditionMatrix);
+  FreeMemAndNil(FDarkenMatrix);
+  FreeMemAndNil(FDifferenceMatrix);
+  FreeMemAndNil(FDivideMatrix);
+  FreeMemAndNil(FLightenMatrix);
+  FreeMemAndNil(FMultiplyMatrix);
+  FreeMemAndNil(FOverlayMatrix);
+  FreeMemAndNil(FScreenMatrix);
+  FreeMemAndNil(FSubstractMatrix);
   FreeAndNil(FWorkChunk);
   FreeAndNil(FLock);
 end;
@@ -1475,7 +1475,7 @@ begin
     FMaskInfo := AImage.FrameInfo[FMaskFrame];
     if {FMaskInfo.IsColor or }FMaskInfo.IsOpaque or FMaskInfo.IsTransparent then
     begin
-      FreeMemAndNil(Pointer(FMask));
+      FreeMemAndNil(FMask);
       FMaskInfoValid := True;
     end
     else

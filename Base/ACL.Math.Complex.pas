@@ -174,11 +174,11 @@ var
   I: Integer;
 begin
   for I := 0 to Length(FRotateOperatorMapForward) - 1 do
-    FreeMemAndNil(Pointer(FRotateOperatorMapForward[I]));
+    FreeMemAndNil(FRotateOperatorMapForward[I]);
   for I := 0 to Length(FRotateOperatorMapInverse) - 1 do
-    FreeMemAndNil(Pointer(FRotateOperatorMapInverse[I]));
+    FreeMemAndNil(FRotateOperatorMapInverse[I]);
   for I := 0 to Length(FReorderDataMap) - 1 do
-    FreeMemAndNil(Pointer(FReorderDataMap[I]));
+    FreeMemAndNil(FReorderDataMap[I]);
 end;
 
 class function TFastFourierTransformHelper.CalculateReorderMap(APower: Integer): PIntegerArray;
@@ -265,7 +265,7 @@ end;
 
 destructor TFastFourierTransform.Destroy;
 begin
-  FreeMemAndNil(Pointer(FBuffer));
+  FreeMemAndNil(FBuffer);
   inherited Destroy;
 end;
 

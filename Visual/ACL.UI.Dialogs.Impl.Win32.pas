@@ -209,7 +209,7 @@ end;
 
 destructor TACLFileDialogOldImpl.Destroy;
 begin
-  FreeMemAndNil(Pointer(FTempBuffer));
+  FreeMemAndNil(FTempBuffer);
   inherited Destroy;
 end;
 
