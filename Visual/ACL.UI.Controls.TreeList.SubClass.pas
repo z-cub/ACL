@@ -5067,7 +5067,7 @@ end;
 
 procedure TACLTreeListSubClass.ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState);
 var
-  AGroup: TACLTreeListGroup;
+  LGroup: TACLTreeListGroup;
 begin
   if AButton <> mbLeft then
   begin
@@ -5086,14 +5086,14 @@ begin
 
   if HitTest.HitAtGroup then
   begin
-    AGroup := HitTest.Group;
+    LGroup := HitTest.Group;
     if HitTest.HasAction then
-      ProcessMouseClickAtGroup(AButton, AShift, AGroup)
+      ProcessMouseClickAtGroup(AButton, AShift, LGroup)
     else
     begin
-      ToggleGroupExpanded(AGroup, AShift);
-      if not OptionsBehavior.GroupsFocusOnClick and AGroup.Expanded then
-        SetFocusedObject(AGroup.Links.First);
+      ToggleGroupExpanded(LGroup, AShift);
+      if not OptionsBehavior.GroupsFocusOnClick and LGroup.Expanded then
+        SetFocusedObject(LGroup.Links.First);
     end;
   end
   else

@@ -1921,7 +1921,9 @@ begin
   begin
     FPrevMousePos := Point(X, Y);
     if PtInRect(ClientRect, FPrevMousePos) then
-      SelectItemOnMouseMove(HitTest(FPrevMousePos));
+      SelectItemOnMouseMove(HitTest(FPrevMousePos))
+    else
+      SelectItemOnMouseMove(HitTestNoWhere);
   end;
 end;
 

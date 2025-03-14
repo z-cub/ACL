@@ -564,9 +564,6 @@ type
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
     procedure SetState(AValue: TCheckBoxState); virtual;
-  {$IFDEF FPC}
-    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
-  {$ENDIF}
     procedure UpdateSubControlEnabled;
     //# Properties
     property AllowGrayed: Boolean read FAllowGrayed write FAllowGrayed default False;
@@ -582,6 +579,9 @@ type
     procedure ChangeState(AChecked: Boolean); overload;
     procedure ChangeState(AState: TCheckBoxState); overload;
     procedure ToggleState; virtual;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
   published
     property Alignment default taLeftJustify;
     property AutoSize default True;

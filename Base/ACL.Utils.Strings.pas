@@ -433,6 +433,7 @@ function acUStringToBytes(W: PWideChar; ACount: Integer): RawByteString;
 function acDecodeUtf8(const Source: AnsiString): UnicodeString;
 function acEncodeUtf8(const Source: UnicodeString): AnsiString;
 function acUnicodeToUtf8(Dest: PAnsiChar; MaxDestChars: Integer; Source: PWideChar; SourceLen: Integer): Integer; inline;
+function acUtf8CharLength(Source: PAnsiChar): Integer; // Assume that Source is valid utf 8 sequence
 function acUtf8IsWellformed(Source: PAnsiChar; SourceBytes: Integer): Boolean;
 function acUtf8ToUnicode(Dest: PWideChar; MaxDestChars: Integer; Source: PAnsiChar; SourceBytes: Integer): Integer;
 // Delphi: just maps to acDecodeUtf8 / acEncodeUtf8
@@ -1130,6 +1131,23 @@ begin
   Result := System.UnicodeToUtf8(Dest, MaxDestChars, Source, SourceLen);
 end;
 
+function acUtf8CharLength(Source: PAnsiChar): Integer;
+begin
+  // Assume that Source is valid utf 8 sequence
+  case Byte(Source^) of
+    000..191: Result := 1;
+    192..223: Result := 2;
+    224..239: Result := 3;
+    240..247: Result := 4;
+    // UTF-8 supports length up to 7, but RFC 3629 limits it to 1-4 bytes.
+    //#248..#251   : Result := 5;
+    //#252, #253   : Result := 6;
+    //#254         : Result := 7;
+  else
+    Result := 1;
+  end;
+end;
+
 function acUtf8IsWellformed(Source: PAnsiChar; SourceBytes: Integer): Boolean;
 begin
   Result := acUtf8ToUnicode(nil, MaxInt, Source, SourceBytes) > 0;
@@ -1267,7 +1285,7 @@ end;
 function acCharLength(const P: PChar): Integer;
 begin
 {$IFDEF FPC}
-  Result := UTF8CodepointSizeFast(P);
+  Result := acUtf8CharLength(P);
 {$ELSE}
   Result := 1 + Ord(P^.IsHighSurrogate);
 {$ENDIF}

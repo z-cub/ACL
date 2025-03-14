@@ -784,6 +784,7 @@ type
     procedure RecreateViewSubClasses;
 
     // General
+    function CanInteract: Boolean;
     procedure ProcessChanges(AChanges: TIntegerSet = []); virtual;
     procedure ToggleChecked(AObject: TObject);
     procedure ToggleExpanded(AObject: TObject);
@@ -2639,7 +2640,7 @@ end;
 
 procedure TACLCompoundControlSubClass.ContextPopup(const P: TPoint; var AHandled: Boolean);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     UpdateHitTest(P);
     if HitTest.IsNonClient then
@@ -2671,7 +2672,7 @@ begin
     if DragAndDropController.IsActive then
       Result := DragAndDropController.Cursor
     else
-      if EnabledContent and not IsUpdateLocked then
+      if CanInteract then
       begin
         UpdateHitTest(P);
         DoGetCursor(HitTest);
@@ -2737,7 +2738,7 @@ end;
 procedure TACLCompoundControlSubClass.Gesture(
   const AEventInfo: TGestureEventInfo; var AHandled: Boolean);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatGesture;
     try
@@ -2750,7 +2751,7 @@ end;
 
 procedure TACLCompoundControlSubClass.KeyDown(var Key: Word; Shift: TShiftState);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatKeyboard;
     try
@@ -2765,7 +2766,7 @@ end;
 
 procedure TACLCompoundControlSubClass.KeyPress(var Key: WideChar);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatKeyboard;
     try
@@ -2778,7 +2779,7 @@ end;
 
 procedure TACLCompoundControlSubClass.KeyUp(var Key: Word; Shift: TShiftState);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatKeyboard;
     try
@@ -2796,7 +2797,7 @@ end;
 
 procedure TACLCompoundControlSubClass.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatMouse;
     try
@@ -2823,7 +2824,7 @@ end;
 
 procedure TACLCompoundControlSubClass.MouseLeave;
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     HitTest.Reset;
     HintController.Cancel;
@@ -2834,7 +2835,7 @@ end;
 
 procedure TACLCompoundControlSubClass.MouseMove(Shift: TShiftState; X, Y: Integer);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatMouse;
     try
@@ -2856,7 +2857,7 @@ end;
 
 procedure TACLCompoundControlSubClass.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
-  if EnabledContent then
+  if CanInteract then
   begin
     FActionType := ccatMouse;
     try
@@ -2876,17 +2877,20 @@ end;
 
 procedure TACLCompoundControlSubClass.MouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState);
 begin
-  FActionType := ccatMouse;
-  try
-    BeginUpdate;
+  if {CanInteract} not IsUpdateLocked then // разрешаем скроллить залоченный список
+  begin
+    FActionType := ccatMouse;
     try
-      ProcessMouseWheel(ADirection, AShift);
+      BeginUpdate;
+      try
+        ProcessMouseWheel(ADirection, AShift);
+      finally
+        EndUpdate;
+      end;
+      UpdateHotTrack;
     finally
-      EndUpdate;
+      FActionType := ccatNone;
     end;
-    UpdateHotTrack;
-  finally
-    FActionType := ccatNone;
   end;
 end;
 
@@ -3044,6 +3048,17 @@ begin
       Exit(absHover);
   end;
   Result := absNormal;
+end;
+
+function TACLCompoundControlSubClass.CanInteract: Boolean;
+begin
+  // IsUpdateLocked:
+  // Пока мы получаем айтемы, шелы проталкивают WM_MOUSEMOVE, а у нас контрол не посчитан
+  //  + TACLCompoundControlSubClass.ToggleExpanded
+  //  + TACLShellTreeViewSubClass.DoGetPathChildren
+  //  + TACLShellFolder.Enum
+  //  + TACLCustomControl.WMMouseMove
+  Result := EnabledContent and not IsUpdateLocked;
 end;
 
 procedure TACLCompoundControlSubClass.ProcessContextPopup(var AHandled: Boolean);
@@ -3218,16 +3233,16 @@ end;
 
 procedure TACLCompoundControlSubClass.ToggleChecked(AObject: TObject);
 var
-  ACheckable: IACLCheckableObject;
+  LCheckable: IACLCheckableObject;
 begin
   BeginUpdate;
   try
-    if Supports(AObject, IACLCheckableObject, ACheckable) then
+    if Supports(AObject, IACLCheckableObject, LCheckable) then
     try
-      if ACheckable.CanCheck then
-        ACheckable.Checked := not ACheckable.Checked;
+      if LCheckable.CanCheck then
+        LCheckable.Checked := not LCheckable.Checked;
     finally
-      ACheckable := nil;
+      LCheckable := nil;
     end;
   finally
     EndUpdate;
@@ -3236,15 +3251,15 @@ end;
 
 procedure TACLCompoundControlSubClass.ToggleExpanded(AObject: TObject);
 var
-  AExpandable: IACLExpandableObject;
+  LExpandable: IACLExpandableObject;
 begin
   BeginUpdate;
   try
-    if Supports(AObject, IACLExpandableObject, AExpandable) then
+    if Supports(AObject, IACLExpandableObject, LExpandable) then
     try
-      AExpandable.Expanded := not AExpandable.Expanded;
+      LExpandable.Expanded := not LExpandable.Expanded;
     finally
-      AExpandable := nil;
+      LExpandable := nil;
     end;
   finally
     EndUpdate;

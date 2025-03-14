@@ -72,6 +72,7 @@ type
 
   TACLCustomInplaceContainer = class(TACLCustomControl)
   strict private
+    FEditorClipped: Boolean;
     FOnChange: TNotifyEvent;
 
     procedure HandlerEditorMouseDown(Sender: TObject;
@@ -86,6 +87,7 @@ type
     // Messages
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+    procedure CMShowWindow(var Message: TMessage); message CM_SHOWINGCHANGED;
     procedure WMGetDlgCode(var Message: TWMGetDlgCode); message WM_GETDLGCODE;
     procedure WMSetFocus(var Message: TWMSetFocus); message WM_SETFOCUS;
   protected
@@ -102,7 +104,6 @@ type
   protected
     procedure BoundsChanged; override;
     procedure Changed; virtual;
-    procedure CreateHandle; override;
     // Events
     procedure DoChange; virtual;
     procedure DoEnter; override;
@@ -278,7 +279,6 @@ type
     function CreateStyleButton: TACLStyleButton; virtual;
   {$IFDEF FPC}
     procedure DoAutoSize; override;
-    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
   {$ENDIF}
     procedure FocusChanged; override;
     procedure InvalidateBorders;
@@ -341,6 +341,9 @@ type
     procedure BeforeDestruction; override;
     procedure Localize(const ASection, AName: string); override;
     procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
   published
     property AutoSize default True;
     property FocusOnClick;
@@ -360,9 +363,6 @@ type
     procedure WMPaste(var Message: TMessage); message WM_PASTE;
   protected
   {$IFDEF FPC}
-    procedure CalculatePreferredSize(var
-      PreferredWidth, PreferredHeight: Integer;
-      WithThemeSpace: Boolean); override;
     class procedure WSRegisterClass; override;
   {$ENDIF}
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
@@ -545,16 +545,11 @@ begin
   FullRefresh;
 end;
 
-procedure TACLCustomInplaceContainer.WMGetDlgCode(var Message: TWMGetDlgCode);
+procedure TACLCustomInplaceContainer.CMShowWindow(var Message: TMessage);
 begin
   inherited;
-  Message.Result := Message.Result or DLGC_WANTARROWS;
-end;
-
-procedure TACLCustomInplaceContainer.CreateHandle;
-begin
-  inherited;
-  BoundsChanged;
+  if Showing then
+    BoundsChanged;
 end;
 
 procedure TACLCustomInplaceContainer.DoChange;
@@ -617,28 +612,35 @@ end;
 
 procedure TACLCustomInplaceContainer.EditorUpdateBounds;
 var
-  LTemp: TRect;
-  LTempHeight: Integer;
-  LTempWidth: Integer;
+  LEditRgn: TRegionHandle;
+  LEditSize: TSize;
+  LRectCalc: TRect;
+  LRectReal: TRect;
 begin
   if FEditor <> nil then
   begin
-    LTemp := CalculateEditorPosition;
-    LTempHeight := LTemp.Height;
-    LTempWidth := LTemp.Width;
-    TWinControlAccess(FEditor).CanAutoSize(LTempWidth, LTempHeight);
-    if LTempHeight <> LTemp.Height then
-      LTemp.CenterVert(LTempHeight);
-    FEditor.BoundsRect := LTemp;
+    LRectCalc := CalculateEditorPosition;
+    LEditSize := LRectCalc.Size;
+    TWinControlAccess(FEditor).CanAutoSize(LEditSize.cx, LEditSize.cy);
+    LRectReal := LRectCalc;
+    LRectReal.CenterVert(LEditSize.cy);
+  {$IFDEF FPC} // Ubuntu24: substract left-padding
+    if LRectReal.Height > LRectCalc.Height then
+      Dec(LRectReal.Left, (LRectReal.Height - LRectCalc.Height) div 2 + 1);
+  {$ENDIF}
+    FEditor.BoundsRect := LRectReal;
     if HandleAllocated then
     begin
-      if FEditor.Height > LTemp.Height then
+      FEditorClipped := LRectReal.Height > LRectCalc.Height;
+      if FEditorClipped then
       begin
-        LTemp.Offset(-FEditor.Left, -FEditor.Top);
-        acRegionSetToWindow(FEditor.Handle, CreateRectRgnIndirect(LTemp), False);
+        LRectCalc.Offset(-LRectReal.Left, -LRectReal.Top);
+        LEditRgn := CreateRectRgnIndirect(LRectCalc);
       end
       else
-        acRegionSetToWindow(FEditor.Handle, 0, False);
+        LEditRgn := 0;
+
+      acRegionSetToWindow(FEditor.Handle, LEditRgn, False);
     end;
   end;
 end;
@@ -705,6 +707,12 @@ begin
       CallNotifyEvent(Self, OnExit);
     WM_SETFOCUS, WM_KILLFOCUS:
       FocusChanged;
+  {$IFDEF FPC}
+    CM_TEXTCHANGED:
+      // Ubuntu 24 resets region after chaning the text
+      if FEditorClipped then
+        EditorUpdateBounds;
+  {$ENDIF}
   end;
 end;
 
@@ -764,12 +772,19 @@ begin
   FEditor.SetFocus;
 end;
 
+procedure TACLCustomInplaceContainer.WMGetDlgCode(var Message: TWMGetDlgCode);
+begin
+  inherited;
+  Message.Result := Message.Result or DLGC_WANTARROWS;
+end;
+
 procedure TACLCustomInplaceContainer.WMSetFocus(var Message: TWMSetFocus);
 begin
   inherited;
   if FEditor <> nil then
     SetFocusToInnerEdit;
 end;
+
 {$ENDREGION}
 
 {$REGION ' Basic Edit '}
@@ -1511,9 +1526,14 @@ begin
 end;
 
 function TACLInnerEdit.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
+{$IFDEF FPC}
+var
+  LUnused: Integer;
+{$ENDIF}
 begin
 {$IFDEF FPC}
-  NewHeight := Min(NewHeight, acFontHeight(Font));
+  GetPreferredSize(LUnused, NewHeight);
+  NewHeight := Max(NewHeight, acFontHeight(Font));
 {$ELSE}
   NewHeight := acFontHeight(Font);
 {$ENDIF}
@@ -1547,12 +1567,6 @@ begin
 end;
 
 {$IFDEF FPC}
-procedure TACLInnerEdit.CalculatePreferredSize(
-  var PreferredWidth, PreferredHeight: Integer; WithThemeSpace: Boolean);
-begin
-  CanAutoSize(PreferredWidth, PreferredHeight);
-end;
-
 class procedure TACLInnerEdit.WSRegisterClass;
 const
   Done: Boolean = False;

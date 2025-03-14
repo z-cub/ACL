@@ -701,7 +701,11 @@ begin
 {$IFDEF ACL_THREADING_DEBUG}
   TThread.NameThreadForDebugging('ThreadPool - ' + ATask.ClassName);
 {$ENDIF}
-  ATask.FOwner.AsyncRun(ATask);
+  try
+    ATask.FOwner.AsyncRun(ATask);
+  except
+    // Мы в потоке, падать никак нельзя
+  end;
 {$IFDEF ACL_THREADING_DEBUG}
   TThread.NameThreadForDebugging('ThreadPool - Idle');
 {$ENDIF}

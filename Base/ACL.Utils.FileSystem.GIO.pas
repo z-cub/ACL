@@ -361,7 +361,6 @@ end;
 constructor TGioFileMonitor.Create(ACancelable: PGCancellable;
   AFileOrDir: PGFile; ACallback: TCallback; ASubTreeDepth: Integer);
 var
-  LChild: PGFile;
   LError: PGError;
   LEnumerator: PGFileEnumerator;
   LInfo: PGFileInfo;
@@ -432,6 +431,7 @@ begin
         AMonitor.Unwatch(AFile);
         AddChildDir(AOtherFile);
       end;
+  else;
   end;
   if Assigned(AMonitor.FCallback) then
     AMonitor.FCallback(AFile, AOtherFile, AEvent);

@@ -6,7 +6,7 @@
 //  Purpose:   General Classes
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -299,10 +299,13 @@ begin
   end;
 end;
 
-function acFindComponent(AComponent: TComponent; const AName: TComponentName; ARecursive: Boolean = True): TComponent;
+function acFindComponent(AComponent: TComponent;
+  const AName: TComponentName; ARecursive: Boolean = True): TComponent;
 var
   I: Integer;
 begin
+  if AComponent = nil then
+    Exit(nil);
   Result := AComponent.FindComponent(AName);
   if ARecursive and (Result = nil) then
     for I := 0 to AComponent.ComponentCount - 1 do

@@ -75,9 +75,6 @@ type
   protected
     procedure CalculateProgressRect(const ABounds: TRect; out R1, R2, R1Clip, R2Clip: TRect);
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
-  {$IFDEF FPC}
-    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
-  {$ENDIF}
     procedure SetTargetDPI(AValue: Integer); override;
     procedure DoTimer(Sender: TObject);
     procedure Paint; override;
@@ -90,6 +87,9 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
   published
     property Align;
     property Anchors;

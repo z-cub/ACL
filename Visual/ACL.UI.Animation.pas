@@ -434,8 +434,10 @@ begin
   CurrentTime := Min(FinishTime, GetExactTickCount);
   FFinished := Finished or (CurrentTime >= FinishTime);
   if Finished then
-    CurrentTime := FinishTime;
-  FProgress := Transition((CurrentTime - StartTime) / (FinishTime - StartTime));
+    FProgress := 1.0
+  else
+    FProgress := Transition((CurrentTime - StartTime) / (FinishTime - StartTime));
+
   DoAnimate;
 end;
 

@@ -163,7 +163,7 @@ type
 function acGetWindowText(AHandle: HWND): string;
 procedure acSetWindowText(AHandle: HWND; const AText: string);
 
-procedure acFormsCloseAll;
+procedure acFormsCloseAll; deprecated;
 implementation
 
 {$IFDEF LCLGtk2}

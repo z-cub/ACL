@@ -123,9 +123,6 @@ type
     function CanAutoSize(var ANewWidth, ANewHeight: Integer): Boolean; override;
     function CreateStyle: TACLStyleLabel; virtual;
     function CreateSubControlOptions: TACLLabelSubControlOptions; virtual;
-  {$IFDEF FPC}
-    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
-  {$ENDIF}
 
     procedure BoundsChanged; override;
     procedure Calculate(const R: TRect); virtual;
@@ -149,6 +146,9 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     function MeasureSize(AWidth: Integer = 0): TSize; virtual;
+  {$IFDEF FPC}
+    procedure ShouldAutoAdjust(var AWidth, AHeight: Boolean); override;
+  {$ENDIF}
   published
     property Alignment: TAlignment read FAlignment write SetAlignment default taLeftJustify;
     property AlignmentVert: TVerticalAlignment read FAlignmentVert write SetAlignmentVert default taVerticalCenter;

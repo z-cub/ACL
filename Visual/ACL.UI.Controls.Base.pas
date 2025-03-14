@@ -1950,6 +1950,7 @@ begin
         Result := L.Top - R.Top;
       alBottom:
         Result := R.Top - L.Top;
+    else;
     end;
 end;
 

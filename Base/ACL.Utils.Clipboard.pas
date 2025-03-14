@@ -486,7 +486,6 @@ begin
   Result := TACLGlobalMemory.ToFiles(GetAsHandle(CF_HDROP));
 {$ELSE}
 var
-  I: Integer;
   LMedium: TStgMedium;
   LStream: TMemoryStream;
 begin
