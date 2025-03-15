@@ -87,6 +87,7 @@ type
   TACLStyleDocking = class(TACLStyleCategory)
   protected const
     OuterPadding = 3; // TACLMargins.All
+    VisualBorder = 2;
     TabControlOffset = 2;
     TabIndent = 3; // TACLTabsOptionsView.TabIndent
   protected
@@ -445,6 +446,7 @@ type
     FCaptionTextRect: TRect;
     FResizeHandler: TACLDockControl;
     FShowCaption: Boolean;
+    FShowFrame: Boolean;
 
     procedure CalculateCaptionButtons;
     procedure CaptionButtonClick(AButton: TCaptionButton);
@@ -454,6 +456,7 @@ type
     procedure SetCaptionButtonActiveIndex(AValue: Integer);
     procedure SetCaptionButtonPressedIndex(AValue: Integer);
     procedure SetShowCaption(AValue: Boolean);
+    procedure SetShowFrame(AValue: Boolean);
   protected
     procedure Aligned; override;
     function AllowPin: Boolean; virtual;
@@ -487,6 +490,7 @@ type
   published
     property Caption;
     property ShowCaption: Boolean read FShowCaption write SetShowCaption default True;
+    property ShowFrame: Boolean read FShowFrame write SetShowFrame default True;
     property Style;
   end;
 
@@ -1200,7 +1204,7 @@ end;
 
 function TACLDockZoneClientSide.CalculateBounds: TRect;
 const
-  BordersMerging = 2;
+  BordersMerging = TACLStyleDocking.VisualBorder;
 var
   AClientBounds: TRect;
 begin
@@ -2176,7 +2180,7 @@ begin
   if (ActiveControlIndex >= 0) and (VisibleControlCount > 1) { and not IsMinimized} then
   begin
     AOuterPadding := GetOuterPadding;
-    FTabsArea := Rect(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom - 2{visual borders});
+    FTabsArea := Rect(ARect.Left, ARect.Top, ARect.Right, ARect.Bottom - TACLStyleDocking.VisualBorder);
     FTabsArea.Content(AOuterPadding, TabAreaBorders); // from client to borders
     FTabsArea.Content(AOuterPadding, TabAreaBorders); // from borders to tabs
     FTabsArea.Top := FTabsArea.Bottom - Style.MeasureTabHeight;
@@ -2216,7 +2220,7 @@ var
 begin
   // Measure
   AFixedSize := 0;
-  AClientSize := 1;
+  AClientSize := 0;
   AClientCount := 0;
   for I := 0 to ControlCount - 1 do
   begin
@@ -2828,17 +2832,18 @@ begin
   FCaptionButtonActiveIndex := -1;
   FCaptionButtonPressedIndex := -1;
   FShowCaption := True;
+  FShowFrame := True;
   FocusOnClick := True;
 end;
 
 procedure TACLDockPanel.Aligned;
 var
-  APrevCaptionBottom: Integer;
+  LPrevOffsets: TRect;
 begin
   inherited;
-  APrevCaptionBottom := FCaptionRect.Bottom;
+  LPrevOffsets := GetContentOffset;
 
-  if HasBorders and ShowCaption then
+  if ShowCaption and HasBorders then
   begin
     FCaptionRect := ClientRect;
     FCaptionRect.Content(GetOuterPadding);
@@ -2849,7 +2854,7 @@ begin
   else
     FCaptionRect := NullRect;
 
-  if FCaptionRect.Bottom <> APrevCaptionBottom then
+  if LPrevOffsets <> GetContentOffset then
     Realign;
 end;
 
@@ -2990,7 +2995,8 @@ begin
   if HasBorders then
   begin
     Result := GetOuterPadding;
-    Result.MarginsAdd(2{visual borders});
+    if ShowFrame then
+      Result.MarginsAdd(TACLStyleDocking.VisualBorder);
     if ShowCaption then
       Result.Top := FCaptionRect.Bottom + 1;
   end
@@ -3010,27 +3016,27 @@ end;
 
 function TACLDockPanel.GetOuterPadding: TRect;
 var
-  AGroup: TACLDockGroup;
+  LGroup: TACLDockGroup;
 begin
   Result := inherited;
-  if (SideBar = nil) and Safe.Cast(Parent, TACLDockGroup, AGroup) then
+  if (SideBar = nil) and Safe.Cast(Parent, TACLDockGroup, LGroup) then
   begin
-    if AGroup.HasTabs then
-      Result.Bottom := -2; // hide outer visual border
+    if LGroup.HasTabs then
+      Result.Bottom := -TACLStyleDocking.VisualBorder; // hide outer visual border
   end;
 end;
 
 function TACLDockPanel.HasBorders: Boolean;
 var
-  ADockGroup: TACLDockGroup;
+  LGroup: TACLDockGroup;
 begin
-  if Safe.Cast(Parent, TACLDockGroup, ADockGroup) then
+  if Safe.Cast(Parent, TACLDockGroup, LGroup) then
   begin
     Result := not (
-      (not ADockGroup.HasTabs) and
-      (ADockGroup.VisibleControlCount = 1) and
+      (not LGroup.HasTabs) and
+      (LGroup.VisibleControlCount = 1) and
       {$IFNDEF ACL_DOCKING_NATIVE_FLOATFORMS} not {$ENDIF}
-      (ADockGroup.Parent is TACLFloatDockForm));
+      (LGroup.Parent is TACLFloatDockForm));
   end
   else
     Result := True;
@@ -3051,10 +3057,10 @@ end;
 {$IFDEF ACL_DOCKING_PIN_TABBED_GROUP}
 function TACLDockPanel.IsPinnedToSideBar: Boolean;
 var
-  AGroup: TACLDockGroup;
+  LGroup: TACLDockGroup;
 begin
-  Result := inherited or Safe.Cast(Parent, TACLDockGroup, AGroup) and
-    (AGroup.Layout = TACLDockGroupLayout.Tabbed) and (AGroup.SideBar <> nil);
+  Result := inherited or Safe.Cast(Parent, TACLDockGroup, LGroup) and
+    (LGroup.Layout = TACLDockGroupLayout.Tabbed) and (LGroup.SideBar <> nil);
 end;
 {$ENDIF}
 
@@ -3133,24 +3139,28 @@ end;
 
 procedure TACLDockPanel.Paint;
 var
-  AClipRgn: TRegionHandle;
+  LClipRgn: TRegionHandle;
   I: TCaptionButton;
 begin
   inherited;
   if HasBorders then
   begin
-    Style.DrawBorder(Canvas, ClientRect.Split(GetOuterPadding), acAllBorders);
-    Style.DrawHeader(Canvas, FCaptionRect);
-    Style.DrawHeaderText(Canvas, FCaptionTextRect, Caption);
-    if acStartClippedDraw(Canvas.Handle, FCaptionRect, AClipRgn) then
-    try
-      for I := Low(FCaptionButtons) to High(FCaptionButtons) do
-      begin
-        Style.HeaderButton.Draw(Canvas, FCaptionButtons[I], GetCaptionButtonState(I));
-        Style.HeaderButtonGlyphs.Draw(Canvas, FCaptionButtons[I].InflateTo(-4), Ord(I));
+    if ShowFrame then
+      Style.DrawBorder(Canvas, ClientRect.Split(GetOuterPadding), acAllBorders);
+    if ShowCaption then
+    begin
+      Style.DrawHeader(Canvas, FCaptionRect);
+      Style.DrawHeaderText(Canvas, FCaptionTextRect, Caption);
+      if acStartClippedDraw(Canvas.Handle, FCaptionRect, LClipRgn) then
+      try
+        for I := Low(FCaptionButtons) to High(FCaptionButtons) do
+        begin
+          Style.HeaderButton.Draw(Canvas, FCaptionButtons[I], GetCaptionButtonState(I));
+          Style.HeaderButtonGlyphs.Draw(Canvas, FCaptionButtons[I].InflateTo(-4), Ord(I));
+        end;
+      finally
+        acRestoreClipRegion(Canvas.Handle, LClipRgn);
       end;
-    finally
-      acRestoreClipRegion(Canvas.Handle, AClipRgn);
     end;
   end;
   if (csDesigning in ComponentState) and not Visible then
@@ -3174,13 +3184,26 @@ begin
     finally
       Aligned;
     end;
+    if csDesigning in ComponentState then
+      Realign;
     Invalidate;
   end;
 end;
 
-function TACLDockPanel.ToString: string;
+procedure TACLDockPanel.SetShowFrame(AValue: Boolean);
 begin
-  Result := Caption;
+  if FShowFrame <> AValue then
+  begin
+    Aligning;
+    try
+      FShowFrame := AValue;
+    finally
+      Aligned;
+    end;
+    if csDesigning in ComponentState then
+      Realign;
+    Invalidate;
+  end;
 end;
 
 procedure TACLDockPanel.SetCaptionButtonActiveIndex(AValue: Integer);
@@ -3199,6 +3222,11 @@ begin
     FCaptionButtonPressedIndex := AValue;
     InvalidateRect(FCaptionRect);
   end;
+end;
+
+function TACLDockPanel.ToString: string;
+begin
+  Result := Caption;
 end;
 
 procedure TACLDockPanel.ValidateInsert(AComponent: TComponent);
