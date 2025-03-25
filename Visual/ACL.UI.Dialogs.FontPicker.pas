@@ -393,9 +393,9 @@ procedure TACLFontPickerDialog.HandlerFontPreview(
   var AData: TACLTreeListNodeCustomDrawData;
   var AHandled: Boolean);
 begin
-  TACLFontCache.GetInfo(AData.Node.Caption, [],
-    ACanvas.Font.Height, acDefaultDPI, fqDefault).AssignTo(ACanvas.Font);
-  ACanvas.Font.Color := FFontName.Style.RowColorsText[True];
+  ACanvas.Font.Assign(
+    TACLFontCache.Get(AData.Node.Caption, [], ACanvas.Font.Height, acDefaultDPI, fqDefault),
+    FFontName.Style.RowColorsText[True]);
 end;
 
 procedure TACLFontPickerDialog.HandlerFontSizeListChanged(Sender: TObject);

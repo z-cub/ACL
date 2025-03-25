@@ -291,18 +291,18 @@ type
     IACLColorSchema,
     IACLResourceProvider)
   strict private
+    FActualFont: TFont;
     FActualFontColor: TAlphaColor;
-    FActualFontInfo: TACLFontInfo;
     FAssignedValues: TACLResourceFontAssignedValues;
     FHeight: Integer;
     FName: TFontName;
     FQuality: TFontQuality;
     FStyle: TFontStyles;
 
+    function GetActualFont: TFont; inline;
     function GetAllowColoration: Boolean;
     function GetColor: TAlphaColor; inline;
     function GetColorID: string;
-    function GetFontInfo: TACLFontInfo; inline;
     function GetHeight: Integer;
     function GetName: TFontName;
     function GetQuality: TFontQuality;
@@ -1558,10 +1558,7 @@ end;
 procedure TACLResourceFont.AssignTo(Dest: TPersistent);
 begin
   if Dest is TFont then
-  begin
-    GetFontInfo.AssignTo(TFont(Dest));
-    TFont(Dest).Color := Color.ToColor;
-  end
+    TFont(Dest).Assign(GetActualFont, Color.ToColor)
   else
     inherited AssignTo(Dest);
 end;
@@ -1581,7 +1578,7 @@ procedure TACLResourceFont.DoFlushCache;
 begin
   FColor.DoFlushCache;
   FActualFontColor := TAlphaColor.Default;
-  FActualFontInfo := nil;
+  FActualFont := nil;
 end;
 
 procedure TACLResourceFont.DoFullRefresh;
@@ -1653,6 +1650,13 @@ begin
       Result := DefFontData.Quality;
 end;
 
+function TACLResourceFont.GetActualFont: TFont;
+begin
+  if FActualFont = nil then
+    FActualFont := TACLFontCache.Get(Name, Style, Height, TargetDPI, Quality);
+  Result := FActualFont;
+end;
+
 function TACLResourceFont.GetAllowColoration: Boolean;
 begin
   Result := FColor.ActualAllowColoration;
@@ -1681,13 +1685,6 @@ begin
       Result := TACLResourceFont(Master).ColorID
     else
       Result := '';
-end;
-
-function TACLResourceFont.GetFontInfo: TACLFontInfo;
-begin
-  if FActualFontInfo = nil then
-    FActualFontInfo := TACLFontCache.GetInfo(Name, Style, Height, TargetDPI, Quality);
-  Result := FActualFontInfo;
 end;
 
 function TACLResourceFont.GetHeight: Integer;

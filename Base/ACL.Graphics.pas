@@ -173,7 +173,8 @@ type
 
   TFontHelper = class helper for TFont
   public
-    procedure Assign(Source: TFont; SourceDpi, TargetDpi: Integer); overload;
+    procedure Assign(ASource: TFont; AColor: TColor); overload;
+    procedure Assign(ASource: TFont; ASourceDpi, ATargetDpi: Integer); overload;
     function Clone: TFont;
     procedure ResolveHeight;
     procedure SetSize(ASize: Integer; ATargetDpi: Integer); overload;
@@ -2551,14 +2552,44 @@ end;
 
 { TFontHelper }
 
-procedure TFontHelper.Assign(Source: TFont; SourceDpi, TargetDpi: Integer);
+procedure TFontHelper.Assign(ASource: TFont; AColor: TColor);
 begin
-  Assign(Source);
-  if SourceDpi <> TargetDpi then
-    Height := dpiApply(dpiRevert(Source.Height, SourceDpi), TargetDpi)
-  else
-    // Height may be changed during Assign(), if the fonts has different PixelsPerInch
-    Height := Source.Height;
+ {$IFDEF FPC}
+  BeginUpdate;
+  try
+{$ENDIF}
+    if ASource.Handle <> Handle then
+    begin
+      Assign(ASource);
+      // Height may be changed in Assign() if fonts has different PixelsPerInch
+      Height := ASource.Height;
+    end;
+    Color := AColor;
+{$IFDEF FPC}
+  finally
+    EndUpdate;
+  end;
+{$ENDIF}
+end;
+
+procedure TFontHelper.Assign(ASource: TFont; ASourceDpi, ATargetDpi: Integer);
+begin
+{$IFDEF FPC}
+  BeginUpdate;
+  try
+{$ENDIF}
+    if ASource.Handle <> Handle then
+      Assign(ASource);
+    if ASourceDpi <> ATargetDpi then
+      Height := dpiApply(dpiRevert(ASource.Height, ASourceDpi), ATargetDpi)
+    else
+      // Height may be changed in Assign() if fonts has different PixelsPerInch
+      Height := ASource.Height;
+{$IFDEF FPC}
+  finally
+    EndUpdate;
+  end;
+{$ENDIF}
 end;
 
 function TFontHelper.Clone: TFont;
@@ -2581,7 +2612,7 @@ begin
   end;
 end;
 
-procedure TFontHelper.SetSize(ASize, ATargetDpi: Integer);
+procedure TFontHelper.SetSize(ASize: Integer; ATargetDpi: Integer);
 begin
   Size := MulDiv(ASize, ATargetDpi, PixelsPerInch);
 end;
