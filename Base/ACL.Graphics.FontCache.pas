@@ -527,7 +527,6 @@ end;
 
 class procedure TACLFontCache.AsyncFontLoaderFinished;
 begin
-  LogEntry(acGeneralLogFileName, 'FontCache', 'Loader Finished');
   FLoaderHandle := TObjHandle(-1);
 end;
 
@@ -607,7 +606,6 @@ begin
   try
     if not FFontCache.TryGetValue(AFontData, Result) then
     begin
-      LogEntry(acGeneralLogFileName, 'FontCache', 'GetInfo(%s)', [AFontData.ToString]);
       Result := CreateFont(AFontData);
       FFontCache.Add(AFontData, Result);
     end;
