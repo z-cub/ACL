@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Design Time Routines
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -27,6 +27,7 @@ uses
   {System.}Classes,
   {System.}TypInfo,
   {System.}SysUtils,
+  System.UITypes,
   // Designer
 {$IFDEF FPC}
   ComponentEditors,
@@ -41,18 +42,8 @@ uses
   VCLSprigs,
 {$ENDIF}
   // ACL
-  ACL.UI.DesignTime.PropEditors;
-
-const
-  sACLComponentsPage = 'ACL';
-
-procedure Register;
-implementation
-
-uses
-  System.UITypes,
-  // ACL
   ACL.Timers,
+  ACL.Utils.Common,
   ACL.UI.Application,
   ACL.UI.Controls.ActivityIndicator,
   ACL.UI.Controls.Base,
@@ -69,7 +60,6 @@ uses
   ACL.UI.Controls.DateTimeEdit,
   ACL.UI.Controls.Docking,
   ACL.UI.Controls.DropDown,
-  ACL.UI.Controls.FormattedLabel,
   ACL.UI.Controls.HexView,
   ACL.UI.Controls.ImageComboBox,
   ACL.UI.Controls.Images,
@@ -103,7 +93,13 @@ uses
   ACL.UI.Menus,
   ACL.UI.Resources,
   ACL.UI.TrayIcon,
-  ACL.Utils.Common;
+  ACL.UI.DesignTime.PropEditors;
+
+const
+  sACLComponentsPage = 'ACL';
+
+procedure Register;
+implementation
 
 {$IFNDEF FPC}
 type
@@ -149,6 +145,8 @@ begin
   RegisterComponents(sACLComponentsPage, [TACLApplicationController, TACLUIInsightButton]);
   RegisterPropertyEditor(TypeInfo(Integer), TACLApplicationController, 'TargetDPI', TACLDPIPropertyEditor);
   RegisterComponents(sACLComponentsPage, [TACLTrayIcon, TACLDropTarget, TACLTimer]);
+  HideProperties(TACLCustomControl, ['AlignWithMargins']);
+  HideProperties(TACLGraphicControl, ['AlignWithMargins']);
 
   // Core
   RegisterComponents(sACLComponentsPage, [TACLResourceCollection]);
@@ -182,7 +180,7 @@ begin
 
   // Buttons
   RegisterPropertyEditor(TypeInfo(TImageIndex), TACLButton, 'ImageIndex', TACLImageIndexProperty);
-  RegisterComponents(sACLComponentsPage, [TACLButton, TACLCheckBox, TACLRadioBox, TACLColorButton]);
+  RegisterComponents(sACLComponentsPage, [TACLButton, TACLCheckBox, TACLRadioButton, TACLColorButton]);
 
   // Menus
   HideProperties(TACLPopupMenu, ['OnChange']);

@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TreeList Options
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -103,8 +103,8 @@ type
   strict private
     FAllowDefocus: Boolean;
     FAutoBestFit: Boolean;
-    FAutoCheckParents: Boolean;
     FAutoCheckChildren: Boolean;
+    FAutoCheckParents: Boolean;
     FCellHints: Boolean;
     FDeleting: Boolean;
     FDragSorting: Boolean;
@@ -119,6 +119,7 @@ type
     FGroupsFocus: Boolean;
     FGroupsFocusOnClick: Boolean;
     FHotTrack: Boolean;
+    FIncSearchAutoSelect: Boolean;
     FIncSearchColumnIndex: Integer;
     FIncSearchMode: TACLIncrementalSearchMode;
     FMouseWheelScrollLines: Integer;
@@ -160,6 +161,7 @@ type
     property GroupsFocus: Boolean read FGroupsFocus write SetGroupsFocus default True;
     property GroupsFocusOnClick: Boolean read FGroupsFocusOnClick write SetGroupsFocusOnClick default False;
     property HotTrack: Boolean read FHotTrack write SetHotTrack default False;
+    property IncSearchAutoSelect: Boolean read FIncSearchAutoSelect write FIncSearchAutoSelect default True;
     property IncSearchColumnIndex: Integer read FIncSearchColumnIndex write SetIncSearchColumnIndex default -1;
     property IncSearchMode: TACLIncrementalSearchMode read FIncSearchMode write SetIncSearchMode default ismSearch;
     property MouseWheelScrollLines: Integer read FMouseWheelScrollLines write FMouseWheelScrollLines default 0;
@@ -244,18 +246,22 @@ type
 
   { TACLTreeListOptionsView }
 
+  TACLTreeListGroupStyle = (gsClassic, gsExplorer);
+
   TACLTreeListOptionsView = class(TACLTreeListCustomOptions)
   strict private
     FBorders: TACLBorders;
     FCheckBoxes: Boolean;
     FColumns: TACLTreeListOptionsViewColumns;
     FGroupHeight: Integer;
+    FGroupStyle: TACLTreeListGroupStyle;
     FNodes: TACLTreeListOptionsViewNodes;
 
     procedure SetBorders(AValue: TACLBorders);
     procedure SetCheckBoxes(AValue: Boolean);
     procedure SetColumns(AValue: TACLTreeListOptionsViewColumns);
     procedure SetGroupHeight(const Value: Integer);
+    procedure SetGroupStyle(AValue: TACLTreeListGroupStyle);
     procedure SetNodes(AValue: TACLTreeListOptionsViewNodes);
   protected
     function CreateColumns: TACLTreeListOptionsViewColumns; virtual;
@@ -269,7 +275,8 @@ type
     property Columns: TACLTreeListOptionsViewColumns read FColumns write SetColumns;
     property Nodes: TACLTreeListOptionsViewNodes read FNodes write SetNodes;
     property GroupHeight: Integer read FGroupHeight write SetGroupHeight default tlAutoHeight;
-    property CheckBoxes: Boolean read FCheckBoxes write SetCheckBoxes default False; // not change order
+    property GroupStyle: TACLTreeListGroupStyle read FGroupStyle write SetGroupStyle default gsClassic;
+    property CheckBoxes: Boolean read FCheckBoxes write SetCheckBoxes default False; // last!
   end;
 
 implementation
@@ -355,6 +362,7 @@ constructor TACLTreeListOptionsBehavior.Create(const ATreeList: IACLTreeListOpti
 begin
   inherited Create(ATreeList);
   FAllowDefocus := True;
+  FIncSearchAutoSelect := True;
   FIncSearchColumnIndex := -1;
   FSortingMode := tlsmMulti;
   FSortingUseMultithreading := True;
@@ -383,6 +391,7 @@ begin
     GroupsFocus := TACLTreeListOptionsBehavior(Source).GroupsFocus;
     GroupsFocusOnClick := TACLTreeListOptionsBehavior(Source).GroupsFocusOnClick;
     HotTrack := TACLTreeListOptionsBehavior(Source).HotTrack;
+    IncSearchAutoSelect := TACLTreeListOptionsBehavior(Source).IncSearchAutoSelect;
     IncSearchColumnIndex := TACLTreeListOptionsBehavior(Source).IncSearchColumnIndex;
     IncSearchMode := TACLTreeListOptionsBehavior(Source).IncSearchMode;
     Editing := TACLTreeListOptionsBehavior(Source).Editing;
@@ -683,6 +692,7 @@ begin
     Columns := TACLTreeListOptionsView(Source).Columns;
     Nodes := TACLTreeListOptionsView(Source).Nodes;
     GroupHeight := TACLTreeListOptionsView(Source).GroupHeight;
+    GroupStyle := TACLTreeListOptionsView(Source).GroupStyle;
     CheckBoxes := TACLTreeListOptionsView(Source).CheckBoxes;
   end;
 end;
@@ -713,6 +723,15 @@ end;
 procedure TACLTreeListOptionsView.SetGroupHeight(const Value: Integer);
 begin
   FGroupHeight := Value;
+end;
+
+procedure TACLTreeListOptionsView.SetGroupStyle(AValue: TACLTreeListGroupStyle);
+begin
+  if FGroupStyle <> AValue then
+  begin
+    FGroupStyle := AValue;
+    Changed([apcStruct]);
+  end;
 end;
 
 procedure TACLTreeListOptionsView.SetNodes(AValue: TACLTreeListOptionsViewNodes);

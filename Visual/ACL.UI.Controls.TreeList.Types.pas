@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TreeList Types (DataModel)
 //
@@ -43,7 +43,8 @@ uses
   ACL.ObjectLinks,
   ACL.UI.Resources,
   ACL.UI.Controls.Base,
-  ACL.UI.Controls.CompoundControl.SubClass;
+  ACL.UI.Controls.CompoundControl.SubClass,
+  ACL.Utils.Common;
 
 const
   tlAutoHeight = 0;
@@ -91,28 +92,29 @@ type
     procedure BeginUpdate;
     procedure EndUpdate;
     procedure Changed(AChanges: TIntegerSet);
-    //
+    // Columns
     function ColumnsCanCustomizeOrder: Boolean;
     function ColumnsCanCustomizeVisibility: Boolean;
     //
     function CalculateBestFit(AColumn: TACLTreeListColumn): Integer;
     function CreateNode: TACLTreeListNode;
     function GetAbsoluteVisibleNodes: TACLTreeListNodeList;
-    function GetAutoCheckParents: Boolean;
     function GetAutoCheckChildren: Boolean;
+    function GetAutoCheckParents: Boolean;
     function GetGroupByList: TACLTreeListColumnList;
     function GetObject: TPersistent;
     function GetRootNode: TACLTreeListNode;
     function GetSortByList: TACLTreeListColumnList;
+    function IsMultiSelectMode: Boolean;
     function QueryChildInterface(AChild: TObject; const IID: TGUID; var Obj): HRESULT;
-    //
+    // Notifications
     procedure GroupRemoving(AGroup: TACLTreeListGroup);
     procedure NodeChecked(ANode: TACLTreeListNode);
     procedure NodePopulateChildren(ANode: TACLTreeListNode);
     procedure NodeRemoving(ANode: TACLTreeListNode);
     procedure NodeSetSelected(ANode: TACLTreeListNode; var AValue: Boolean);
     procedure NodeValuesChanged(AColumnIndex: Integer = -1);
-    //
+    // Properties
     property AbsoluteVisibleNodes: TACLTreeListNodeList read GetAbsoluteVisibleNodes;
     property AutoCheckParents: Boolean read GetAutoCheckParents;
     property AutoCheckChildren: Boolean read GetAutoCheckChildren;
@@ -319,13 +321,6 @@ type
     property Selected: Boolean read GetSelected write SetSelected;
   end;
 
-  { TACLTreeListGroupSortDataComparer }
-
-  TACLTreeListGroupSortDataComparer = class(TComparer<TACLTreeListGroup>)
-  public
-    function Compare(const Left, Right: TACLTreeListGroup): Integer; override;
-  end;
-
   { TACLTreeListGroups }
 
   TACLTreeListGroups = class(TACLObjectListOf<TACLTreeListGroup>)
@@ -335,6 +330,7 @@ type
     FTreeList: IACLTreeList;
   protected
     function CreateGroup(const ACaption: string): TACLTreeListGroup; virtual;
+    procedure InitSortData; virtual;
     procedure Notify(const Item: TACLTreeListGroup; Action: TCollectionNotification); override;
   public
     constructor Create(ATreeList: IACLTreeList);
@@ -344,17 +340,13 @@ type
     function Find(const ACaption: string): TACLTreeListGroup;
     procedure Move(ATargetIndex: Integer; AGroupsToMove: TACLListOf<TACLTreeListGroup>);
     procedure SetExpanded(AValue: Boolean);
-    procedure Sort(AIntf: IComparer<TACLTreeListGroup>); reintroduce;
     procedure SortByNodeIndex;
     procedure Validate;
-    //
+    // Properties
     property TreeList: IACLTreeList read FTreeList;
   end;
 
   { TACLTreeListNode }
-
-  TACLTreeListNodeFilterFunc = reference to function (ANode: TACLTreeListNode): Boolean;
-  TACLTreeListNodeForEachFunc = reference to procedure (ANode: TACLTreeListNode);
 
   TACLTreeListNodeClass = class of TACLTreeListNode;
   TACLTreeListNode = class(TACLUnknownObject,
@@ -405,7 +397,6 @@ type
 
     // Children
     function GetHasChildren: Boolean; virtual;
-    procedure SetChildrenCapacity(AValue: Integer);
 
     // Values
     function GetValue(Index: Integer): string; virtual; abstract;
@@ -448,20 +439,29 @@ type
     function AddValues(const S: array of string): Integer;
     procedure ChildrenNeeded;
     procedure Clear; virtual;
+    function Contains(ANode: TACLTreeListNode): Boolean;
     procedure DeleteChildren; virtual;
     procedure DeleteValues; virtual;
+    procedure EnsureChildrenCapacity(ACount: Integer);
     procedure ExpandCollapseChildren(AExpanded, ARecursive: Boolean);
+    function EnumChildren(AProc: TPredicateC<TACLTreeListNode>; AExpanded: Boolean): Boolean;
     function EnumChildrenData<T: class>: IACLEnumerable<T>;
     function IsChild(ANode: TACLTreeListNode): Boolean;
     // Search
-    function Find(const AData: Pointer; ARecursive: Boolean = True): TACLTreeListNode; overload;
-    function Find(const AValue: string; AColumnIndex: Integer = 0; ARecursive: Boolean = True): TACLTreeListNode; overload;
-    function Find(out ANode: TACLTreeListNode; const AData: Pointer; ARecursive: Boolean = True): Boolean; overload;
-    function Find(out ANode: TACLTreeListNode; const AFunc: TACLTreeListNodeFilterFunc; ARecursive: Boolean = True): Boolean; overload;
-    function Find(out ANode: TACLTreeListNode; const ATag: NativeInt; ARecursive: Boolean = True): Boolean; overload;
-    function Find(out ANode: TACLTreeListNode; const AValue: string; AColumnIndex: Integer = 0; ARecursive: Boolean = True): Boolean; overload;
+    function Find(const AData: Pointer;
+      ARecursive: Boolean = True): TACLTreeListNode; overload;
+    function Find(const AValue: string; AColumnIndex: Integer = 0;
+      ARecursive: Boolean = True): TACLTreeListNode; overload;
+    function Find(out ANode: TACLTreeListNode;
+      const AData: Pointer; ARecursive: Boolean = True): Boolean; overload;
+    function Find(out ANode: TACLTreeListNode;
+      const AFunc: TFunc<TACLTreeListNode, Boolean>; ARecursive: Boolean = True): Boolean; overload;
+    function Find(out ANode: TACLTreeListNode;
+      const ATag: NativeInt; ARecursive: Boolean = True): Boolean; overload;
+    function Find(out ANode: TACLTreeListNode;
+      const AValue: string; AColumnIndex: Integer = 0; ARecursive: Boolean = True): Boolean; overload;
     // ForEach
-    procedure ForEach(const AFunc: TACLTreeListNodeForEachFunc; ARecursive: Boolean = True);
+    procedure ForEach(const AFunc: TProc<TACLTreeListNode>; ARecursive: Boolean = True);
     // Children
     property Children[Index: Integer]: TACLTreeListNode read GetChildren;
     property ChildrenCheckState: TCheckBoxState read GetChildrenCheckState write SetChildrenCheckState;
@@ -523,6 +523,7 @@ type
     function First: TACLTreeListNode;
     function Last: TACLTreeListNode;
 
+    function Enum(AProc: TPredicateC<TACLTreeListNode>; AExpanded: Boolean): Boolean;
     procedure GetCheckUncheckInfo(out ACheckedCount, AUncheckedCount: Integer); overload;
     procedure GetCheckUncheckInfo(out AHasChecked, AHasUnchecked: Boolean); overload;
     procedure InitSortData; inline;
@@ -559,7 +560,6 @@ uses
   // ACL
   ACL.Math,
   ACL.MUI,
-  ACL.Utils.Common,
   ACL.Utils.Strings;
 
 const
@@ -833,16 +833,16 @@ end;
 
 procedure TACLTreeListColumns.ApplyBestFit(AAuto: Boolean = False);
 var
-  AItem: TACLTreeListColumn;
+  LItem: TACLTreeListColumn;
   I: Integer;
 begin
   BeginUpdate;
   try
     for I := 0 to Count - 1 do
     begin
-      AItem := Items[I];
-      if not AAuto or AItem.AutoBestFit then
-        AItem.ApplyBestFit;
+      LItem := Items[I];
+      if not AAuto or LItem.AutoBestFit then
+        LItem.ApplyBestFit;
     end;
   finally
     EndUpdate;
@@ -1113,7 +1113,8 @@ end;
 procedure TACLTreeListGroup.BeforeDestruction;
 begin
   inherited BeforeDestruction;
-  TreeList.GroupRemoving(Self);
+  if TreeList <> nil then
+    TreeList.GroupRemoving(Self);
   TACLObjectLinks.Release(Self);
 end;
 
@@ -1201,28 +1202,12 @@ begin
 end;
 
 function TACLTreeListGroup.GetSelected: Boolean;
-
-  function IsSelected(ANode: TACLTreeListNode): Boolean;
-  var
-    I: Integer;
-  begin
-    Result := ANode.Selected;
-    if Result and ANode.Expanded then
-    begin
-      for I := 0 to ANode.ChildrenCount - 1 do
-        Result := Result and IsSelected(ANode.Children[I]);
-    end;
-  end;
-
-var
-  I: Integer;
 begin
-  Result := True;
-  for I := Links.Count - 1 downto 0 do
-  begin
-    Result := Result and IsSelected(Links[I]);
-    if not Result then Break;
-  end;
+  Result := Links.Enum(
+    function (const ANode: TACLTreeListNode): Boolean
+    begin
+      Result := ANode.Selected;
+    end, True);
 end;
 
 function TACLTreeListGroup.GetTreeList: IACLTreeList;
@@ -1236,36 +1221,25 @@ begin
 end;
 
 procedure TACLTreeListGroup.SetSelected(AValue: Boolean);
+begin
+  if Links.Count = 0 then Exit;
 
-  procedure DoSetSelected(ANode: TACLTreeListNode; AValue: Boolean);
-  var
-    I: Integer;
+  if TreeList.IsMultiSelectMode then
   begin
-    ANode.Selected := AValue;
-    if ANode.Expanded then
-    begin
-      for I := 0 to ANode.ChildrenCount - 1 do
-        DoSetSelected(ANode.Children[I], AValue);
+    TreeList.BeginUpdate;
+    try
+      Links.Enum(
+        function (const ANode: TACLTreeListNode): Boolean
+        begin
+          ANode.Selected := AValue;
+          Result := True;
+        end, True);
+    finally
+      TreeList.EndUpdate;
     end;
-  end;
-
-var
-  I: Integer;
-begin
-  TreeList.BeginUpdate;
-  try
-    for I := 0 to Links.Count - 1 do
-      DoSetSelected(Links[I], AValue);
-  finally
-    TreeList.EndUpdate;
-  end;
-end;
-
-{ TACLTreeListGroupSortDataComparer }
-
-function TACLTreeListGroupSortDataComparer.Compare(const Left, Right: TACLTreeListGroup): Integer;
-begin
-  Result := Left.FSortData - Right.FSortData;
+  end
+  else
+    Links.First.Selected := AValue;
 end;
 
 { TACLTreeListGroups }
@@ -1300,10 +1274,30 @@ begin
     List[I].Links.Count := 0;
 end;
 
+function TACLTreeListGroups.CreateGroup(const ACaption: string): TACLTreeListGroup;
+begin
+  Result := TACLTreeListGroup.Create(ACaption, Self);
+end;
+
 function TACLTreeListGroups.Find(const ACaption: string): TACLTreeListGroup;
 begin
   if not FIndex.TryGetValue(ACaption, Result) then
     Result := nil;
+end;
+
+procedure TACLTreeListGroups.InitSortData;
+var
+  I: Integer;
+  LGroup: TACLTreeListGroup;
+begin
+  for I := 0 to Count - 1 do
+  begin
+    LGroup := List[I];
+    if LGroup.Links.Count > 0 then
+      LGroup.FSortData := TACLTreeListNode(LGroup.Links.List[0]).FSortData
+    else
+      LGroup.FSortData := MaxInt;
+  end;
 end;
 
 procedure TACLTreeListGroups.Move(ATargetIndex: Integer; AGroupsToMove: TACLListOf<TACLTreeListGroup>);
@@ -1333,6 +1327,19 @@ begin
   TreeList.Changed([tlcnGroupIndex]);
 end;
 
+procedure TACLTreeListGroups.Notify;
+begin
+  if (FIndex <> nil) and (FIndexLockCount = 0) then
+    case Action of
+      cnRemoved, cnExtracted:
+        FIndex.Remove(Item.Caption);
+      cnAdded:
+        FIndex.Add(Item.Caption, Item);
+    else;
+    end;
+  inherited;
+end;
+
 procedure TACLTreeListGroups.SetExpanded(AValue: Boolean);
 var
   I: Integer;
@@ -1346,37 +1353,21 @@ begin
   end;
 end;
 
-procedure TACLTreeListGroups.Sort(AIntf: IComparer<TACLTreeListGroup>);
-begin
-  inherited Sort(AIntf); // prevent memory leak
-end;
-
 procedure TACLTreeListGroups.SortByNodeIndex;
 var
-  AGroup: TACLTreeListGroup;
-  ASubNodes: TACLTreeListNodeList;
-  I: Integer;
+  LSubNodes: TACLTreeListNodeList;
 begin
-  ASubNodes := TreeList.RootNode.FSubNodes;
-  if ASubNodes = nil then Exit;
-  ASubNodes.InitSortData;
-  for I := 0 to Count - 1 do
+  LSubNodes := TreeList.RootNode.FSubNodes;
+  if (LSubNodes <> nil) and (Count > 1) then
   begin
-    AGroup := List[I];
-    if AGroup.Links.Count > 0 then
-      AGroup.FSortData := TACLTreeListNode(AGroup.Links.List[0]).FSortData
-    else
-      AGroup.FSortData := MaxInt;
+    LSubNodes.InitSortData; // first
+    InitSortData;
+    Sort(TComparer<TACLTreeListGroup>.Construct(
+      function (const L, R: TACLTreeListGroup): Integer
+      begin
+        Result := L.FSortData - R.FSortData;
+      end));
   end;
-//  for var I := 0 to Count - 1 do
-//  begin
-//    AGroup := List[I];
-//    if AGroup.Links.Count > 0 then
-//      AGroup.FSortData := AGroup.Links.First.Index
-//    else
-//      AGroup.FSortData := MaxInt;
-//  end;
-  Sort(TACLTreeListGroupSortDataComparer.Create);
 end;
 
 procedure TACLTreeListGroups.Validate;
@@ -1388,24 +1379,6 @@ begin
     if List[I].Links.Count = 0 then
       Delete(I)
   end;
-end;
-
-function TACLTreeListGroups.CreateGroup(const ACaption: string): TACLTreeListGroup;
-begin
-  Result := TACLTreeListGroup.Create(ACaption, Self);
-end;
-
-procedure TACLTreeListGroups.Notify;
-begin
-  if (FIndex <> nil) and (FIndexLockCount = 0) then
-    case Action of
-      cnRemoved, cnExtracted:
-        FIndex.Remove(Item.Caption);
-      cnAdded:
-        FIndex.Add(Item.Caption, Item);
-    else;
-    end;
-  inherited;
 end;
 
 { TACLTreeListNode }
@@ -1440,7 +1413,8 @@ end;
 procedure TACLTreeListNode.BeforeDestruction;
 begin
   inherited BeforeDestruction;
-  TreeList.NodeRemoving(Self);
+  if TreeList <> nil then
+    TreeList.NodeRemoving(Self);
   TACLObjectLinks.Release(Self);
   Clear;
 end;
@@ -1519,20 +1493,40 @@ begin
   end;
 end;
 
+function TACLTreeListNode.Contains(ANode: TACLTreeListNode): Boolean;
+var
+  LNode: TACLTreeListNode;
+begin
+  Result := False;
+  if Pointer(TreeList) = Pointer(ANode.TreeList) then
+  repeat
+    LNode := ANode.Parent;
+    if LNode = nil then
+      Exit(False);
+    if LNode.FSubNodes = nil then
+      Exit(False);
+    if not LNode.FSubNodes.Contains(ANode) then
+      Exit(False);
+    if LNode = Self then
+      Exit(True);
+    ANode := LNode;
+  until ANode = nil;
+end;
+
 procedure TACLTreeListNode.DeleteChildren;
 var
-  ASubNodes: TACLTreeListNodeList;
+  LSubNodes: TACLTreeListNodeList;
   I: Integer;
 begin
   if FSubNodes <> nil then
   begin
     TreeList.BeginUpdate;
     try
-      ASubNodes := FSubNodes;
+      LSubNodes := FSubNodes;
       FSubNodes := nil;
-      for I := ASubNodes.Count - 1 downto 0 do
-        ASubNodes[I].Free;
-      FreeAndNil(ASubNodes);
+      for I := LSubNodes.Count - 1 downto 0 do
+        LSubNodes[I].Free;
+      FreeAndNil(LSubNodes);
       StructChanged(False);
     finally
       TreeList.EndUpdate;
@@ -1553,6 +1547,13 @@ begin
       ANode.Expanded := AExpanded;
     end,
     ARecursive);
+end;
+
+function TACLTreeListNode.EnumChildren(
+  AProc: TPredicateC<TACLTreeListNode>; AExpanded: Boolean): Boolean;
+begin
+  ChildrenNeeded;
+  Result := (FSubNodes <> nil) and FSubNodes.Enum(AProc, AExpanded);
 end;
 
 function TACLTreeListNode.EnumChildrenData<T>: IACLEnumerable<T>;
@@ -1605,7 +1606,7 @@ begin
 end;
 
 function TACLTreeListNode.Find(out ANode: TACLTreeListNode;
-  const AFunc: TACLTreeListNodeFilterFunc; ARecursive: Boolean = True): Boolean;
+  const AFunc: TFunc<TACLTreeListNode, Boolean>; ARecursive: Boolean = True): Boolean;
 var
   I: Integer;
 begin
@@ -1648,7 +1649,7 @@ begin
     ARecursive);
 end;
 
-procedure TACLTreeListNode.ForEach(const AFunc: TACLTreeListNodeForEachFunc; ARecursive: Boolean = True);
+procedure TACLTreeListNode.ForEach(const AFunc: TProc<TACLTreeListNode>; ARecursive: Boolean = True);
 var
   I: Integer;
 begin
@@ -1886,10 +1887,10 @@ begin
   Result := FHasChildren or (FSubNodes <> nil) and (FSubNodes.Count > 0);
 end;
 
-procedure TACLTreeListNode.SetChildrenCapacity(AValue: Integer);
+procedure TACLTreeListNode.EnsureChildrenCapacity(ACount: Integer);
 begin
   if FSubNodes <> nil then
-    FSubNodes.Capacity := AValue;
+    FSubNodes.EnsureCapacity(ACount);
 end;
 
 function TACLTreeListNode.GetValuesCapacity: Integer;
@@ -2097,18 +2098,36 @@ end;
 
 procedure TACLTreeListNodeList.GetCheckUncheckInfo(out AHasChecked, AHasUnchecked: Boolean);
 var
-  ANode: TACLTreeListNode;
+  LNode: TACLTreeListNode;
   I: Integer;
 begin
   AHasChecked := False;
   AHasUnchecked := False;
   for I := 0 to Count - 1 do
   begin
-    ANode := TACLTreeListNode(List[I]);
-    AHasChecked := AHasChecked or ANode.Checked;
-    AHasUnchecked := AHasUnchecked or not ANode.Checked;
+    LNode := List[I];
+    AHasChecked := AHasChecked or LNode.Checked;
+    AHasUnchecked := AHasUnchecked or not LNode.Checked;
     if AHasUnchecked and AHasChecked then Break;
   end;
+end;
+
+function TACLTreeListNodeList.Enum(AProc: TPredicateC<TACLTreeListNode>; AExpanded: Boolean): Boolean;
+var
+  LNode: TACLTreeListNode;
+  I: Integer;
+begin
+  for I := 0 to Count - 1 do
+  begin
+    LNode := List[I];
+    if not AProc(LNode) then
+      Exit(False);
+    if not (AExpanded and LNode.Expanded) then
+      Continue;
+    if not LNode.EnumChildren(AProc, AExpanded) then
+      Exit(False);
+  end;
+  Result := True;
 end;
 
 function TACLTreeListNodeList.First: TACLTreeListNode;

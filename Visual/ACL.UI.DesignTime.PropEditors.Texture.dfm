@@ -144,8 +144,6 @@ object ACLTextureEditorDialog: TACLTextureEditorDialog
         OnMouseMove = pbDisplayMouseMove
         OnMouseUp = pbDisplayMouseUp
         OnPaint = pbDisplayPaint
-        ExplicitLeft = 8
-        ExplicitTop = -3
       end
     end
   end

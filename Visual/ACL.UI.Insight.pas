@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Search thougth app controls
 //
@@ -662,7 +662,7 @@ begin
   FSearchEdit := TACLUIInsightSearchBox.Create(Self);
   FSearchEdit.Parent := Self;
   FSearchEdit.Align := alTop;
-  FSearchEdit.AlignWithMargins := True;
+  FSearchEdit.Margins.All := TACLMargins.Default;
   FSearchEdit.Style := Owner.StyleSearchEdit;
   FSearchEdit.StyleButton := Owner.StyleSearchEditButton;
   FSearchEdit.OnChange := HandlerSearch;
@@ -670,7 +670,7 @@ begin
   FSearchResults := TACLTreeList.Create(Self);
   FSearchResults.Parent := Self;
   FSearchResults.Align := alClient;
-  FSearchResults.AlignWithMargins := True;
+  FSearchResults.Margins.All := TACLMargins.Default;
   FSearchResults.BeginUpdate;
   try
     FSearchResults.OptionsView.Columns.Visible := False;

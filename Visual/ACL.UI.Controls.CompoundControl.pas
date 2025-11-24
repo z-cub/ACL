@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   CompoundControl Classes
 //
@@ -59,7 +59,6 @@ type
     function GetOnDropSourceStart: TACLCompoundControlDropSourceStartEvent;
     function GetOnGetCursor: TACLCompoundControlGetCursorEvent;
     function GetOnUpdateState: TNotifyEvent;
-    function GetStyleHint: TACLStyleHint;
     function GetStyleScrollBox: TACLStyleScrollBox;
     procedure SetOnCalculated(const AValue: TNotifyEvent);
     procedure SetOnDropSourceData(const AValue: TACLCompoundControlDropSourceDataEvent);
@@ -68,11 +67,10 @@ type
     procedure SetOnGetCursor(const AValue: TACLCompoundControlGetCursorEvent);
     procedure SetOnUpdateState(const Value: TNotifyEvent);
     procedure SetStyleScrollBox(const AValue: TACLStyleScrollBox);
-    procedure SetStyleHint(const Value: TACLStyleHint);
     //# Messages
-    procedure CMCancelMode(var Message: TMessage); message CM_CANCELMODE;
-    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+    procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
     procedure CMWantSpecialKey(var Message: TCMWantSpecialKey); message CM_WANTSPECIALKEY;
     procedure WMHScroll(var Message: TWMHScroll); message WM_HSCROLL;
     procedure WMVScroll(var Message: TWMVScroll); message WM_VSCROLL;
@@ -91,19 +89,7 @@ type
     procedure Paint; override;
     procedure SetTargetDPI(AValue: Integer); override;
 
-    // Keyboard
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure KeyPress(var Key: Char); override;
-    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
-  {$IFDEF FPC}
-    procedure UTF8KeyPress(var Key: TUTF8Char); override;
-  {$ENDIF}
-
     // Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     function MouseWheel(Direction: TACLMouseWheelDirection;
       Shift: TShiftState; const MousePos: TPoint): Boolean; override;
 
@@ -113,18 +99,14 @@ type
   {$ENDIF}
 
     // IACLCompoundControlSubClassContainer
+    function IACLCompoundControlSubClassContainer.GetFocused = Focused;
     function ClientToScreen(const P: TPoint): TPoint; reintroduce;
     function GetControl: TWinControl;
-    function IACLCompoundControlSubClassContainer.GetFocused = Focused;
-    function GetFont: TFont;
-    function GetMouseCapture: Boolean; reintroduce;
     function ScreenToClient(const P: TPoint): TPoint; reintroduce;
-    procedure SetMouseCapture(const AValue: Boolean);
 
     // IACLCursorProvider
     function GetCursor(const P: TPoint): TCursor; reintroduce; virtual;
 
-    property StyleHint: TACLStyleHint read GetStyleHint write SetStyleHint;
     property StyleScrollBox: TACLStyleScrollBox read GetStyleScrollBox write SetStyleScrollBox;
     // Events
     property OnCalculated: TNotifyEvent read GetOnCalculated write SetOnCalculated;
@@ -135,7 +117,6 @@ type
     property OnUpdateState: TNotifyEvent read GetOnUpdateState write SetOnUpdateState;
   public
     constructor Create(AOwner: TComponent); override;
-    destructor Destroy; override;
     procedure AfterConstruction; override;
     function Focused: Boolean; override;
     procedure Localize(const ASection, AName: string); override;
@@ -147,7 +128,6 @@ type
     procedure EndUpdate;
     function IsUpdateLocked: Boolean;
     // HitTest
-    procedure UpdateHitTest(X, Y: Integer); overload;
     procedure UpdateHitTest(const P: TPoint); overload;
     procedure UpdateHitTest; overload;
     //# Properties
@@ -171,15 +151,9 @@ type
 constructor TACLCompoundControl.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FSubClass := CreateSubClass;
+  RegisterSubClass(FSubClass, CreateSubClass);
   FDefaultSize := TSize.Create(320, 240);
   DoubleBuffered := True;
-end;
-
-destructor TACLCompoundControl.Destroy;
-begin
-  FreeAndNil(FSubClass);
-  inherited Destroy;
 end;
 
 procedure TACLCompoundControl.AfterConstruction;
@@ -235,11 +209,6 @@ begin
   Result := SubClass.IsUpdateLocked;
 end;
 
-procedure TACLCompoundControl.UpdateHitTest(X, Y: Integer);
-begin
-  SubClass.UpdateHitTest(X, Y);
-end;
-
 procedure TACLCompoundControl.UpdateHitTest(const P: TPoint);
 begin
   SubClass.UpdateHitTest(P);
@@ -276,7 +245,7 @@ begin
   begin
     R := ClientRect;
     AdjustClientRect(R);
-    SubClass.Bounds := R;
+    SubClass.Calculate(R);
   end;
 end;
 
@@ -338,58 +307,6 @@ begin
   Result := SubClass.GetCursor(P);
 end;
 
-procedure TACLCompoundControl.KeyDown(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyDown(Key, Shift);
-  SubClass.KeyDown(Key, Shift);
-end;
-
-procedure TACLCompoundControl.KeyPress(var Key: Char);
-begin
-  inherited;
-{$IFNDEF FPC}
-  SubClass.KeyPress(Key);
-{$ENDIF}
-end;
-
-procedure TACLCompoundControl.KeyUp(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyUp(Key, Shift);
-  SubClass.KeyUp(Key, Shift);
-end;
-
-{$IFDEF FPC}
-procedure TACLCompoundControl.UTF8KeyPress(var Key: TUTF8Char);
-begin
-  inherited;
-  ProcessUtf8KeyPress(Key, SubClass.KeyPress);
-end;
-{$ENDIF}
-
-procedure TACLCompoundControl.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  SubClass.MouseDown(Button, Shift, X, Y);
-  inherited MouseDown(Button, Shift, X, Y);
-end;
-
-procedure TACLCompoundControl.MouseLeave;
-begin
-  SubClass.MouseLeave;
-  inherited MouseLeave;
-end;
-
-procedure TACLCompoundControl.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  SubClass.MouseMove(Shift, X, Y);
-  inherited MouseMove(Shift, X, Y);
-end;
-
-procedure TACLCompoundControl.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  SubClass.MouseUp(Button, Shift, X, Y);
-  inherited MouseUp(Button, Shift, X, Y);
-end;
-
 function TACLCompoundControl.MouseWheel(Direction: TACLMouseWheelDirection;
   Shift: TShiftState; const MousePos: TPoint): Boolean;
 begin
@@ -428,21 +345,6 @@ begin
   Result := Self;
 end;
 
-function TACLCompoundControl.GetFont: TFont;
-begin
-  Result := Font;
-end;
-
-function TACLCompoundControl.GetMouseCapture: Boolean;
-begin
-  Result := MouseCapture;
-end;
-
-procedure TACLCompoundControl.SetMouseCapture(const AValue: Boolean);
-begin
-  MouseCapture := AValue;
-end;
-
 function TACLCompoundControl.GetOnCalculated: TNotifyEvent;
 begin
   Result := SubClass.OnCalculated;
@@ -473,11 +375,6 @@ begin
   Result := SubClass.OnUpdateState;
 end;
 
-function TACLCompoundControl.GetStyleHint: TACLStyleHint;
-begin
-  Result := SubClass.StyleHint;
-end;
-
 function TACLCompoundControl.GetStyleScrollBox: TACLStyleScrollBox;
 begin
   Result := SubClass.StyleScrollBox;
@@ -496,11 +393,6 @@ end;
 procedure TACLCompoundControl.SetOnUpdateState(const Value: TNotifyEvent);
 begin
   SubClass.OnUpdateState := Value;
-end;
-
-procedure TACLCompoundControl.SetStyleHint(const Value: TACLStyleHint);
-begin
-  SubClass.StyleHint := Value;
 end;
 
 procedure TACLCompoundControl.SetStyleScrollBox(const AValue: TACLStyleScrollBox);
@@ -523,12 +415,6 @@ begin
   SubClass.OnDropSourceStart := AValue;
 end;
 
-procedure TACLCompoundControl.CMCancelMode(var Message: TMessage);
-begin
-  SubClass.Dispatch(Message);
-  inherited;
-end;
-
 procedure TACLCompoundControl.CMEnabledChanged(var Message: TMessage);
 begin
   inherited;
@@ -539,6 +425,11 @@ procedure TACLCompoundControl.CMFontChanged(var Message: TMessage);
 begin
   inherited;
   ResourceChanged;
+end;
+
+procedure TACLCompoundControl.CMHintShow(var Message: TCMHintShow);
+begin
+  SubClasses.Dispatch(Message);
 end;
 
 procedure TACLCompoundControl.CMWantSpecialKey(var Message: TCMWantSpecialKey);

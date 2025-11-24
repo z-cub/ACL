@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   FileSystem Utilities
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -77,6 +77,7 @@ const
 {$ELSE}
   fmOpenReadWriteExclusive = fmOpenReadWrite or fmShareDenyWrite;
 {$ENDIF}
+  fmOpenReadOnly = fmOpenRead or fmShareDenyNone;
 {$ENDREGION}
 
 type
@@ -151,21 +152,19 @@ type
   TACLSearch = class
   strict private
     FActive: Boolean;
-    FDest: IStringReceiver;
     FExts: string;
-    FOnDir: TACLSearchDirFilter;
     FPath: string;
     FRecurse: Boolean;
+
+    FOnDir: TACLSearchDirFilter;
+    FOnMatch: TACLStringEnumMethod;
 
     procedure SetPath(const AValue: string);
   protected
     function CanScanDirectory(const Dir: string): Boolean;
     procedure ScanDirectory(const Dir: string);
-    //# Properties
-    property Dest: IStringReceiver read FDest;
   public
-    constructor Create(const AReceiver: IStringReceiver); virtual;
-    destructor Destroy; override;
+    constructor Create(AOnMatch: TACLStringEnumMethod);
     procedure Start(ARecurse: Boolean = True);
     procedure Stop;
     //# Properties
@@ -212,6 +211,12 @@ type
   { TACLFileStream }
 
   TACLFileStream = class(THandleStream)
+  public const
+  {$IFDEF MSWINDOWS}
+    DefaultRights = 0;
+  {$ELSE}
+    DefaultRights = 438; // = 666 octal which is rw rw rw
+  {$ENDIF}
   strict private
     FFileName: string;
   protected
@@ -231,9 +236,13 @@ type
   { TACLBufferedFileStream }
 
   TACLBufferedFileStream = class(TACLBufferedStream)
+  strict private
+    function GetFileName: string;
   public
     constructor Create(const AFileName: string; AMode: Word;
       ABufferSize: Integer = TACLBufferedStream.DefaultBufferSize); reintroduce;
+    // Properties
+    property FileName: string read GetFileName;
   end;
 
   { TACLClippedFileStream }
@@ -245,7 +254,7 @@ type
 
   { TACLTemporaryFileStream }
 
-  TACLTemporaryFileStream = class(TACLFileStream)
+  TACLTemporaryFileStream = class(TACLBufferedFileStream)
   public
     constructor Create(const APrefix: string); reintroduce;
     destructor Destroy; override;
@@ -254,6 +263,8 @@ type
 // Paths
 function acChangeFileExt(const FileName, Extension: string; ADoubleExt: Boolean = False): string;
 function acCompareFileNames(const AFileName1, AFileName2: string): Integer;
+function acDecodeFileUri(const AUri: string): string; // "file://url-path" -> "local path"
+function acEncodeFileUri(const AFileName: string): string; // "local path" -> "file://url-path"
 function acExpandEnvironmentStrings(const AFileName: string): string;
 function acExpandFileName(const AFileName: string): string;
 function acExtractDirName(const APath: string; ADepth: Integer = 1): string;
@@ -265,7 +276,7 @@ function acExtractFileFormat(const FileName: string): string;
 function acExtractFileName(const FileName: string): string;
 function acExtractFileNameWithoutExt(const FileName: string): string;
 function acExtractFilePath(const FileName: string): string;
-function acExtractFileScheme(const AFileName: string): string;
+function acExtractFileScheme(const AFileName: PChar): string; 
 function acGetCurrentDir: string;
 function acGetFreeFileName(const AFileName: string): string;
 function acGetMinimalCommonPath(var ACommonPath: string; const AFilePath: string): Boolean;
@@ -279,7 +290,7 @@ function acIsOurFileEx(const AExtsList, ATestExt: string): Boolean;
 function acIsRelativeFileName(const AFileName: string): Boolean;
 function acIsUncFileName(const AFileName: string): Boolean;
 function acIsUrlFileName(const AFileName: PChar; ACount: Integer): Boolean; overload;
-function acIsUrlFileName(const AFileName: string): Boolean; overload;
+function acIsUrlFileName(const AFileName: string): Boolean; overload; inline;
 function acLastDelimiter(const Delimiters, Str: string): Integer; overload;
 function acLastDelimiter(Delimiters, Str: PChar; DelimitersLength, StrLength: Integer): Integer; overload;
 function acRelativeFileName(const AFileName: string; ARootPath: string): string;
@@ -307,20 +318,24 @@ procedure acEnumFiles(const APath: string;
   AObjects: TACLFindFileObjects; AProc: TACLEnumFileProc; ARecursive: Boolean = True); overload;
 procedure acEnumFiles(const APath, AExts, AMask: string;
   AObjects: TACLFindFileObjects; AProc: TACLEnumFileProc; ARecursive: Boolean = True); overload;
-procedure acEnumFiles(const APath, AExts: string; AList: IStringReceiver); overload;
+procedure acEnumFiles(const APath, AExts: string; ACallback: TACLStringEnumMethod); overload;
 procedure acEnumFiles(const APath, AExts: string;
   AObjects: TACLFindFileObjects; AProc: TACLEnumFileProc; ARecursive: Boolean = True); overload;
 
 // File Attributes
 function acDirectoryExists(const APath: string): Boolean;
-function acFileCreate(const AFileName: string; AMode, ARights: LongWord): THandle;
 function acFileExists(const FileName: string): Boolean;
+function acFileOpen(const AFileName: string; AMode, ARights: LongWord; ACreateIfNotExists: Boolean): THandle;
 function acFileGetAttr(const FileName: string): Cardinal; overload;
 function acFileGetAttr(const FileName: string; out AAttrs: Cardinal): Boolean; overload;
 function acFileGetLastWriteTime(const FileName: string): Cardinal;
 function acFileSetAttr(const FileName: string; AAttr: Cardinal): Boolean;
 procedure acFileSetLastWriteTime(const FileName: string; AFileDate: Cardinal = 0);
 function acFileSize(const FileName: string): Int64;
+
+// Windows-specific FileDate
+function acDateTimeToWinFileDate(ADateTime: TDateTime): LongInt;
+function acWinFileDateToDateTime(AFileDate: LongInt): TDateTime;
 
 // Removing, Copying, Renaming
 function acCopyDirectory(const ASourcePath, ATargetPath: string;
@@ -357,6 +372,9 @@ uses
 {$ENDIF}
   ACL.FastCode,
   ACL.Utils.Strings;
+
+const
+  SchemaValidChars: TSysCharSet = ['a'..'z', 'A'..'Z', '0'..'9'];
 
 {$IFDEF MSWINDOWS}
 function GetFileAttributesExW(AFileName: PChar;
@@ -395,20 +413,18 @@ begin
 end;
 
 function acIsUrlFileName(const AFileName: string): Boolean;
-var
-  P: PChar;
 begin
-  P := acStrScan(PChar(AFileName), ':');
-  Result := (P <> nil) and ((P + 1)^ = (P + 2)^) and CharInSet((P + 1)^, acPathDelims);
-//  Result := acExtractFileScheme(AFileName) <> '';
+  Result := acIsUrlFileName(PChar(AFileName), Length(AFileName));
 end;
 
 function acIsUrlFileName(const AFileName: PChar; ACount: Integer): Boolean; overload;
 var
   P: PChar;
 begin
-  P := acStrScan(PChar(AFileName), ACount, ':');
-  Result := (P <> nil) and ((P + 1)^ = (P + 2)^) and CharInSet((P + 1)^, acPathDelims);
+  P := AFileName;
+  while (ACount > 0) and CharInSet(P^, SchemaValidChars) do
+    Inc(P);
+  Result := (ACount > 3) and (P^ = ':') and ((P + 1)^ = (P + 2)^) and CharInSet((P + 1)^, acPathDelims);
 end;
 
 function acPrepareFileName(const AFileName: string): string; inline;
@@ -460,6 +476,30 @@ begin
 //    Result := acLogicalCompare(acExtractFileName(AFileName1), acExtractFileName(AFileName2));
 end;
 
+function acDecodeFileUri(const AUri: string): string;
+begin
+  if AUri.StartsWith(acFileProtocol, True) then
+  begin
+    Result := acURLDecode(Copy(AUri, Length(acFileProtocol) + 1));
+  {$IFDEF MSWINDOWS}
+    Result := acUnixPathToWindows(Result);
+  {$ENDIF}
+  end
+  else
+    Result := AUri;
+end;
+
+function acEncodeFileUri(const AFileName: string): string;
+begin
+  if (AFileName = '') or acIsUrlFileName(AFileName) then
+    Result := AFileName
+  else
+  begin
+    Result := {$IFDEF MSWINDOWS}acWindowsPathToUnix{$ENDIF}(AFileName);
+    Result := acFileProtocol + acURLEncode(Result);
+  end;
+end;
+
 function acExpandEnvironmentStrings(const AFileName: string): string;
 {$IFDEF MSWINDOWS}
 var
@@ -507,8 +547,10 @@ var
   L: Integer;
   N: PWideChar;
   W: TFileLongPath;
+{$ENDIF}
 begin
   Result := AFileName;
+{$IFDEF MSWINDOWS}
   if acContains('.\', Result) then
   begin
     L := GetFullPathNameW(PWideChar(AFileName), Length(W), @W[0], N);
@@ -524,59 +566,61 @@ begin
       if acFileExists(Result) and acFindFile(Result, @AName, nil) then
         Result := AName;
   end;
-end;
 {$ELSE}
-begin
-  if acIsUrlFileName(AFileName) then
-    Result := AFileName
-  else
+  if acIsUrlFileName(Result) then
+    Exit;
+  if acContains('./', Result) or acContains('~', Result) then
     Result := SysUtils.ExpandFileName(AFileName);
-end;
 {$ENDIF}
+end;
 
 function acValidateFileName(const Name: string; ReplacementForInvalidChars: Char = #0): string;
 const
   InvalidChars = '\"<>*:?|/';
-  MaxNameLength = MAX_PATH;
 var
-  ABuffer: TACLStringBuilder;
-  AChar: Char;
-  AIndex: Integer;
-  ALength: Integer;
+  LBuffer: TACLStringBuilder;
+  LChar: Char;
+  LIndex: Integer;
+  LLength: Integer;
 begin
-  ALength := Length(Name);
-  if ALength = 0 then
+  LLength := Length(Name);
+  if LLength = 0 then
     Exit(acEmptyStr);
 
-  ABuffer := TACLStringBuilder.Get(ALength);
+  LBuffer := TACLStringBuilder.Get(LLength);
   try
-    for AIndex := 1 to ALength do
+    for LIndex := 1 to LLength do
     begin
-      AChar := Name[AIndex];
-      if AChar = '"' then
-        ABuffer.Append(#39)
+      LChar := Name[LIndex];
+      if LChar = '"' then
+        LBuffer.Append(#39)
       else
-        if acContains(AChar, InvalidChars) then
+        if acContains(LChar, InvalidChars) then
         begin
           if ReplacementForInvalidChars <> #0 then
-            ABuffer.Append(ReplacementForInvalidChars);
+            LBuffer.Append(ReplacementForInvalidChars);
         end
         else
-          if AChar >= ' ' then
-            ABuffer.Append(AChar);
+          if LChar >= ' ' then
+            LBuffer.Append(LChar);
     end;
 
-    AIndex := 0;
-    ALength := ABuffer.Length - 1;
-    while (AIndex <= ALength) and CharInSet(ABuffer.Chars[AIndex], [' ']) do
-      Inc(AIndex);
-    while (ALength >= 1) and CharInSet(ABuffer.Chars[ALength], [' ', '.']) do
-      Dec(ALength);
-    if ALength - AIndex + 1 >= MaxNameLength then
-      ALength := AIndex + MaxNameLength - 1;
-    Result := ABuffer.ToString(AIndex, ALength - AIndex + 1);
+    LIndex := 0;
+    LLength := LBuffer.Length - 1;
+    // Trim spaces
+    while (LIndex <= LLength) and CharInSet(LBuffer.Chars[LIndex], [' ']) do
+      Inc(LIndex);
+    while (LLength >= 1) and CharInSet(LBuffer.Chars[LLength], [' ']) do
+      Dec(LLength);
+    // MaxPath
+    if LLength - LIndex + 1 >= MAX_PATH then
+      LLength := LIndex + MAX_PATH - 1;
+
+    Result := LBuffer.ToString(LIndex, LLength - LIndex + 1);
+    if (Result = '.') or (Result = '..') then
+      Result := '';
   finally
-    ABuffer.Release;
+    LBuffer.Release;
   end;
 end;
 
@@ -602,7 +646,7 @@ begin
   if Path <> '' then
   begin
     AHasPathDelimeter := Path[Length(Path)] = PathDelim;
-    acExplodeString(Path, PathDelim, AArr);
+    acSplitString(Path, PathDelim, AArr);
     for I := 0 to Length(AArr) - 1 do
       AArr[I] := acValidateFileName(AArr[I]);
 
@@ -706,8 +750,8 @@ var
   I: Integer;
 begin
   I := acLastDelimiter(acFilePathDelims, Filename);
-  if (I > 1) and (FileName[I] = PathDelim) and
-    not CharInSet(FileName[I - 1], [PathDelim{$IFDEF MSWINDOWS}, DriveDelim{$ENDIF}])
+  if (I > 1) and CharInSet(FileName[I], ['\', '/']) and
+    not CharInSet(FileName[I - 1], ['\', '/'{$IFDEF MSWINDOWS}, ':'{$ENDIF}])
   then
     Dec(I);
   Result := Copy(FileName, 1, I);
@@ -771,13 +815,13 @@ begin
   Result := Copy(FileName, 1, acLastDelimiter(acFilePathDelims, FileName));
 end;
 
-function acExtractFileScheme(const AFileName: string): string;
+function acExtractFileScheme(const AFileName: PChar): string;
 var
   C, P: PChar;
 begin
-  P := PChar(AFileName);
-  C := P;
-  while CharInSet(P^, ['A'..'Z', 'a'..'z', '0'..'9']) do
+  P := AFileName;
+  C := AFileName;
+  while CharInSet(P^, SchemaValidChars) do
     Inc(P);
   if (P^ = ':') and ((P + 1)^ = (P + 2)^) and CharInSet((P + 1)^, acPathDelims) then
     Result := acMakeString(C, P)
@@ -998,11 +1042,14 @@ end;
 // Files Attributes
 //==============================================================================
 
-function acFileCreate(const AFileName: string; AMode, ARights: LongWord): THandle;
+function acFileOpen(const AFileName: string; AMode, ARights: LongWord; ACreateIfNotExists: Boolean): THandle;
 {$IFDEF MSWINDOWS}
 const
   AccessMode: array[0..2] of LongWord = (
     GENERIC_READ, GENERIC_WRITE, GENERIC_READ or GENERIC_WRITE
+  );
+  ActionMap: array[Boolean] of LongWord = (
+    OPEN_EXISTING, OPEN_ALWAYS
   );
   ShareMode: array[0..4] of LongWord = (
     0, 0, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_SHARE_READ or FILE_SHARE_WRITE
@@ -1011,44 +1058,44 @@ var
   LAccess: Cardinal;
   LAction: Cardinal;
   LErrorMode: Integer;
-  LShareMode: Cardinal;
+  LSharing: Cardinal;
 begin
   if AMode and fmCreate = fmCreate then
   begin
     LAction := CREATE_ALWAYS;
     LAccess := GENERIC_READ or GENERIC_WRITE;
-    LShareMode := 0;
+    LSharing := 0;
   end
   else
   begin
-    LAction := OPEN_EXISTING;
+    LAction := ActionMap[ACreateIfNotExists];
     LAccess := AccessMode[AMode and 3];
-    LShareMode := ShareMode[(AMode and $F0) shr 4];
+    LSharing := ShareMode[(AMode and $F0) shr 4];
   end;
 
   //#AI: to avoid to display "Disk is not inserted to the drive" dialog box for removable devices
   LErrorMode := SetErrorMode(SEM_FailCriticalErrors);
   try
     Result := CreateFileW(PWideChar(acPrepareFileName(AFileName)),
-      LAccess, LShareMode, nil, LAction, FILE_ATTRIBUTE_NORMAL or ARights, 0);
+      LAccess, LSharing, nil, LAction, FILE_ATTRIBUTE_NORMAL or ARights, 0);
   finally
     SetErrorMode(LErrorMode);
   end;
 {$ELSE}
-const
-  fmReadOnly = fmOpenRead or fmShareDenyNone;
 begin
   if AMode and fmCreate = fmCreate then
     Result := {System.}SysUtils.FileCreate(AFileName, ARights)
   else
   begin
     // Refer to fmOpenReadWriteExclusive description above.
-    if AMode and fmReadOnly = fmReadOnly then
+    if AMode and fmOpenReadOnly = fmOpenReadOnly then
     begin
       AMode := AMode and not fmShareDenyNone;
       AMode := AMode or fmShareNoLocking;
     end;
     Result := {System.}SysUtils.FileOpen(AFileName, AMode);
+    if (Result = -1) and ACreateIfNotExists then
+      Result := {System.}SysUtils.FileCreate(AFileName, ARights);
   end;
 {$ENDIF}
 end;
@@ -1129,6 +1176,34 @@ begin
 {$ENDIF}
   if not acFindFile(FileName, nil, @Result) then
     Result := 0;
+end;
+
+function acDateTimeToWinFileDate(ADateTime: TDateTime): LongInt;
+var
+  Year, Month, Day, Hour, Min, Sec, MSec: Word;
+begin
+  DecodeDate(ADateTime, Year, Month, Day);
+  if (Year < 1980) or (Year > 2107) then
+    Result := 0
+  else
+  begin
+    DecodeTime(ADateTime, Hour, Min, Sec, MSec);
+    LongRec(Result).Lo := (Sec shr 1) or (Min shl 5) or (Hour shl 11);
+    LongRec(Result).Hi := Day or (Month shl 5) or ((Year - 1980) shl 9);
+  end;
+end;
+
+function acWinFileDateToDateTime(AFileDate: LongInt): TDateTime;
+begin
+  Result :=
+    EncodeDate(
+      LongRec(AFileDate).Hi shr 9 + 1980,
+      LongRec(AFileDate).Hi shr 5 and 15,
+      LongRec(AFileDate).Hi and 31) +
+    EncodeTime(
+      LongRec(AFileDate).Lo shr 11,
+      LongRec(AFileDate).Lo shr 5 and 63,
+      LongRec(AFileDate).Lo and 31 shl 1, 0);
 end;
 
 //==============================================================================
@@ -1371,12 +1446,12 @@ begin
   end;
 end;
 
-procedure acEnumFiles(const APath, AExts: string; AList: IStringReceiver);
+procedure acEnumFiles(const APath, AExts: string; ACallback: TACLStringEnumMethod);
 begin
   acEnumFiles(APath, AExts, [ffoFile],
     procedure (const Info: TACLFindFileInfo)
     begin
-      AList.Add(Info.FullFileName);
+      ACallback(Info.FullFileName);
     end, False);
 end;
 
@@ -1649,21 +1724,15 @@ begin
 end;
 
 procedure TACLSearchPaths.Assign(const ASource: string);
-var
-  APath: string;
-  APaths: TStringDynArray;
-  I: Integer;
 begin
   BeginUpdate;
   try
     Clear;
-    acExplodeString(ASource, ';', APaths);
-    for I := 0 to Length(APaths) - 1 do
-    begin
-      APath := APaths[I];
-      if APath <> '' then
-        Add(Copy(APath, 2, MaxInt), APath[1] <> '0');
-    end;
+    acSplitString(ASource, ';',
+      procedure (ACurr, ANext: PChar)
+      begin
+        Add(acMakeString(ACurr + 1, ANext), ACurr^ <> '0');
+      end, [ssoNonEmpty]);
   finally
     EndUpdate;
   end;
@@ -1795,12 +1864,6 @@ begin
 end;
 
 constructor TACLFileStream.Create(const AFileName: string; Mode: Word);
-const
-{$IFDEF MSWINDOWS}
-  DefaultRights = 0;
-{$ELSE}
-  DefaultRights = 438; // = 666 octal which is rw rw rw
-{$ENDIF}
 begin
   Create(AFileName, Mode, DefaultRights);
 end;
@@ -1808,7 +1871,7 @@ end;
 constructor TACLFileStream.Create(const AFileName: string; Mode: Word; Rights: Cardinal);
 begin
   FFileName := AFileName;
-  Create(acFileCreate(AFileName, Mode, Rights));
+  Create(acFileOpen(AFileName, Mode, Rights, False));
 end;
 
 destructor TACLFileStream.Destroy;
@@ -1846,25 +1909,24 @@ begin
   inherited Create(TACLFileStream.Create(AFileName, AMode), soOwned, ABufferSize);
 end;
 
+function TACLBufferedFileStream.GetFileName: string;
+begin
+  Result := TACLFileStream(Source).FileName;
+end;
+
 { TACLClippedFileStream }
 
 constructor TACLClippedFileStream.Create(const AFileName: string; const AOffset, ASize: Int64);
 begin
-  inherited Create(TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone), AOffset, ASize, soOwned);
+  inherited Create(TACLFileStream.Create(AFileName, fmOpenReadOnly), AOffset, ASize, soOwned);
 end;
 
 { TACLSearch }
 
-constructor TACLSearch.Create(const AReceiver: IStringReceiver);
+constructor TACLSearch.Create(AOnMatch: TACLStringEnumMethod);
 begin
   inherited Create;
-  FDest := AReceiver;
-end;
-
-destructor TACLSearch.Destroy;
-begin
-  FDest := nil;
-  inherited Destroy;
+  FOnMatch := AOnMatch;
 end;
 
 procedure TACLSearch.Start(ARecurse: Boolean = True);
@@ -1900,7 +1962,7 @@ begin
               ASubDirs.Add(AInfo.FullFileName + PathDelim);
           end
           else
-            Dest.Add(AInfo.FullFileName);
+            FOnMatch(AInfo.FullFileName);
         until not (Active and acFindFileNext(AInfo));
       finally
         acFindFileClose(AInfo);
@@ -1941,9 +2003,12 @@ begin
 end;
 
 destructor TACLTemporaryFileStream.Destroy;
+var
+  LFileName: string;
 begin
+  LFileName := FileName;
   inherited Destroy;
-  acDeleteFile(FileName);
+  acDeleteFile(LFileName);
 end;
 
 end.

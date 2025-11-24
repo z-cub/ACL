@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   DropDown
 //
@@ -54,14 +54,13 @@ uses
   ACL.Utils.Strings;
 
 type
-  TACLCustomDropDownEditButtonSubClass = class;
 
-  { TACLCustomDropDownEdit }
+  { TACLAbstractDropDownEdit }
 
-  TACLCustomDropDownEdit = class(TACLCustomTextEdit)
+  TACLAbstractDropDownEdit = class(TACLCustomTextEdit)
   strict private
     FDropDownAlignment: TAlignment;
-    FDropDownButton: TACLCustomDropDownEditButtonSubClass;
+    FDropDownButton: TACLButtonSubClass;
     FDropDownButtonVisible: Boolean;
     FDropDownClosedAt: Cardinal;
     FDropDownWindow: TACLPopupWindow;
@@ -76,29 +75,21 @@ type
     procedure SetDroppedDown(AValue: Boolean);
     //# Messages
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
+    procedure WMChar(var Message: TWMChar); message WM_CHAR;
   protected
-    function CanDropDown(X, Y: Integer): Boolean; virtual;
-    function CanOpenEditor: Boolean; override;
-    procedure CalculateButtons(var R: TRect; AIntent: Integer); override;
-    procedure DrawContent(ACanvas: TCanvas); override;
-    function GetCursor(const P: TPoint): TCursor; override;
+    procedure HandlerImageChange(Sender: TObject); override;
 
     //# DropDown
-    function CreateDropDownButton: TACLCustomDropDownEditButtonSubClass; virtual;
+    function CreateDropDownButton: TACLButtonSubClass; virtual;
     function CreateDropDownWindow: TACLPopupWindow; virtual;
-    procedure FreeDropDownWindow; virtual;
-    procedure ShowDropDownWindow; virtual;
     procedure DoDropDown; virtual;
-
-    //# Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure HideDropDownWindow; virtual;
+    procedure HideDropDownWindowPostponed;
+    procedure ShowDropDownWindow; virtual;
 
     //# Properties
     property DropDownAlignment: TAlignment read FDropDownAlignment write FDropDownAlignment default taLeftJustify;
-    property DropDownButton: TACLCustomDropDownEditButtonSubClass read FDropDownButton;
+    property DropDownButton: TACLButtonSubClass read FDropDownButton;
     property DropDownButtonVisible: Boolean read FDropDownButtonVisible write SetDropDownButtonVisible;
     property DropDownWindow: TACLPopupWindow read FDropDownWindow;
   public
@@ -107,22 +98,12 @@ type
     function Focused: Boolean; override;
     property DroppedDown: Boolean read GetDroppedDown write SetDroppedDown;
   published
-    property DoubleBuffered default True;
-    property FocusOnClick default True;
-    // Events
     property OnDropDown: TNotifyEvent read FOnDropDown write FOnDropDown;
-  end;
-
-  { TACLCustomDropDownEditButtonSubClass }
-
-  TACLCustomDropDownEditButtonSubClass = class(TACLButtonSubClass)
-  protected
-    procedure DrawBackground(ACanvas: TCanvas; const R: TRect); override;
   end;
 
   { TACLCustomDropDown }
 
-  TACLCustomDropDown = class(TACLCustomDropDownEdit, IACLGlyph)
+  TACLCustomDropDown = class(TACLAbstractDropDownEdit, IACLGlyph)
   strict private
     FGlyph: TACLGlyph;
 
@@ -138,18 +119,12 @@ type
     procedure SetStyle(const Value: TACLStyleButton);
   protected
     procedure Calculate(R: TRect); override;
+    function CreateStyleButton: TACLStyleButton; override;
     procedure FocusChanged; override;
-    // Accelerators
     function DialogChar(var Message: TWMKey): Boolean; override;
-    // keyboard
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
-    // drawing
     procedure Paint; override;
     procedure UpdateTransparency; override;
-    // button
-    function CreateDropDownButton: TACLCustomDropDownEditButtonSubClass; override;
-    function CreateStyleButton: TACLStyleButton; override;
+    // IACLGlyph
     function GetGlyph: TACLGlyph;
   public
     constructor Create(AOwner: TComponent); override;
@@ -169,22 +144,14 @@ type
   TACLDropDown = class(TACLCustomDropDown)
   strict private
     FControl: TControl;
-
     procedure SetControl(AValue: TControl);
   protected
     function CreateDropDownWindow: TACLPopupWindow; override;
-    procedure FreeDropDownWindow; override;
+    procedure HideDropDownWindow; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
   published
     property Control: TControl read FControl write SetControl;
     property DropDownAlignment;
-  end;
-
-  { TACLDropDownButtonSubClass }
-
-  TACLDropDownButtonSubClass = class(TACLCustomDropDownEditButtonSubClass)
-  protected
-    procedure DrawBackground(ACanvas: TCanvas; const R: TRect); override;
   end;
 
 implementation
@@ -201,120 +168,106 @@ type
 
   TACLDropDownUIInsightAdapter = class(TACLUIInsightAdapterWinControl)
   public
-    class procedure GetChildren(AObject: TObject; ABuilder: TACLUIInsightSearchQueueBuilder); override;
+    class procedure GetChildren(AObject: TObject;
+      ABuilder: TACLUIInsightSearchQueueBuilder); override;
     class function MakeVisible(AObject: TObject): Boolean; override;
   end;
 
-{ TACLCustomDropDownEdit }
+{ TACLAbstractDropDownEdit }
 
-constructor TACLCustomDropDownEdit.Create(AOwner: TComponent);
+constructor TACLAbstractDropDownEdit.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FDefaultSize := TSize.Create(320, 240);
-  FDropDownButtonVisible := True;
-  FDropDownButton := CreateDropDownButton;
+  RegisterSubClass(FDropDownButton, CreateDropDownButton);
   FDropDownButton.OnClick := HandlerButtonClick;
-  DoubleBuffered := True;
-  FocusOnClick := True;
+  FDropDownButtonVisible := True;
+  FEditBox.Iteract := False;
 end;
 
-destructor TACLCustomDropDownEdit.Destroy;
+destructor TACLAbstractDropDownEdit.Destroy;
 begin
-  FreeDropDownWindow;
+  FreeAndNil(FDropDownWindow);
   TACLMainThread.Unsubscribe(Self);
-  FreeAndNil(FDropDownButton);
   inherited Destroy;
 end;
 
-procedure TACLCustomDropDownEdit.CalculateButtons(var R: TRect; AIntent: Integer);
-var
-  LRect: TRect;
+procedure TACLAbstractDropDownEdit.CMEnabledChanged(var Message: TMessage);
 begin
+  HideDropDownWindow;
   inherited;
-  DropDownButton.IsEnabled := Enabled and DropDownButtonVisible;
-  DropDownButton.IsDown := DropDownWindow <> nil;
-  if DropDownButtonVisible then
-  begin
-    LRect := R;
-    LRect.Inflate(-AIntent);
-    DropDownButton.Calculate(LRect.Split(srRight, StyleButton.Texture.FrameWidth));
-    R.Right := DropDownButton.Bounds.Left;
-  end
-  else
-    DropDownButton.Calculate(NullRect);
 end;
 
-function TACLCustomDropDownEdit.CanDropDown(X, Y: Integer): Boolean;
+procedure TACLAbstractDropDownEdit.WMChar(var Message: TWMChar);
 begin
-  Result := PtInRect(TextRect, Point(X, Y));
+  if not DroppedDown or (Message.CharCode <> VK_ESCAPE) then // Escape will be processed inside message loop
+    inherited;
 end;
 
-function TACLCustomDropDownEdit.CanOpenEditor: Boolean;
+function TACLAbstractDropDownEdit.CreateDropDownButton: TACLButtonSubClass;
 begin
-  Result := False;
+  Result := TACLButtonSubClass.Create(Self, StyleButton);
 end;
 
-function TACLCustomDropDownEdit.CreateDropDownButton: TACLCustomDropDownEditButtonSubClass;
+function TACLAbstractDropDownEdit.CreateDropDownWindow: TACLPopupWindow;
 begin
-  Result := TACLCustomDropDownEditButtonSubClass.Create(Self);
+  Result := TACLPopupWindow.Create(Self);
 end;
 
-procedure TACLCustomDropDownEdit.DoDropDown;
+procedure TACLAbstractDropDownEdit.DoDropDown;
 begin
   CallNotifyEvent(Self, OnDropDown);
 end;
 
-procedure TACLCustomDropDownEdit.HandlerDropDownClose(Sender: TObject);
-begin
-  FDropDownClosedAt := TACLThread.Timestamp;
-  TACLMainThread.RunPostponed(FreeDropDownWindow, Self);
-end;
-
-function TACLCustomDropDownEdit.Focused: Boolean;
+function TACLAbstractDropDownEdit.Focused: Boolean;
 begin
   Result := inherited or (DropDownWindow <> nil) and
     acIsChildOrSelf(DropDownWindow, FindControl(GetFocus));
 end;
 
-function TACLCustomDropDownEdit.GetCursor(const P: TPoint): TCursor;
+procedure TACLAbstractDropDownEdit.HandlerButtonClick(Sender: TObject);
 begin
-  if PtInRect(DropDownButton.Bounds, P) then
-    Result := crHandPoint
-  else
-    Result := inherited GetCursor(P);
+  if DropDownButtonVisible then
+    DroppedDown := True;
 end;
 
-function TACLCustomDropDownEdit.GetDroppedDown: Boolean;
+procedure TACLAbstractDropDownEdit.HandlerDropDownClose(Sender: TObject);
+begin
+  FDropDownClosedAt := TACLThread.Timestamp;
+  HideDropDownWindowPostponed;
+end;
+
+procedure TACLAbstractDropDownEdit.HandlerImageChange(Sender: TObject);
+begin
+  DropDownButton.ImageList := ButtonsImages;
+  inherited;
+end;
+
+procedure TACLAbstractDropDownEdit.HideDropDownWindow;
+begin
+  FreeAndNil(FDropDownWindow);
+  if not (csDestroying in ComponentState) then
+  begin
+    DropDownButton.IsDown := False;
+    InvalidateBorders;
+  end;
+end;
+
+procedure TACLAbstractDropDownEdit.HideDropDownWindowPostponed;
+begin
+  TACLMainThread.RunPostponed(HideDropDownWindow, Self);
+end;
+
+function TACLAbstractDropDownEdit.GetDroppedDown: Boolean;
 begin
   Result := DropDownWindow <> nil;
 end;
 
-procedure TACLCustomDropDownEdit.DrawContent(ACanvas: TCanvas);
+procedure TACLAbstractDropDownEdit.ShowDropDownWindow;
 begin
-  ACanvas.Font := Font;
-  ACanvas.Font.Color := Style.ColorsText[Enabled];
-  DropDownButton.Draw(ACanvas);
+  DropDownWindow.PopupUnderControl(ClientToScreen(ClientRect), DropDownAlignment);
 end;
 
-procedure TACLCustomDropDownEdit.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  DropDownButton.MouseDown(Button, Point(X, Y));
-  if (Button = mbLeft) and CanDropDown(X, Y) then
-  begin
-    DroppedDown := True;
-    if DroppedDown then
-      Exit;
-  end;
-  inherited MouseDown(Button, Shift, X, Y);
-end;
-
-procedure TACLCustomDropDownEdit.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  DropDownButton.MouseUp(Button, Point(X, Y));
-  inherited MouseUp(Button, Shift, X, Y);
-end;
-
-procedure TACLCustomDropDownEdit.SetDropDownButtonVisible(AValue: Boolean);
+procedure TACLAbstractDropDownEdit.SetDropDownButtonVisible(AValue: Boolean);
 begin
   if DropDownButtonVisible <> AValue then
   begin
@@ -323,7 +276,7 @@ begin
   end;
 end;
 
-procedure TACLCustomDropDownEdit.SetDroppedDown(AValue: Boolean);
+procedure TACLAbstractDropDownEdit.SetDroppedDown(AValue: Boolean);
 begin
   if AValue <> DroppedDown then
   begin
@@ -336,63 +289,14 @@ begin
         if DropDownWindow <> nil then
         begin
           DropDownWindow.OnClosePopup := HandlerDropDownClose;
+          DropDownButton.IsDown := True;
           ShowDropDownWindow;
-          BoundsChanged;
         end;
       end;
     end
     else
-      FreeDropDownWindow;
+      HideDropDownWindow;
   end;
-end;
-
-function TACLCustomDropDownEdit.CreateDropDownWindow: TACLPopupWindow;
-begin
-  Result := TACLPopupWindow.Create(Self);
-end;
-
-procedure TACLCustomDropDownEdit.FreeDropDownWindow;
-begin
-  if DropDownWindow <> nil then
-  begin
-    FreeAndNil(FDropDownWindow);
-    BoundsChanged;
-  end;
-end;
-
-procedure TACLCustomDropDownEdit.ShowDropDownWindow;
-begin
-  DropDownWindow.PopupUnderControl(ClientToScreen(ClientRect), DropDownAlignment);
-end;
-
-procedure TACLCustomDropDownEdit.MouseLeave;
-begin
-  inherited MouseLeave;
-  DropDownButton.MouseMove([], InvalidPoint);
-end;
-
-procedure TACLCustomDropDownEdit.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseMove(Shift, X, Y);
-  DropDownButton.MouseMove(Shift, Point(X, Y));
-end;
-
-procedure TACLCustomDropDownEdit.CMEnabledChanged(var Message: TMessage);
-begin
-  FreeDropDownWindow;
-  inherited;
-end;
-
-procedure TACLCustomDropDownEdit.HandlerButtonClick(Sender: TObject);
-begin
-  DroppedDown := True;
-end;
-
-{ TACLCustomDropDownEditButtonSubClass }
-
-procedure TACLCustomDropDownEditButtonSubClass.DrawBackground(ACanvas: TCanvas; const R: TRect);
-begin
-  Style.Texture.Draw(ACanvas, R, 5 + Ord(State));
 end;
 
 { TACLCustomDropDown }
@@ -400,9 +304,10 @@ end;
 constructor TACLCustomDropDown.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FDefaultSize := TSize.Create(DefaultButtonHeight, DefaultButtonHeight);
+  FDefaultSize := TSize.Create(DefaultButtonWidth, DefaultButtonHeight);
   FGlyph := TACLGlyph.Create(Self);
   Cursor := crHandPoint;
+  DropDownButton.HasArrow := True;
   AutoSize := False;
 end;
 
@@ -410,12 +315,6 @@ destructor TACLCustomDropDown.Destroy;
 begin
   FreeAndNil(FGlyph);
   inherited;
-end;
-
-function TACLCustomDropDown.CreateDropDownButton: TACLCustomDropDownEditButtonSubClass;
-begin
-  Result := TACLDropDownButtonSubClass.Create(Self);
-  Result.HasArrow := True;
 end;
 
 function TACLCustomDropDown.GetGlyph: TACLGlyph;
@@ -428,8 +327,6 @@ end;
 
 procedure TACLCustomDropDown.Calculate(R: TRect);
 begin
-  DropDownButton.IsEnabled := Enabled;
-  DropDownButton.IsDown := DropDownWindow <> nil;
   DropDownButton.Calculate(R);
 end;
 
@@ -457,21 +354,8 @@ begin
     Result := inherited;
 end;
 
-procedure TACLCustomDropDown.KeyDown(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyDown(Key, Shift);
-  DropDownButton.KeyDown(Key, Shift);
-end;
-
-procedure TACLCustomDropDown.KeyUp(var Key: Word; Shift: TShiftState);
-begin
-  DropDownButton.KeyUp(Key, Shift);
-  inherited KeyUp(Key, Shift);
-end;
-
 procedure TACLCustomDropDown.Paint;
 begin
-  AssignTextDrawParams(Canvas);
   DropDownButton.Draw(Canvas);
 end;
 
@@ -552,7 +436,7 @@ begin
   end;
 end;
 
-procedure TACLDropDown.FreeDropDownWindow;
+procedure TACLDropDown.HideDropDownWindow;
 begin
   if (Control <> nil) and ([csDestroying, csDesigning] * ComponentState = []) then
   begin
@@ -560,7 +444,7 @@ begin
     Control.Parent := Self;
     Control.Hide;
   end;
-  inherited FreeDropDownWindow;
+  inherited;
 end;
 
 procedure TACLDropDown.Notification(AComponent: TComponent; Operation: TOperation);
@@ -575,13 +459,6 @@ begin
   if acIsChildOrSelf(Self, AValue) then
     raise EInvalidArgument.CreateFmt('The %s cannot be used as child', [AValue.Name]);
   acComponentFieldSet(FControl, Self, AValue);
-end;
-
-{ TACLDropDownButtonSubClass }
-
-procedure TACLDropDownButtonSubClass.DrawBackground(ACanvas: TCanvas; const R: TRect);
-begin
-  Style.Draw(ACanvas, R, State);
 end;
 
 { TACLDropDownUIInsightAdapter }

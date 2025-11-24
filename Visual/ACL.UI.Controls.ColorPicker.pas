@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Color Picker
 //
@@ -132,7 +132,7 @@ type
     function GetFullRefreshChanges: TIntegerSet; override;
     procedure ProcessMouseDown(AButton: TMouseButton; AShift: TShiftState); override;
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     function CalculateAutoSize(var AWidth, AHeight: Integer): Boolean; override;
     procedure SetTargetDPI(AValue: Integer); override;
@@ -260,9 +260,11 @@ type
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     procedure CreateParams(var Params: TCreateParams); override;
+    function CreatePadding: TACLPadding; override;
     function CreateSubClass: TACLCompoundControlSubClass; override;
     function GetContentOffset: TRect; override;
     procedure Paint; override;
+    procedure SetFocusOnClick; override;
     procedure UpdateTransparency; override;
     //# Properties
     property Borders: TACLBorders read FBorders write SetBorders default acAllBorders;
@@ -291,6 +293,7 @@ type
     property Enabled;
     property Font;
     property Options;
+    property Padding;
     property PopupMenu;
     property ResourceCollection;
     property Style;
@@ -764,7 +767,7 @@ end;
 
 { TACLColorPickerSubClass }
 
-constructor TACLColorPickerSubClass.Create(AOwner: TComponent);
+constructor TACLColorPickerSubClass.Create(AOwner: IACLCompoundControlSubClassContainer);
 begin
   inherited Create(AOwner);
   FColor := TACLColorPickerColorInfo.Create;
@@ -831,7 +834,7 @@ procedure TACLColorPickerSubClass.ProcessMouseDown(AButton: TMouseButton; AShift
 begin
   inherited;
   if HitTest.HitObject is TACLColorPickerColorModifierCell then
-    TACLColorPickerColorModifierCell(HitTest.HitObject).DragMove(HitTest.HitPoint.X, HitTest.HitPoint.Y);
+    TACLColorPickerColorModifierCell(HitTest.HitObject).DragMove(HitTest.Point.X, HitTest.Point.Y);
 end;
 
 { TACLColorPickerPainter }
@@ -903,7 +906,6 @@ begin
   inherited CalculateSubCells(AChanges);
 
   LRect := Bounds;
-  LRect.Inflate(-FIndentBetweenElements);
   CalculateSubCellsEditors(LRect, AChanges);
   CalculateSubCellsSliders(LRect, AChanges);
   if FGamut <> nil then
@@ -1378,7 +1380,9 @@ end;
 
 procedure TACLColorPickerHexCodeEditCell.UpdateEditValue;
 begin
-  if SubClass.Options.AllowEditAlpha then
+  if ColorInfo.Alpha = 0 then
+    TACLEdit(FEdit).Value := ''
+  else if SubClass.Options.AllowEditAlpha then
     TACLEdit(FEdit).Value := ColorInfo.AlphaColor.ToString
   else
     TACLEdit(FEdit).Value := ColorToString(ColorInfo.Color);
@@ -1435,6 +1439,11 @@ begin
   FBorders := acAllBorders;
   FocusOnClick := True;
   AutoSize := True;
+end;
+
+function TACLCustomColorPicker.CreatePadding: TACLPadding;
+begin
+  Result := TACLPadding.Create(6);
 end;
 
 procedure TACLCustomColorPicker.CreateParams(var Params: TCreateParams);
@@ -1525,6 +1534,11 @@ end;
 procedure TACLCustomColorPicker.SetColor(const Value: TAlphaColor);
 begin
   SubClass.Color.AlphaColor := Value;
+end;
+
+procedure TACLCustomColorPicker.SetFocusOnClick;
+begin
+  acSafeSetFocus(Self);
 end;
 
 procedure TACLCustomColorPicker.SetOnColorChanged(const Value: TNotifyEvent);

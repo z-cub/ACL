@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Registry Access
 //
@@ -62,7 +62,7 @@ implementation
 function RegCheck(ARegError: Cardinal): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegCheck(%d)', [ARegError]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegCheck(%d)', [ARegError]);
 {$ENDIF}
   Result := ARegError = ERROR_SUCCESS;
 end;
@@ -70,7 +70,7 @@ end;
 function acRegQueryValue(Key: HKEY; const S: UnicodeString; out AType, ASize: Cardinal): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegQueryValue(%d, %s)', [Key, S]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegQueryValue(%d, %s)', [Key, S]);
 {$ENDIF}
   Result := RegCheck(RegQueryValueExW(Key, PWideChar(S), nil, @AType, nil, @ASize));
 end;
@@ -80,7 +80,7 @@ var
   AType: Cardinal;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegReadValue(%d, %s)', [Key, S]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegReadValue(%d, %s)', [Key, S]);
 {$ENDIF}
   Result := RegCheck(RegQueryValueExW(Key, PWideChar(S), nil, @AType, Data, @ASize));
 end;
@@ -88,7 +88,7 @@ end;
 function acRegKeyDelete(Key: HKEY; const SubKey: UnicodeString): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegDeleteKey(%d, %s)', [Key, SubKey]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegDeleteKey(%d, %s)', [Key, SubKey]);
 {$ENDIF}
   Result := RegCheck(RegDeleteKeyW(Key, PWideChar(SubKey)));
 end;
@@ -128,7 +128,7 @@ end;
 function acRegDeleteValue(Key: HKEY; const Value: UnicodeString): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegDeleteValue(%d, %s)', [Key, Value]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegDeleteValue(%d, %s)', [Key, Value]);
 {$ENDIF}
   Result := RegCheck(RegDeleteValueW(Key, PWideChar(Value)));
 end;
@@ -157,7 +157,7 @@ end;
 function acRegWriteInt(Key: HKEY; const ValueName: UnicodeString; Value: DWORD): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegWriteInt(%d, %s, %d)', [Key, ValueName, Value]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegWriteInt(%d, %s, %d)', [Key, ValueName, Value]);
 {$ENDIF}
   Result := Key <> 0;
   if Result then
@@ -221,7 +221,7 @@ begin
   if Key <> 0 then
   begin
   {$IFDEF ACL_LOG_REGISTRY}
-    AddToDebugLog('Registry', 'RegReadInt(%d, %s)', [Key, ValueName]);
+    LogEntry(acGeneralLogFileName, 'Registry', 'RegReadInt(%d, %s)', [Key, ValueName]);
   {$ENDIF}
     ASize := SizeOf(Cardinal);
     if not RegCheck(RegQueryValueExW(Key, PWideChar(ValueName), nil, @AType, PByte(@Result), @ASize)) or (AType <> REG_DWORD) then
@@ -239,7 +239,7 @@ end;
 procedure acRegClose(Key: HKEY);
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegCloseKey(%d)', [Key]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegCloseKey(%d)', [Key]);
 {$ENDIF}
   if Key <> 0 then
     RegCloseKey(Key);
@@ -260,7 +260,7 @@ end;
 function acRegWriteStr(Key: HKEY; const ValueName, Value: UnicodeString): Boolean;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegWriteStr(%d, %s, %s)', [Key, ValueName, Value]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegWriteStr(%d, %s, %s)', [Key, ValueName, Value]);
 {$ENDIF}
   Result := Key <> 0;
   if Result then
@@ -274,7 +274,7 @@ var
   AType, ASize: Cardinal;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegReadStr(%d, %s)', [Key, ValueName]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegReadStr(%d, %s)', [Key, ValueName]);
 {$ENDIF}
   Result := '';
   if Key <> 0 then
@@ -292,7 +292,7 @@ begin
     end;
   end;
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', ' Result = %s', [Result]);
+  LogEntry(acGeneralLogFileName, 'Registry', ' Result = %s', [Result]);
 {$ENDIF}
 end;
 
@@ -310,12 +310,12 @@ end;
 function acRegOpen(Key: HKEY; const SubKey: UnicodeString; AFlags: Cardinal): HKEY;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegOpen(%d, %s, %d)', [Key, SubKey, AFlags]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegOpen(%d, %s, %d)', [Key, SubKey, AFlags]);
 {$ENDIF}
   if not RegCheck(RegOpenKeyExW(Key, PWideChar(SubKey), 0, AFlags, Result)) then
     Result := 0;
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'Result = %d', [Result]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'Result = %d', [Result]);
 {$ENDIF}
 end;
 
@@ -333,7 +333,7 @@ end;
 function acRegOpenCreate(Key: HKEY; const SubKey: UnicodeString): HKEY;
 begin
 {$IFDEF ACL_LOG_REGISTRY}
-  AddToDebugLog('Registry', 'RegCreate(%d, %s)', [Key, SubKey]);
+  LogEntry(acGeneralLogFileName, 'Registry', 'RegCreate(%d, %s)', [Key, SubKey]);
 {$ENDIF}
   if not RegCheck(RegCreateKeyExW(Key, PWideChar(SubKey), 0, nil, 0, KEY_ALL_ACCESS, nil, Result, nil)) then
     Result := 0;

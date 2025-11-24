@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Advanced Image List
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -22,6 +22,7 @@ uses
   LCLIntf,
   LCLType,
 {$ELSE}
+  Winapi.CommCtrl,
   Winapi.Messages,
   Winapi.Windows,
 {$ENDIF}
@@ -54,15 +55,19 @@ type
 
   { TACLImageList }
 
-  TACLImageList = class(TImageList)
+  TACLImageList = class(TImageList,
+    IACLColorSchema)
   strict private const
     HeaderLCL = $4C61494C; // LaIL (Lazarus image list)
     HeaderZIP = $5A43494C; // ZCIL (Zlib compressed image list)
   strict private
+    FAllowColoration: Boolean;
+    FColorSchema: TACLColorSchema;
     FSourceDPI: Integer;
 
     function ConvertTo32Bit(ASource: TBitmap): TACLBitmap;
     function GetScalable: Boolean;
+    procedure SetAllowColoration(AValue: Boolean);
     procedure SetScalable(AValue: Boolean);
     procedure SetSourceDPI(AValue: Integer);
     procedure ReadDataWinIL(AStream: TStream);
@@ -81,6 +86,7 @@ type
     function AddImage(const AImage: TACLImage): Integer; overload;
     function AddImage(const AImage: TACLSkinImage): Integer; overload;
     function AddIconFromResource(AInstance: HINST; const AName: string): Integer;
+    function GetImage(AIndex: Integer; AEnabled: Boolean = True): TACLDib;
     procedure ReplaceBitmap(AIndex: Integer; ABitmap: TBitmap);
     //# Clear and Add the Image
     procedure LoadImage(ABitmap: TBitmap); overload;
@@ -90,12 +96,15 @@ type
     //# I/O (native format)
     procedure ReadData(Stream: TStream); override;
     procedure WriteData(Stream: TStream); override;
+    // IACLColorSchema
+    procedure ApplyColorSchema(const ASchema: TACLColorSchema);
     // Resize
     procedure SetSize(AValue: Integer); overload;
   {$IFDEF FPC}
     procedure SetSize(AWidth, AHeight: Integer); overload;
   {$ENDIF}
   published
+    property AllowColoration: Boolean read FAllowColoration write SetAllowColoration default False;
   {$IFNDEF FPC}
     property ColorDepth default cd32Bit;
   {$ENDIF}
@@ -123,7 +132,8 @@ type
     FDarkMode: Boolean;
     FTargetDPI: Integer;
 
-    class function GenerateName(const ABaseName, ASuffix: string; ATargetDPI: Integer): TComponentName; static;
+    class function GenerateName(const ABaseName, ASuffix: string;
+      ATargetDPI: Integer): TComponentName; static;
     class function GetBaseName(const AName: TComponentName): TComponentName; static;
   protected
     procedure UpdateImageList(AInstance: TObject; APropInfo: PPropInfo; APropValue: TObject);
@@ -142,8 +152,7 @@ type
 procedure acDrawImage(ACanvas: TCanvas; const R: TRect;
   AImages: TCustomImageList; AImageIndex: Integer;
   AEnabled: Boolean = True; ASmoothStrech: Boolean = True);
-function acGetImage(AImages: TCustomImageList;
-  AImageIndex: Integer; AEnabled: Boolean = True): TACLDib;
+function acGetImage(AImages: TCustomImageList; AImageIndex: Integer): TACLDib;
 function acGetImageListSize(AImages: TCustomImageList; ATargetDPI: Integer): TSize;
 function acIs32BitBitmap(ABitmap: TBitmap): Boolean;
 procedure acSetImageList(AValue: TCustomImageList; var AFieldValue: TCustomImageList;
@@ -167,33 +176,45 @@ uses
   ACL.Utils.RTTI,
   ACL.Utils.Stream;
 
-function acGetImage(AImages: TCustomImageList;
-  AImageIndex: Integer; AEnabled: Boolean = True): TACLDib;
+function acGetImage(AImages: TCustomImageList; AImageIndex: Integer): TACLDib;
 {$IFDEF FPC}
 var
-  ARawImage: TRawImage;
+  LRawImage: TRawImage;
 begin
-  AImages.GetRawImage(AImageIndex, ARawImage);
+  AImages.GetRawImage(AImageIndex, LRawImage);
   // Бага в LCL:
   //   TCustomImageList.ScaleImage засасывает пиксели в массив TRGBAQuad,
   // у которого раскладка в памяти BGRA. А когда мы запрашивает RawImage, метод
   // TCustomImageListResolution.FillDescription всегда возвращает фиксированный
   // Description для ARGB.
   // В принципе, можно и через TBitmap, но через TRawImage быстрее
-  ARawImage.Description.BlueShift  := 0;
-  ARawImage.Description.GreenShift := 8;
-  ARawImage.Description.RedShift   := 16;
-  ARawImage.Description.AlphaShift := 24;
+  LRawImage.Description.BlueShift  := 0;
+  LRawImage.Description.GreenShift := 8;
+  LRawImage.Description.RedShift   := 16;
+  LRawImage.Description.AlphaShift := 24;
   Result := TACLDib.Create;
-  Result.Assign(ARawImage);
+  Result.Assign(LRawImage);
 {$ELSE}
 begin
   Result := TACLDib.Create(AImages.Width, AImages.Height);
-  Result.Reset;
-  AImages.Draw(Result.Canvas, 0, 0, AImageIndex);
+  if AImages.HandleAllocated then
+  begin
+    if AImages.ColorDepth in [cd32Bit, cdDeviceDependent] then
+    begin
+      Result.Reset;
+      ImageList_DrawEx(AImages.Handle, AImageIndex,
+        Result.Handle, 0, 0, 0, 0, CLR_NONE, CLR_NONE, ILD_NORMAL);
+    end
+    else
+    begin
+      acFillRect(Result.Canvas, Result.ClientRect, clFuchsia);
+      ImageList_DrawEx(AImages.Handle, AImageIndex, Result.Handle, 0, 0, 0, 0,
+        GetColorFromRGB(AImages.BkColor),
+        GetColorFromRGB(AImages.BlendColor), ILD_NORMAL);
+      Result.MakeTransparent(clFuchsia);
+    end;
+  end;
 {$ENDIF}
-  if not AEnabled then
-    Result.MakeDisabled;
 end;
 
 procedure acDrawImage(ACanvas: TCanvas; const R: TRect;
@@ -202,16 +223,16 @@ procedure acDrawImage(ACanvas: TCanvas; const R: TRect;
 var
   LImage: TACLDib;
 begin
-  if (AImages <> nil) and (AImageIndex >= 0) and acRectVisible(ACanvas, R) then
+  if (AImages <> nil) and InRange(AImageIndex, 0, AImages.Count - 1) and acRectVisible(ACanvas, R) then
   begin
-  {$IFNDEF FPC}
-    if (R.Width = AImages.Width) or (R.Height = AImages.Height) then
+    if AImages is TACLImageList then
+      LImage := TACLImageList(AImages).GetImage(AImageIndex, AEnabled)
+    else
     begin
-      AImages.Draw(ACanvas, R.Left, R.Top, AImageIndex, AEnabled);
-      Exit;
+      LImage := acGetImage(AImages, AImageIndex);
+      if not AEnabled then
+        LImage.MakeDisabled;
     end;
-  {$ENDIF}
-    LImage := acGetImage(AImages, AImageIndex, AEnabled);
     try
       LImage.DrawBlend(ACanvas, R, MaxByte, ASmoothStrech);
     finally
@@ -510,42 +531,43 @@ begin
   end;
 end;
 
-{$IFNDEF FPC}
-procedure TACLImageList.DoDraw(Index: Integer; Canvas: TCanvas;
-  X, Y: Integer; Style: Cardinal; Enabled: Boolean = True);
-var
-  ALayer: TACLDib;
-begin
-  if (Width > 0) and (Height > 0) then
-  begin
-    ALayer := TACLDib.Create(Width, Height);
-    try
-      if ColorDepth = cd32Bit then
-      begin
-        ALayer.Reset;
-        inherited DoDraw(Index, ALayer.Canvas, 0, 0, Style);
-      end
-      else
-      begin
-        acFillRect(ALayer.Canvas, ALayer.ClientRect, clFuchsia);
-        inherited DoDraw(Index, ALayer.Canvas, 0, 0, Style);
-        ALayer.MakeTransparent(clFuchsia);
-      end;
-      if not Enabled then
-        ALayer.MakeDisabled;
-      ALayer.DrawBlend(Canvas, Point(X, Y));
-    finally
-      ALayer.Free;
-    end;
-  end;
-end;
-{$ENDIF}
-
 function TACLImageList.ConvertTo32Bit(ASource: TBitmap): TACLBitmap;
 begin
   Result := TACLBitmap.Create;
   Result.Assign(ASource);
   Result.MakeTransparent(clFuchsia);
+end;
+
+{$IFNDEF FPC}
+procedure TACLImageList.DoDraw(Index: Integer;
+  Canvas: TCanvas; X, Y: Integer; Style: Cardinal; Enabled: Boolean);
+var
+  LDib: TACLDib;
+begin
+  if (Width > 0) and (Height > 0) then
+  begin
+    LDib := GetImage(Index, Enabled);
+    try
+      LDib.DrawBlend(Canvas, Point(X, Y));
+    finally
+      LDib.Free;
+    end;
+  end;
+end;
+{$ENDIF}
+
+function TACLImageList.GetImage(AIndex: Integer; AEnabled: Boolean): TACLDib;
+begin
+  Result := acGetImage(Self, AIndex);
+  if not AEnabled then
+    Result.MakeDisabled
+  else
+    if AllowColoration and FColorSchema.IsAssigned then
+    begin
+      Result.Unpremultiply;
+      Result.ApplyColorSchema(FColorSchema);
+      Result.Premultiply;
+    end;
 end;
 
 function TACLImageList.GetScalable: Boolean;
@@ -613,6 +635,15 @@ begin
     end;
   finally
     LImg.Free;
+  end;
+end;
+
+procedure TACLImageList.SetAllowColoration(AValue: Boolean);
+begin
+  if FAllowColoration <> AValue then
+  begin
+    FAllowColoration := AValue;
+    Change;
   end;
 end;
 
@@ -759,6 +790,15 @@ begin
   else
 {$ENDIF}
     inherited;
+end;
+
+procedure TACLImageList.ApplyColorSchema(const ASchema: TACLColorSchema);
+begin
+  if FColorSchema <> ASchema then
+  begin
+    FColorSchema := ASchema;
+    Change;
+  end;
 end;
 
 {$IFNDEF FPC}

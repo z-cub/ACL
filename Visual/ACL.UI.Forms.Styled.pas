@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Custom Skinned Top-Level Window
 //
@@ -158,7 +158,6 @@ type
     function UseCustomStyle: Boolean; override;
     // Messages
     procedure WMNCCalcSize(var Msg: TWMNCCalcSize); message WM_NCCALCSIZE;
-    procedure WMNCHitTest(var Msg: TWMNCHitTest); message WM_NCHITTEST;
     procedure WMNCMouseMove(var Msg: TMessage); message WM_NCMOUSEMOVE;
     procedure WndProc(var Message: TMessage); override;
   public
@@ -169,24 +168,23 @@ type
 
 {$IFDEF LCLGtk2}
 
-  TACLCustomStyledForm = class(TACLAbstractStyledForm,
-    IACLCursorProvider,
-    IACLMouseTracking)
+  { TACLCustomStyledForm }
+
+  TACLCustomStyledForm = class(TACLAbstractStyledForm, IACLMouseTracking)
   strict private
     FClientOffsets: TRect;
     FInLoaded: Boolean;
-    // IACLCursorProvider
-    function GetCursor(const P: TPoint): TCursor;
     // IACLMouseTracking
     function IsMouseAtControl: Boolean;
     procedure IACLMouseTracking.MouseEnter = Nothing;
     procedure IACLMouseTracking.MouseLeave = Nothing;
     procedure Nothing;
     procedure UpdateClientOffsets;
+    // Messages
+    procedure WMLButtonDblClk(var Message: TLMLButtonDblClk); message LM_LBUTTONDBLCLK;
+    procedure WMMouseMove(var Message: TLMMouseMove); message LM_MOUSEMOVE;
   protected
     procedure CalculateMetrics; override;
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
     procedure Resize; override;
     procedure Resizing(State: TWindowState); override;
     procedure Loaded; override;
@@ -508,7 +506,13 @@ end;
 procedure TACLAbstractStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
 begin
   if UseCustomStyle then
-    Msg.Result := HitTest(ScreenToClient(Msg.Pos))
+  begin
+    Msg.Result := HitTest(ScreenToClient(Msg.Pos));
+    case Msg.Result of
+      HTMINBUTTON, HTMAXBUTTON, HTCLOSE:
+        Msg.Result := HTCLIENT;
+    end;
+  end
   else
     inherited;
 end;
@@ -627,20 +631,6 @@ begin
     inherited;
 end;
 
-procedure TACLCustomStyledForm.WMNCHitTest(var Msg: TWMNCHitTest);
-begin
-  if UseCustomStyle then
-  begin
-    Msg.Result := HitTest(ScreenToClient(Msg.Pos));
-    case Msg.Result of
-      HTMINBUTTON, HTMAXBUTTON, HTCLOSE:
-        Msg.Result := HTCLIENT;
-    end;
-  end
-  else
-    inherited;
-end;
-
 procedure TACLCustomStyledForm.WMNCMouseMove(var Msg: TMessage);
 begin
   inherited;
@@ -681,68 +671,10 @@ begin
   inherited;
 end;
 
-function TACLCustomStyledForm.GetCursor(const P: TPoint): TCursor;
-const
-  CursorMap: array [HTLEFT..HTBOTTOMRIGHT] of TCursor = (
-    crSizeWE, crSizeWE, crSizeNS, crSizeNW,
-    crSizeNE, crSizeNS, crSizeSW, crSizeSE
- );
-var
-  LCode: Integer;
-begin
-  LCode := HitTest(P);
-  case LCode of
-    HTLEFT..HTBOTTOMRIGHT:
-      Result := CursorMap[LCode];
-  else
-    Result := crArrow;
-  end;
-end;
-
 function TACLCustomStyledForm.IsMouseAtControl: Boolean;
 begin
   MouseTracking;
   Result := HoveredId <> HTNOWHERE;
-end;
-
-procedure TACLCustomStyledForm.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-var
-  LHitCode: Integer;
-  LPoint: TPoint;
-begin
-  if Button = mbLeft then
-  begin
-    LPoint := ClientToScreen(Point(X, Y));
-    LHitCode := HitTest(Point(X, Y));
-    case LHitCode of
-      //HTSYSMENU:
-      //  gdk_window_show_window_menu(gtk_widget_get_root_window(PGtkWidget(Handle)), gtk_get_current_event);
-
-      HTLEFT..HTBOTTOMRIGHT:
-        if acCanStartDragging(Self, X, Y) then
-          Gtk2StartDrag(Self, LPoint, LHitCode);
-
-      HTCAPTION:
-        if ssDouble in Shift then
-          ToggleMaximize
-        else
-          if acCanStartDragging(Self, X, Y) then
-            Gtk2StartDrag(Self, LPoint, LHitCode);
-    else
-      inherited MouseDown(Button, Shift, X, Y);
-    end;
-  end;
-end;
-
-procedure TACLCustomStyledForm.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseMove(Shift, X, Y);
-  case HoveredId of
-    HTNOWHERE, HTCLIENT:
-      TACLMouseTracker.Release(Self);
-  else
-    TACLMouseTracker.Start(Self);
-  end;
 end;
 
 procedure TACLCustomStyledForm.Resize;
@@ -864,13 +796,30 @@ begin
   end;
 end;
 
+procedure TACLCustomStyledForm.WMLButtonDblClk(var Message: TLMLButtonDblClk);
+begin
+  if not GtkNCProcessMessage(Self, Message) then
+    inherited;
+end;
+
+procedure TACLCustomStyledForm.WMMouseMove(var Message: TLMMouseMove);
+begin
+  inherited;
+  case HoveredId of
+    HTNOWHERE, HTCLIENT:
+      TACLMouseTracker.Release(Self);
+  else
+    TACLMouseTracker.Start(Self);
+  end;
+end;
+
 class procedure TACLCustomStyledForm.WSRegisterClass;
 const
   Done: Boolean = False;
 begin
   if Done then exit;
   inherited;
-  RegisterWSComponent(TACLCustomStyledForm, TACLGtk2WSAdvancedForm);
+  RegisterWSComponent(TACLCustomStyledForm, TACLWSAdvancedForm);
   Done := True;
 end;
 

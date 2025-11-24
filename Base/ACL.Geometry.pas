@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Geometry Routines
 //
@@ -68,26 +68,36 @@ type
     Start: Integer;
     Finish: Integer;
     class function Create(AStart, AFinish: Integer): TACLRange; static;
-  end;
-
-  { TACLAutoSizeItem }
-
-  TACLAutoSizeItem = class
-  public
-    Size, MinSize, MaxSize: Integer;
+    procedure Inflate(AValue: Integer); inline;
+    function Contains(AValue: Integer): Boolean; inline;
+    function Length: Integer; inline;
   end;
 
   { TACLAutoSizeCalculator }
 
-  TACLAutoSizeCalculator = class(TACLObjectListOf<TACLAutoSizeItem>)
+  PACLAutoSizeItem = ^TACLAutoSizeItem;
+  TACLAutoSizeItem = record
+  public
+    Size, MinSize, MaxSize: Integer;
+  end;
+
+  TACLAutoSizeCalculator = class
   strict private
     FAvailableSize: Integer;
+    FCapacity: Integer;
+    FCount: Integer;
+    FItems: TArray<TACLAutoSizeItem>;
+    function GetUsedSize: Integer;
   public
+    constructor Create(ACapacity: Integer);
     procedure Add(AMinSize, AMaxSize: Integer; ACanResize: Boolean); overload;
     procedure Add(ASize, AMinSize, AMaxSize: Integer; ACanResize: Boolean); overload;
     procedure Calculate;
     //# Properties
     property AvailableSize: Integer read FAvailableSize write FAvailableSize;
+    property Count: Integer read FCount;
+    property Items: TArray<TACLAutoSizeItem> read FItems;
+    property UsedSize: Integer read GetUsedSize;
   end;
 
   { TACLSize }
@@ -103,8 +113,6 @@ type
     FOnValidate: TACLSizeValidateEvent;
 
     function GetAll: Integer;
-    function GetHeight: Integer;
-    function GetWidth: Integer;
     function IsHeightStored: Boolean;
     function IsWidthStored: Boolean;
     procedure SetAll(AValue: Integer);
@@ -113,6 +121,8 @@ type
     procedure SetWidth(AValue: Integer);
   protected
     procedure Changed; virtual;
+    function GetHeight: Integer; virtual;
+    function GetWidth: Integer; virtual;
     procedure ValidateValue(var AValue: TSize); virtual;
   public
     constructor Create(AChangeEvent: TNotifyEvent); overload;
@@ -559,12 +569,14 @@ begin
   acFitSize(Result.cx, Result.cy, SourceWidth, SourceHeight, AMode);
 end;
 
-function acFitRect(const R: TRect; const ASourceSize: TSize; AMode: TACLFitMode; ACenter: Boolean = True): TRect;
+function acFitRect(const R: TRect; const ASourceSize: TSize;
+  AMode: TACLFitMode; ACenter: Boolean = True): TRect;
 begin
   Result := acFitRect(R, ASourceSize.cx, ASourceSize.cy, AMode, ACenter);
 end;
 
-function acFitRect(const R: TRect; ASourceWidth, ASourceHeight: Integer; AMode: TACLFitMode; ACenter: Boolean = True): TRect;
+function acFitRect(const R: TRect; ASourceWidth, ASourceHeight: Integer;
+  AMode: TACLFitMode; ACenter: Boolean = True): TRect;
 var
   LSize: TSize;
 begin
@@ -584,7 +596,29 @@ begin
   Result.Finish := AFinish;
 end;
 
+procedure TACLRange.Inflate(AValue: Integer);
+begin
+  Finish := Max(Finish, AValue);
+  Start := Min(Start, AValue);
+end;
+
+function TACLRange.Contains(AValue: Integer): Boolean;
+begin
+  Result := InRange(AValue, Start, Finish);
+end;
+
+function TACLRange.Length: Integer;
+begin
+  Result := Finish - Start;
+end;
+
 { TACLAutoSizeCalculator }
+
+constructor TACLAutoSizeCalculator.Create(ACapacity: Integer);
+begin
+  FCapacity := ACapacity;
+  SetLength(FItems, FCapacity);
+end;
 
 procedure TACLAutoSizeCalculator.Add(AMinSize, AMaxSize: Integer; ACanResize: Boolean);
 begin
@@ -592,69 +626,78 @@ begin
 end;
 
 procedure TACLAutoSizeCalculator.Add(ASize, AMinSize, AMaxSize: Integer; ACanResize: Boolean);
-var
-  AInfo: TACLAutoSizeItem;
 begin
+  if Count = FCapacity then
+    raise EInvalidArgument.Create('AutoSizeCalc: index exceed the capacity');
   if AMaxSize = 0 then
     AMaxSize := MaxInt;
-  AInfo := TACLAutoSizeItem.Create;
-  AInfo.MinSize := AMinSize;
-  AInfo.MaxSize := IfThen(ACanResize, AMaxSize, AMinSize);
-  AInfo.Size := Max(ASize, AMinSize);
-  inherited Add(AInfo);
+
+  FItems[Count].MinSize := AMinSize;
+  FItems[Count].MaxSize := IfThen(ACanResize, AMaxSize, AMinSize);
+  FItems[Count].Size := Max(ASize, AMinSize);
+  Inc(FCount);
 end;
 
 procedure TACLAutoSizeCalculator.Calculate;
 var
-  AInfo: TACLAutoSizeItem;
-  APrevSize: Integer;
-  ASize: Integer;
-  AStep: Integer;
+  LInfo: PACLAutoSizeItem;
+  LPrevSize: Integer;
+  LSize: Integer;
+  LStep: Integer;
   I: Integer;
 begin
   // Step 1: Adjust all items
-  ASize := 0;
+  LSize := 0;
   repeat
-    APrevSize := ASize;
-    ASize := AvailableSize;
+    LPrevSize := LSize;
+    LSize := AvailableSize;
     for I := 0 to Count - 1 do
-      Dec(ASize, List[I].Size);
+      Dec(LSize, Items[I].Size);
 
-    if ASize < Count then
+    if LSize < Count then
       Break
     else
       for I := 0 to Count - 1 do
       begin
-        AInfo := List[I];
-        AInfo.Size := Min(AInfo.Size + MulDiv(AInfo.Size, ASize, AvailableSize), AInfo.MaxSize);
+        LInfo := @Items[I];
+        LInfo.Size := Min(LInfo.Size + MulDiv(LInfo.Size, LSize, AvailableSize), LInfo.MaxSize);
       end;
 
-  until (ASize = 0) or (ASize = APrevSize);
+  until (LSize = 0) or (LSize = LPrevSize);
 
   // Step 2: Put left data to last adjustable item
-  ASize := 0;
+  LSize := 0;
   repeat
-    APrevSize := ASize;
-    ASize := AvailableSize;
+    LPrevSize := LSize;
+    LSize := AvailableSize;
     for I := 0 to Count - 1 do
-      Dec(ASize, List[I].Size);
+      Dec(LSize, Items[I].Size);
 
-    AStep := Sign(ASize);
-    if AStep <> 0 then
+    LStep := Sign(LSize);
+    if LStep <> 0 then
       for I := Count - 1 downto 0 do
       begin
-        AInfo := List[I];
-        Inc(AInfo.Size, AStep);
-        if InRange(AInfo.Size, AInfo.MinSize, AInfo.MaxSize) then
-          Dec(ASize, AStep)
+        LInfo := @Items[I];
+        Inc(LInfo.Size, LStep);
+        if InRange(LInfo.Size, LInfo.MinSize, LInfo.MaxSize) then
+          Dec(LSize, LStep)
         else
-          Dec(AInfo.Size, AStep);
+          Dec(LInfo.Size, LStep);
 
-        if ASize = 0 then
+        if LSize = 0 then
           Break;
       end;
 
-  until (ASize = 0) or (ASize = APrevSize);
+  until (LSize = 0) or (LSize = LPrevSize);
+end;
+
+function TACLAutoSizeCalculator.GetUsedSize: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to Count - 1 do
+    Inc(Result, Items[I].Size);
 end;
 
 { TACLSize }

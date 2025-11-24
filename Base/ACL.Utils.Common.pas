@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   General Utilities and Types
 //
@@ -20,21 +20,25 @@ interface
 
 uses
 {$IFDEF FPC}
-  dl,
   InterfaceBase,
   LCLIntf,
   LCLType,
   Process,
-{$ELSE}
+{$ENDIF}
+{$IFDEF MSWINDOWS}
   Winapi.PsAPI,
   Winapi.Windows,
+{$ELSEIF DEFINED(LINUX)}
+  dl,
+  BaseUnix,
+  Unix,
 {$ENDIF}
   // System
   {System.}Classes,
+  {System.}Math,
   {System.}SysUtils,
   {System.}Types,
   {System.}TypInfo,
-  {System.}Math,
   System.AnsiStrings,
   System.UITypes;
 
@@ -109,6 +113,10 @@ type
   PObjHandle = ^TObjHandle;
   TWndHandle = HWND; // to avoid direct references to Winapi
 
+{$IFNDEF DELPHI120}
+  PInterface = ^IInterface;
+{$ENDIF}
+
 const
   acDefault = TACLBoolean.Default;
   acFalse = TACLBoolean.False;
@@ -123,13 +131,7 @@ type
     function GetObject: TObject;
   end;
 
-  { IStringReceiver }
-
-  IStringReceiver = interface
-  ['{F07E42B3-2680-425D-9119-253D300AE4CF}']
-    procedure Add(const S: string);
-  end;
-
+  TACLStringEnumMethod = procedure (const S: string) of object;
   TACLStringEnumProc = reference to procedure (const S: string);
 
   TACLBooleanHelper = record helper for TACLBoolean
@@ -144,8 +146,13 @@ type
   TExecuteOptions = set of TExecuteOption;
 
   TACLProcess = class
+  strict private
+  {$IFDEF LINUX}
+    class procedure ChildSignalHandler(signal: longint;
+      info: psiginfo; context: psigcontext); cdecl; static;
+  {$ENDIF}
   public
-    class function Execute(const ACmdLine: string; ALog: IStringReceiver;
+    class function Execute(const ACmdLine: string; ALog: TACLStringEnumMethod;
       AOptions: TExecuteOptions = [eoShowGUI]): LongBool; overload;
     class function Execute(const ACmdLine: string;
       AOptions: TExecuteOptions = [eoShowGUI]; AOutputData: TStream = nil;
@@ -157,13 +164,6 @@ type
     class function IsWow64Window(AWindow: HWND): LongBool;
     class function Wow64SetFileSystemRedirection(AValue: Boolean): LongBool;
   {$ENDIF}
-  end;
-
-  { TACLInterfaceHelper }
-
-  TACLInterfaceHelper<T: IUnknown> = class
-  public
-    class function GetGuid: TGUID; static;
   end;
 
   { TACLEnumHelper }
@@ -178,14 +178,22 @@ type
 
   Safe = class
   public
+    class function AreEquals(AObj1, AObj2: TObject): Boolean;
     class function Cast(AObject: TObject; AClass: TClass; out AValue): Boolean; inline;
     class function CastOrNil<T: class>(AObject: TObject): T; inline;
+    class procedure Call(AMethod: TThreadMethod);
+    class procedure FreeObject({$IFDEF FPC}constref{$ELSE}const [ref]{$ENDIF} AObject: TObject);
+    class procedure Release(AIntf: PInterface);
+    class procedure WeakRelease(AIntf: PInterface);
+    class function ToString(AObject: TObject{nullable}): string; reintroduce;
   end;
 
 const
 {$IF DEFINED(MSWINDOWS)}
+  ExeExt = '.exe';
   LibExt = '.dll';
 {$ELSEIF DEFINED(LINUX)}
+  ExeExt = '';
   LibExt = '.so';
 {$ENDIF}
 
@@ -197,6 +205,9 @@ procedure acFreeLibrary(var ALibHandle: HMODULE);
 function acGetProcAddress(ALibHandle: HMODULE; AProcName: PChar): Pointer; overload;
 function acGetProcAddress(ALibHandle: HMODULE; AProcName: PChar; var AResult: Boolean): Pointer; overload;
 function acLoadLibrary(const AFileName: string; AFlags: Cardinal = 0): HMODULE;
+{$IFDEF LINUX}
+function acFindLibrary(const AFileName: string): string;
+{$ENDIF}
 {$IFDEF MSWINDOWS}
 function acModuleFileName(AModule: HMODULE): string; inline;
 function acModuleHandle(const AFileName: string): HMODULE;
@@ -212,6 +223,7 @@ function acGetProcessFileName(AWnd: TWndHandle; out AFileName: string): Boolean;
 {$ENDIF}
 
 // System
+procedure InitializeFormatSettings;
 procedure MinimizeMemoryUsage;
 procedure ZeroMemory(Data: Pointer; Size: Integer);
 
@@ -437,6 +449,20 @@ begin
   end;
   Result := '';
 end;
+
+function acFindLibrary(const AFileName: string): string;
+begin
+  if CharInSet(AFileName[1], ['.', '/']) then
+    Result := AFileName // relative (./lib.so) or absolute (/lib64/lib.so)
+  else
+  begin
+    Result := acGetCurrentDir + AFileName;
+    if not FileExists(Result) then
+      Result := acSelfPath + AFileName;
+    if not FileExists(Result) then
+      Result := ResolveLibraryPath(AFileName);
+  end;
+end;
 {$ENDIF}
 
 function acLoadLibrary(const AFileName: string; AFlags: Cardinal = 0): HMODULE;
@@ -464,16 +490,7 @@ begin
 var
   LActualLibPath: string;
 begin
-  if CharInSet(AFileName[1], ['.', '/']) then
-    LActualLibPath := AFileName // relative (./lib.so) or absolute (/lib64/lib.so)
-  else
-  begin
-    LActualLibPath := acGetCurrentDir + AFileName;
-    if not FileExists(LActualLibPath) then
-      LActualLibPath := acSelfPath + AFileName;
-    if not FileExists(LActualLibPath) then
-      LActualLibPath := ResolveLibraryPath(AFileName);
-  end;
+  LActualLibPath := acFindLibrary(AFileName);
   if LActualLibPath <> '' then
   begin
     Result := LoadLibrary(LActualLibPath);
@@ -616,6 +633,44 @@ begin
   Result := IntToHex(NativeUInt(AObject), SizeOf(Pointer) * 2);
 end;
 
+//==============================================================================
+// System
+//==============================================================================
+
+procedure InitializeFormatSettings;
+{$IFDEF LINUX}
+var
+  LData: string;
+begin
+  // todo: thousands_sep
+  // todo: locale -k LC_TIME LC_NUMERIC
+
+  //FormatSettings.CurrencyString := TACLProcess.ExecuteToString('locale currency_symbol');
+  //if FormatSettings.CurrencyString = '' then
+  //  FormatSettings.CurrencyString := InvariantFormatSettings.CurrencyString;
+
+  LData := TACLProcess.ExecuteToString('locale decimal_point');
+  if LData <> '' then
+  begin
+    if LData[1] = ',' then
+    begin
+      FormatSettings.DecimalSeparator := ',';
+      FormatSettings.ThousandSeparator := ' ';
+      FormatSettings.ListSeparator := ';';
+    end
+    else
+    begin
+      FormatSettings.DecimalSeparator := LData[1];
+      FormatSettings.ThousandSeparator := ',';
+      FormatSettings.ListSeparator := ',';
+    end;
+  end;
+
+{$ELSE}
+begin
+{$ENDIF}
+end;
+
 procedure MinimizeMemoryUsage;
 begin
 {$IFDEF MSWINDOWS}
@@ -721,25 +776,25 @@ type
   TLiveLogStream = class(TStream)
   strict private
     FBuffer: TACLStringBuilder;
-    FLog: IStringReceiver;
+    FLog: TACLStringEnumMethod;
     procedure Flush;
   public
-    constructor Create(ALog: IStringReceiver);
+    constructor Create(ALog: TACLStringEnumMethod);
     destructor Destroy; override;
-    class function Obtain(ALog: IStringReceiver): TLiveLogStream;
+    class function Obtain(ALog: TACLStringEnumMethod): TLiveLogStream;
     function Write(const Buffer; Count: Longint): Longint; override;
   end;
 
 { TLiveLogStream }
 
-class function TLiveLogStream.Obtain(ALog: IStringReceiver): TLiveLogStream;
+class function TLiveLogStream.Obtain(ALog: TACLStringEnumMethod): TLiveLogStream;
 begin
-  if ALog <> nil then
+  if Assigned(ALog) then
     Exit(TLiveLogStream.Create(ALog));
   Result := nil;
 end;
 
-constructor TLiveLogStream.Create(ALog: IStringReceiver);
+constructor TLiveLogStream.Create(ALog: TACLStringEnumMethod);
 begin
   FLog := ALog;
   FBuffer := TACLStringBuilder.Create(128);
@@ -756,7 +811,7 @@ procedure TLiveLogStream.Flush;
 begin
   if FBuffer.Length > 0 then
   begin
-    FLog.Add(FBuffer.ToString);
+    FLog(FBuffer.ToString);
     FBuffer.Length := 0;
   end;
 end;
@@ -892,6 +947,8 @@ begin
 end;
 {$ELSE}
 var
+  I: Integer;
+  LChildSignal: SigActionRec;
   LError: string;
   LExitCode: Integer;
   LOutput: string;
@@ -905,6 +962,9 @@ begin
     else
       LProcess.ShowWindow := swoHide;
 
+    for I := 1 to GetEnvironmentVariableCount - 1 do
+      LProcess.Environment.Add(GetEnvironmentString(I));
+
     if eoWaitForTerminate in AOptions then
     begin
       Result := LProcess.RunCommandLoop(LOutput, LError, LExitCode) = 0;
@@ -916,7 +976,18 @@ begin
         AOutputData.Write(PChar(LOutput)^, Length(LOutput));
     end
     else
+    begin
+      // If parent process don't react on SIGCHLD signals and (or) don't call
+      // wait function then zombee process's quantity will multiply until the
+      // parent process's termination.
+      LChildSignal := Default(SigActionRec);
+      LChildSignal.sa_handler := ChildSignalHandler;
+      FPSigAction(SIGCHLD, @LChildSignal, nil);
+
+      LProcess.InheritHandles := False;
+      LProcess.Options := [poDetached, poNewProcessGroup];
       LProcess.Execute;
+    end;
   finally
     LProcess.Free;
   end;
@@ -924,7 +995,7 @@ end;
 {$ENDIF}
 
 class function TACLProcess.Execute(const ACmdLine: string;
-  ALog: IStringReceiver; AOptions: TExecuteOptions = [eoShowGUI]): LongBool;
+  ALog: TACLStringEnumMethod; AOptions: TExecuteOptions = [eoShowGUI]): LongBool;
 var
   LErrorData: TStream;
   LExitCode: Cardinal;
@@ -934,14 +1005,14 @@ begin
   LErrorData := TLiveLogStream.Obtain(ALog);
   LOutputData := TLiveLogStream.Obtain(ALog);
   try
-    if ALog <> nil then
-      ALog.Add('Executing: ' + ACmdLine);
+    if Assigned(ALog) then
+      ALog('Executing: ' + ACmdLine);
     if Execute(ACmdLine, AOptions, LOutputData, LErrorData, @LExitCode) then
       Result := LExitCode = 0
     else
     begin
-      if ALog <> nil then
-        ALog.Add(acLastSystemErrorMessage);
+      if Assigned(ALog) then
+        ALog(acLastSystemErrorMessage);
       Result := False;
     end;
   finally
@@ -953,15 +1024,42 @@ end;
 class function TACLProcess.ExecuteToString(const ACmdLine: string): string;
 var
   LData: TStringStream;
+  LPos: Integer;
 begin
   LData := TStringStream.Create;
   try
     Execute(ACmdLine, [eoWaitForTerminate], LData);
     Result := LData.DataString;
+    // Trim trailing linebreaks
+    LPos := Length(Result);
+    while (LPos > 0) and CharInSet(Result[LPos], [#13, #10]) do
+      Dec(LPos);
+    SetLength(Result, LPos);
   finally
     LData.Free;
   end;
 end;
+
+{$IFDEF LINUX}
+class procedure TACLProcess.ChildSignalHandler(
+  signal: longint; info: psiginfo; context: psigcontext); cdecl;
+var
+  LStat: LongInt;
+begin
+  LStat := 0;
+  // When child process was ended it's bacame a zombee and system sending the
+  // SIGCHLD signal to the parent process. Parent process have will call wait
+  // (fpwait in freepascal) function when it accept the SIGCHLD signal.
+  //
+  // If parent process call wait function system send to parent process exit
+  // code of the child process and erase it's record and free it's pid.
+  //
+  // If parent process don't react on SIGCHLD signals and (or) don't call
+  // wait function then zombee process's quantity will multiply until the
+  // parent process's termination.
+  FpWait(LStat);
+end;
+{$ENDIF}
 
 {$IFDEF MSWINDOWS}
 class function TACLProcess.IsWow64: LongBool;
@@ -1015,15 +1113,7 @@ begin
   AWow64SetProc := TWow64SetProc(GetProcAddress(ALibHandle, 'Wow64EnableWow64FsRedirection'));
   Result := Assigned(AWow64SetProc) and AWow64SetProc(AValue);
 end;
-
 {$ENDIF}
-
-{ TACLInterfaceHelper }
-
-class function TACLInterfaceHelper<T>.GetGuid: TGUID;
-begin
-  Result := GetTypeData(TypeInfo(T))^.GUID;
-end;
 
 { TACLEnumHelper }
 
@@ -1071,6 +1161,24 @@ end;
 
 { Safe }
 
+class function Safe.AreEquals(AObj1, AObj2: TObject): Boolean;
+begin
+  try
+    Result := (AObj1 = AObj2) or (AObj1 <> nil) and AObj1.Equals(AObj2);
+  except
+    Result := False;
+  end;
+end;
+
+class procedure Safe.Call(AMethod: TThreadMethod);
+begin
+  try
+    AMethod();
+  except
+    // do nothing
+  end;
+end;
+
 class function Safe.Cast(AObject: TObject; AClass: TClass; out AValue): Boolean;
 begin
   Result := (AObject <> nil) and AObject.InheritsFrom(AClass);
@@ -1088,6 +1196,40 @@ begin
     Result := nil;
 end;
 
+class procedure Safe.FreeObject;
+var
+  LTemp: TObject;
+begin
+  try
+    LTemp := AObject;
+    PPointer(@AObject)^ := nil;
+    LTemp.Free;
+  except
+    // do nothing
+  end;
+end;
+
+class procedure Safe.Release(AIntf: PInterface);
+begin
+  try
+    AIntf^ := nil;
+  except
+    Pointer(AIntf^) := nil;
+  end;
+end;
+
+class function Safe.ToString(AObject: TObject): string;
+begin
+  if AObject <> nil then
+    Result := AObject.ToString
+  else
+    Result := '';
+end;
+
+class procedure Safe.WeakRelease(AIntf: PInterface);
+begin
+  Pointer(AIntf^) := nil;
+end;
 
 initialization
 {$IFDEF MSWINDOWS}

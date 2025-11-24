@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Generics and Collections
 //
@@ -28,11 +28,16 @@ uses
   {System.}Generics.Defaults,
   {System.}Math,
   {System.}Variants,
+  {System.}RTLConsts,
+  {System.}SysConst,
   {System.}SysUtils,
+  {System.}TypInfo,
   {System.}Types,
   // ACL
   ACL.Classes,
   ACL.FastCode,
+  ACL.Hashes,
+  ACL.Math,
   ACL.Threading,
   ACL.Utils.Common,
   ACL.Utils.Strings;
@@ -195,6 +200,13 @@ type
   {$ENDIF}
   end;
 
+  { TACLInterfaceHelper }
+
+  TACLInterfaceHelper<T: IUnknown> = class
+  public
+    class function GetGuid: TGUID; static;
+  end;
+
   { TACLListOf }
 
   TACLListCompareProc<T> = reference to function (const Left, Right: T): Integer;
@@ -247,7 +259,8 @@ type
     // Adding
     function Add(const Value: T): Integer;
     function AddIfAbsent(const Value: T): Integer;
-    procedure AddRange(const ASource: TACLListOf<T>);
+    procedure AddRange(const ASource: TACLListOf<T>); overload;
+    procedure AddRange(const ASource: IACLEnumerable<T>); overload;
     procedure Assign(const ASource: TACLListOf<T>);
     procedure Insert(Index: Integer; const Value: T); overload;
     procedure Insert(Index: Integer; const Values: array of T); overload;
@@ -267,6 +280,7 @@ type
     procedure Delete(Index: Integer);
     procedure DeleteRange(AIndex, ACount: Integer);
     function Extract(const Value: T): T;
+    function ExtractAt(AIndex: Integer): T;
     function Remove(const Value: T): Integer;
     procedure Pack;
 
@@ -321,10 +335,27 @@ type
 
   { TACLListenerList }
 
-  TACLListenerListEnumProc<T> = reference to procedure (const Intf: T);
-  TACLListenerListEnumProc = TACLListenerListEnumProc<IUnknown>;
-
   TACLListenerList = class
+  strict private type
+  {$REGION ' Enumerator '}
+    TEnumerator<T: IUnknown> = class(TInterfacedObject,
+      IACLEnumerable<T>,
+      IACLEnumerator<T>)
+    strict private
+      FCurrent: T;
+      FGuid: TGUID;
+      FGuidAssigned: Boolean;
+      FIndex: Integer;
+      FOwner: TACLListenerList;
+      FPrevEnumerable: IUnknown;
+    public
+      constructor Create(AOwner: TACLListenerList);
+      destructor Destroy; override;
+      function GetCurrent: T;
+      function GetEnumerator: IACLEnumerator<T>;
+      function MoveNext: Boolean;
+    end;
+  {$ENDREGION}
   strict private
     FData: TACLInterfaceList;
     FEnumerable: IUnknown;
@@ -342,8 +373,7 @@ type
     procedure Add(const AListener: IUnknown);
     procedure Clear;
     function Contains(const IID: TGUID): Boolean;
-    procedure Enum(AProc: TACLListenerListEnumProc<IUnknown>); overload;
-    procedure Enum<T: IUnknown>(AProc: TACLListenerListEnumProc<T>); overload;
+    function Enumerate<T: IUnknown>: IACLEnumerable<T>;
     procedure Remove(const AListener: IUnknown);
     //# Properties
     property Count: Integer read GetCount;
@@ -365,8 +395,8 @@ type
   public
     constructor Create(AOwnsObjects: Boolean = True);
     function Add(AObject: TObject): Integer;
-    function Extract(AIndex: Integer): TObject; overload;
-    function Extract(AItem: TObject): TObject; overload;
+    function Extract(AItem: TObject): TObject;
+    function ExtractAt(AIndex: Integer): TObject;
     function First: TObject;
     function Last: TObject;
     function Remove(AObject: TObject): Integer;
@@ -787,12 +817,9 @@ function GrowCollection(OldCapacity, NewCount: Integer): Integer;
 {$ENDIF}
 implementation
 
-uses
-  {System.}RTLConsts,
-  {System.}SysConst,
-  {System.}TypInfo,
-  // ACL
-  ACL.Hashes;
+// FPC:
+//   Do not specify uses here
+//   It may lead to 20231102 internal error
 
 {$IFDEF FPC}
 function GrowCollection(OldCapacity, NewCount: Integer): Integer;
@@ -1145,6 +1172,13 @@ begin
     Result := Add(Value);
 end;
 
+procedure TACLListOf<T>.AddRange(const ASource: IACLEnumerable<T>);
+var
+  LItem: T;
+begin
+  for LItem in ASource do Add(LItem);
+end;
+
 procedure TACLListOf<T>.AddRange(const ASource: TACLListOf<T>);
 begin
   Insert(Count, ASource.List, ASource.Count);
@@ -1321,17 +1355,19 @@ begin
 end;
 
 function TACLListOf<T>.Extract(const Value: T): T;
-var
-  AIndex: Integer;
 begin
-  AIndex := IndexOf(Value);
-  if AIndex < 0 then
-    Result := {%H-}Default(T)
-  else
+  Result := ExtractAt(IndexOf(Value));
+end;
+
+function TACLListOf<T>.ExtractAt(AIndex: Integer): T;
+begin
+  if IsValid(AIndex) then
   begin
     Result := FItems[AIndex];
     DeleteRangeCore(AIndex, 1, cnExtracted);
-  end;
+  end
+  else
+    Result := {%H-}Default(T);
 end;
 
 function TACLListOf<T>.Remove(const Value: T): Integer;
@@ -1665,7 +1701,7 @@ begin
       L.Add(List[I]);
     for I := 0 to Count - 1 do
     begin
-      J := Random(L.Count);
+      J := acRandom(L.Count);
       List[I] := L.List[J];
       L.Delete(J);
     end;
@@ -2455,46 +2491,9 @@ begin
   end;
 end;
 
-procedure TACLListenerList.Enum(AProc: TACLListenerListEnumProc<IUnknown>);
+function TACLListenerList.Enumerate<T>: IACLEnumerable<T>;
 begin
-  Enum<IUnknown>(AProc);
-end;
-
-procedure TACLListenerList.Enum<T>(AProc: TACLListenerListEnumProc<T>);
-var
-  AEnumerable: IUnknown;
-  AGuid: TGUID;
-  AGuidAssigned: Boolean;
-  AIndex: Integer;
-  AIntf: T;
-begin
-  Lock.Enter;
-  try
-    AEnumerable := FEnumerable; // recursive call
-    try
-      AIndex := 0;
-      AGuid := TACLInterfaceHelper<T>.GetGUID;
-      AGuidAssigned := AGuid <> IUnknown;
-      while AIndex < FData.Count do
-      begin
-        FEnumerable := FData.List[AIndex];
-        if AGuidAssigned then
-        begin
-          if Supports(FEnumerable, AGuid, AIntf) then
-            AProc(AIntf);
-        end
-        else
-          AProc(T(FEnumerable));
-
-        if FEnumerable <> nil then
-          Inc(AIndex);
-      end;
-    finally
-      FEnumerable := AEnumerable;
-    end;
-  finally
-    Lock.Leave;
-  end;
+  Result := TEnumerator<T>.Create(Self);
 end;
 
 function TACLListenerList.GetCount: Integer;
@@ -2522,9 +2521,61 @@ begin
   CallNotifyEvent(Self, OnChange);
 end;
 
-procedure TACLListenerList.ChangeHandler(Sender: TObject; const Item: IInterface; Action: TCollectionNotification);
+procedure TACLListenerList.ChangeHandler(Sender: TObject;
+  const Item: IInterface; Action: TCollectionNotification);
 begin
   Changed;
+end;
+
+{ TACLListenerList.TEnumerator<T> }
+
+constructor TACLListenerList.TEnumerator<T>.Create(AOwner: TACLListenerList);
+begin
+  FOwner := AOwner;
+  FOwner.Lock.Enter;
+  FGuid := TACLInterfaceHelper<T>.GetGUID;
+  FGuidAssigned := FGuid <> IUnknown;
+  FPrevEnumerable := FOwner.FEnumerable; // for recursive calls
+  FOwner.FEnumerable := nil;
+end;
+
+destructor TACLListenerList.TEnumerator<T>.Destroy;
+begin
+  FOwner.FEnumerable := FPrevEnumerable;
+  FOwner.Lock.Leave;
+  inherited;
+end;
+
+function TACLListenerList.TEnumerator<T>.GetCurrent: T;
+begin
+  Result := FCurrent;
+end;
+
+function TACLListenerList.TEnumerator<T>.GetEnumerator: IACLEnumerator<T>;
+begin
+  Result := Self;
+end;
+
+function TACLListenerList.TEnumerator<T>.MoveNext: Boolean;
+begin
+  repeat
+    // допускаем удаление элемента из списка во время обработки Enum-а
+    if FOwner.FEnumerable <> nil then
+      Inc(FIndex);
+    if FIndex >= FOwner.Count then
+      Exit(False);
+    FOwner.FEnumerable := FOwner.FData.List[FIndex];
+    if FGuidAssigned then
+    begin
+      if Supports(FOwner.FEnumerable, FGuid, FCurrent) then
+        Exit(True);
+    end
+    else
+    begin
+      FCurrent := T(FOwner.FEnumerable);
+      Exit(True);
+    end;
+  until False;
 end;
 
 { TACLObjectList }
@@ -2540,7 +2591,12 @@ begin
   Result := inherited Add(AObject);
 end;
 
-function TACLObjectList.Extract(AIndex: Integer): TObject;
+function TACLObjectList.Extract(AItem: TObject): TObject;
+begin
+  Result := ExtractAt(IndexOf(AItem));
+end;
+
+function TACLObjectList.ExtractAt(AIndex: Integer): TObject;
 begin
   Result := nil;
   if IsValid(AIndex) then
@@ -2550,11 +2606,6 @@ begin
     Delete(AIndex);
     Notify(Result, lnExtracted);
   end;
-end;
-
-function TACLObjectList.Extract(AItem: TObject): TObject;
-begin
-  Result := Extract(IndexOf(AItem));
 end;
 
 function TACLObjectList.First: TObject;
@@ -3135,7 +3186,7 @@ var
   ATempItem: TItem;
   I: Integer;
 begin
-  for I := 0 to FTableSize - 1 do
+  for I := Low(FTable) to High(FTable) do
   begin
     AItem := FTable[I];
     FTable[I] := nil;
@@ -3318,6 +3369,13 @@ begin
       Exit(I);
   end;
   Result := -1;
+end;
+
+{ TACLInterfaceHelper }
+
+class function TACLInterfaceHelper<T>.GetGuid: TGUID;
+begin
+  Result := GetTypeData(TypeInfo(T))^.GUID;
 end;
 
 end.

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ComboBox
 //
@@ -31,12 +31,14 @@ uses
   {System.}Math,
   {System.}SysUtils,
   {System.}Types,
+  System.UITypes,
   // VCL
   {Vcl.}Controls,
   {Vcl.}Graphics,
   // ACL
   ACL.MUI,
   ACL.Graphics.SkinImage,
+  ACL.Graphics.SkinImageSet,
   ACL.ObjectLinks,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.BaseEditors,
@@ -50,11 +52,27 @@ uses
   ACL.UI.Forms,
   ACL.UI.Insight,
   ACL.UI.Resources,
+  ACL.Threading,
   ACL.Utils.Common,
+  ACL.Utils.DPIAware,
   ACL.Utils.Strings;
 
 type
-  TACLComboBox = class;
+{$REGION ' Abstract '}
+
+  { TACLAbstractComboBox }
+
+  TACLAbstractComboBox = class(TACLAbstractDropDownEdit)
+  protected
+    procedure CalculateButtons(var ARect: TRect; AIndent: Integer); override;
+    function CreateDropDownButton: TACLButtonSubClass; override;
+    function CreateStyleButton: TACLStyleButton; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+  end;
+
+{$ENDREGION}
+
+{$REGION ' Basic '}
 
   { TACLStyleDropDownList }
 
@@ -63,89 +81,66 @@ type
     procedure InitializeResources; override;
   end;
 
-  { TACLCustomComboBox }
+  { TACLBasicComboBox }
 
-  TACLCustomComboBox = class(TACLCustomDropDownEdit)
+  TACLComboBoxCustomDrawEvent =
+    procedure (Sender: TObject; ACanvas: TCanvas; const ABounds: TRect) of object;
+  TACLComboBoxCustomDrawItemEvent = procedure (Sender: TObject; ACanvas: TCanvas;
+    const ABounds: TRect; AIndex: Integer; var AHandled: Boolean) of object;
+  TACLComboBoxDeleteItemObjectEvent =
+    procedure (Sender: TObject; AItemObject: TObject) of object;
+  TACLComboBoxGetDisplayItemTextEvent =
+    procedure (Sender: TObject; AIndex: Integer; var AText: string) of object;
+  TACLComboBoxGetDisplayTextEvent =
+    procedure (Sender: TObject; var AText: string) of object;
+  TACLComboBoxPrepareDropDownListEvent =
+    procedure (Sender: TObject; AList: TACLTreeListSubClass) of object;
+
+  TACLBasicComboBox = class(TACLAbstractComboBox)
   strict private
+    FContentBounds: TRect;
+    FLoadedItemIndex: Integer;
     FDropDownListSize: Integer;
     FStyleDropDownList: TACLStyleTreeList;
     FStyleDropDownListScrollBox: TACLStyleScrollBox;
 
-    procedure SetDropDownListSize(AValue: Integer);
-    procedure SetStyleDropDownList(const Value: TACLStyleTreeList);
-    procedure SetStyleDropDownListScrollBox(const Value: TACLStyleScrollBox);
-  protected
-    function CreateStyleButton: TACLStyleButton; override;
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure SetTargetDPI(AValue: Integer); override;
-    //# Properties
-    property DropDownListSize: Integer
-      read FDropDownListSize write SetDropDownListSize default 8;
-    property StyleDropDownList: TACLStyleTreeList
-      read FStyleDropDownList write SetStyleDropDownList;
-    property StyleDropDownListScrollBox: TACLStyleScrollBox
-      read FStyleDropDownListScrollBox write SetStyleDropDownListScrollBox;
-  public
-    constructor Create(AOwner: TComponent); override;
-    destructor Destroy; override;
-  end;
-
-  { TACLCustomComboBoxDropDown }
-
-  TACLCustomComboBoxDropDown = class(TACLPopupWindow)
-  strict private
-    FCapturedObject: TObject;
-    FControl: TACLTreeList;
-    FOwner: TACLCustomComboBox;
-
-    function CalculateHeight: Integer;
-    procedure HandlerMouseDown(Sender: TObject;
-      Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure HandlerMouseUp(Sender: TObject;
-      Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-  protected
-    procedure DoClick(AHitTest: TACLTreeListHitTest); virtual;
-    procedure PopulateList(AList: TACLTreeList); virtual; abstract;
-  public
-    constructor Create(AOwner: TComponent); override;
-    procedure AdjustSize; override;
-    //# Properties
-    property Owner: TACLCustomComboBox read FOwner;
-    property Control: TACLTreeList read FControl;
-  end;
-
-  { TACLBasicComboBox }
-
-  TACLComboBoxCustomDrawItemEvent = procedure (Sender: TObject;
-    Canvas: TCanvas; const R: TRect; Index: Integer; var Handled: Boolean) of object;
-  TACLComboBoxDeleteItemObjectEvent = procedure (Sender: TObject; ItemObject: TObject) of object;
-  TACLComboBoxGetDisplayTextEvent = procedure (Sender: TObject; Index: Integer; var Text: string) of object;
-  TACLComboBoxPrepareDropDownListEvent = procedure (Sender: TObject; List: TACLTreeList) of object;
-
-  TACLBasicComboBox = class(TACLCustomComboBox)
-  strict private
-    FLoadedItemIndex: Integer;
-
+    FOnCustomDraw: TACLComboBoxCustomDrawEvent;
     FOnCustomDrawItem: TACLComboBoxCustomDrawItemEvent;
     FOnDeleteItemObject: TACLComboBoxDeleteItemObjectEvent;
-    FOnGetDisplayItemGroupName: TACLComboBoxGetDisplayTextEvent;
-    FOnGetDisplayItemName: TACLComboBoxGetDisplayTextEvent;
+    FOnGetDisplayItemGroupName: TACLComboBoxGetDisplayItemTextEvent;
+    FOnGetDisplayItemName: TACLComboBoxGetDisplayItemTextEvent;
+    FOnGetDisplayText: TACLComboBoxGetDisplayTextEvent;
     FOnPrepareDropDownData: TNotifyEvent;
     FOnPrepareDropDownList: TACLComboBoxPrepareDropDownListEvent;
     FOnSelect: TNotifyEvent;
 
-    procedure WMGetDlgCode(var Message: TWMGetDlgCode); message WM_GETDLGCODE;
+    function GetDisplayText: string;
+    procedure SetDropDownListSize(AValue: Integer);
+    procedure SetStyleDropDownList(AValue: TACLStyleTreeList);
+    procedure SetStyleDropDownListScrollBox(AValue: TACLStyleScrollBox);
+    // Messages
+    procedure CMExit(var Message: TMessage); message CM_EXIT;
   protected
     FChangeLockCount: Integer;
     FItemIndex: Integer;
 
+    procedure CalculateContent(ARect: TRect); override;
     function GetCount: Integer; virtual; abstract;
+    function GetDropDownList(out AList: TACLTreeListSubClass): Boolean;
     procedure ItemIndexChanged; virtual;
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
     procedure Loaded; override;
+    procedure PaintCore; override;
+    procedure PostValue(AItemIndex: Integer; const AItemText: string);
     procedure SetItemIndex(AValue: Integer); virtual;
-    function TextToDisplayText(const AText: string): string; override;
+    procedure SetTargetDPI(AValue: Integer); override;
     function ValidateItemIndex(AValue: Integer): Integer;
+
+    // Keyboard
+    function IsDropDownKey(Key: Word; Shift: TShiftState): Boolean; overload; virtual;
+    function IsDropDownKey(Key: WideChar): Boolean; overload; virtual;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyChar(var Key: WideChar); override;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
 
     // Events
     procedure DoBeforeRemoveItem(AObject: TObject); virtual;
@@ -155,11 +150,20 @@ type
     procedure DoGetDisplayText(AIndex: Integer; var AText: string); virtual;
     procedure DoGetGroupName(AIndex: Integer; var AText: string); virtual;
     procedure DoPrepareDropDownData;
-    procedure DoPrepareDropDownList(AList: TACLTreeList); virtual;
+    procedure DoPrepareDropDownList(AList: TACLTreeListSubClass); virtual;
     procedure DoSelect; virtual;
+
+    //# Properties
+    property DropDownListSize: Integer
+      read FDropDownListSize write SetDropDownListSize default 8;
+    property StyleDropDownList: TACLStyleTreeList
+      read FStyleDropDownList write SetStyleDropDownList;
+    property StyleDropDownListScrollBox: TACLStyleScrollBox
+      read FStyleDropDownListScrollBox write SetStyleDropDownListScrollBox;
   public
     constructor Create(AOwner: TComponent); override;
     constructor CreateInplace(const AParams: TACLInplaceInfo); override;
+    destructor Destroy; override;
     procedure ChangeItemIndex(AValue: Integer); virtual;
     function MouseWheel(Direction: TACLMouseWheelDirection;
       Shift: TShiftState; const MousePos: TPoint): Boolean; override;
@@ -168,13 +172,17 @@ type
     property Count: Integer read GetCount;
     property ItemIndex: Integer read FItemIndex write SetItemIndex default -1;
     //# Events
+    property OnCustomDraw: TACLComboBoxCustomDrawEvent
+      read FOnCustomDraw write FOnCustomDraw;
     property OnCustomDrawItem: TACLComboBoxCustomDrawItemEvent
       read FOnCustomDrawItem write FOnCustomDrawItem;
     property OnDeleteItemObject: TACLComboBoxDeleteItemObjectEvent
       read FOnDeleteItemObject write FOnDeleteItemObject;
-    property OnGetDisplayItemGroupName: TACLComboBoxGetDisplayTextEvent
+    property OnGetDisplayText: TACLComboBoxGetDisplayTextEvent
+      read FOnGetDisplayText write FOnGetDisplayText;
+    property OnGetDisplayItemGroupName: TACLComboBoxGetDisplayItemTextEvent
       read FOnGetDisplayItemGroupName write FOnGetDisplayItemGroupName;
-    property OnGetDisplayItemName: TACLComboBoxGetDisplayTextEvent
+    property OnGetDisplayItemName: TACLComboBoxGetDisplayItemTextEvent
       read FOnGetDisplayItemName write FOnGetDisplayItemName;
     property OnPrepareDropDownData: TNotifyEvent
       read FOnPrepareDropDownData write FOnPrepareDropDownData;
@@ -185,27 +193,57 @@ type
 
   { TACLBasicComboBoxDropDown }
 
-  TACLBasicComboBoxDropDown = class(TACLCustomComboBoxDropDown)
+  TACLBasicComboBoxDropDown = class(TACLPopupWindow,
+    IACLControl,
+    IACLCompoundControlSubClassContainer,
+    IACLCursorProvider)
   strict private
-    function GetOwnerEx: TACLBasicComboBox;
-  protected
-    procedure DoClick(AHitTest: TACLTreeListHitTest); override;
-    procedure DoCustomDraw(Sender: TObject; ACanvas: TCanvas;
-      const R: TRect; ANode: TACLTreeListNode; var AHandled: Boolean);
-    procedure DoGetGroupName(Sender: TObject; ANode: TACLTreeListNode; var AGroupName: string);
-    procedure DoKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
-    procedure DoSelectItem;
-    procedure DoShow; override;
+    FCapturedObject: TObject;
+    FList: TACLTreeListSubClass;
+    FOwner: TACLBasicComboBox;
 
-    function AddItem(AList: TACLTreeList; ACaption: string): TACLTreeListNode;
-    procedure PopulateList(AList: TACLTreeList); override; final;
-    procedure PopulateListCore(AList: TACLTreeList); virtual; abstract;
+    function CalculateHeight: Integer;
+    // IACLControl
+    function GetFont: TFont;
+    procedure InvalidateRect(const R: TRect);
+    // IACLCompoundControlSubClassContainer
+    function GetControl: TWinControl;
+    function GetFocused: Boolean;
+    // IACLCursorProvider
+    function GetCursor(const P: TPoint): TCursor; reintroduce;
+    // Handlers
+    procedure HandlerCustomDraw(Sender: TObject; ACanvas: TCanvas;
+      const R: TRect; ANode: TACLTreeListNode; var AHandled: Boolean);
+    procedure HandlerGetGroupName(Sender: TObject;
+      ANode: TACLTreeListNode; var AGroupName: string);
+    procedure HandlerIncSearch(Sender: TObject);
+    // Messages
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
+  protected
+    procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+    procedure DoInit; virtual; abstract;
+    procedure DoShow; override;
+    procedure DpiChanged; override;
+
+    //# Mouse
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    //# Drawing
+    procedure Paint; override;
+
+    function AddItem(ACaption: string): TACLTreeListNode;
     procedure SyncItemIndex;
+    procedure WndProc(var Message: TMessage); override;
   public
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    procedure AdjustSize; override;
     procedure AfterConstruction; override;
+    procedure ClosePopup(AAccept: Boolean); reintroduce;
     //# Properties
-    property Owner: TACLBasicComboBox read GetOwnerEx;
+    property Owner: TACLBasicComboBox read FOwner;
+    property List: TACLTreeListSubClass read FList;
   end;
 
   { TACLBasicComboBoxUIInsightAdapter }
@@ -215,38 +253,48 @@ type
     class function GetCaption(AObject: TObject; out AValue: string): Boolean; override;
   end;
 
+{$ENDREGION}
+
+{$REGION ' ComboBox '}
+
   { TACLComboBox }
+
+  {$SCOPEDENUMS ON}
+  TACLComboBoxAutoCompleteMode = (False, Standard, Lookup);
+  {$SCOPEDENUMS OFF}
 
   TACLComboBoxMode = (cbmEdit, cbmList);
   TACLComboBox = class(TACLBasicComboBox)
   strict private
-    FAutoComplete: Boolean;
+    FAutoComplete: TACLComboBoxAutoCompleteMode;
     FAutoCompletionLastKey: Word;
     FItems: TStrings;
     FMode: TACLComboBoxMode;
+    FTextChangeLockCount: Integer;
 
+    procedure DoAutoComplete;
     function GetHasSelection: Boolean;
     function GetSelectedObject: TObject;
     procedure SetItems(AItems: TStrings);
     procedure SetMode(AValue: TACLComboBoxMode);
   protected
-    function CalculateEditorPosition: TRect; override;
-    function CanAutoComplete: Boolean;
-    function CanDropDown(X: Integer; Y: Integer): Boolean; override;
-    function CanOpenEditor: Boolean; override;
     function CreateDropDownWindow: TACLPopupWindow; override;
-    function CreateEditor: TWinControl; override;
 
+    // Keyboard
+    function IsDropDownKey(Key: WideChar): Boolean; overload; override;
+    function IsDropDownKey(Key: Word; Shift: TShiftState): Boolean; overload; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+
+    // Data
     function GetCount: Integer; override;
     procedure ItemIndexChanged; override;
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
     procedure SetItemIndex(AValue: Integer); override;
     procedure SetTextCore(const AValue: string); override;
     procedure SynchronizeText;
+    procedure TextChanged; override;
 
     // Events
     procedure DoStringChanged; virtual;
-    procedure DoTextFromEditorChanged(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
     constructor CreateInplace(const AParams: TACLInplaceInfo); override;
@@ -260,7 +308,8 @@ type
     property SelectedObject: TObject read GetSelectedObject;
     property Value;
   published
-    property AutoComplete: Boolean read FAutoComplete write FAutoComplete default True;
+    property AutoComplete: TACLComboBoxAutoCompleteMode
+      read FAutoComplete write FAutoComplete default TACLComboBoxAutoCompleteMode.Standard;
     property AutoSize;
     property Borders;
     property Buttons;
@@ -278,6 +327,7 @@ type
     property StyleDropDownList;
     property StyleDropDownListScrollBox;
     property Text;
+    property TextHint;
     //# Events
     property OnChange;
     property OnCustomDraw;
@@ -286,6 +336,7 @@ type
     property OnDropDown;
     property OnGetDisplayItemGroupName;
     property OnGetDisplayItemName;
+    property OnGetDisplayText;
     property OnPrepareDropDownList;
     property OnSelect;
   end;
@@ -294,17 +345,29 @@ type
 
   TACLComboBoxDropDown = class(TACLBasicComboBoxDropDown)
   protected
-    procedure PopulateListCore(AList: TACLTreeList); override;
+    procedure DoInit; override;
   public
     constructor Create(AOwner: TComponent); override;
+  end;
+
+  { TACLComboBoxDropDownButton }
+
+  TACLComboBoxDropDownButton = class(TACLButtonSubClass)
+  protected
+    procedure DrawBackground(ACanvas: TCanvas; const R: TRect); override;
+  public
+    procedure AfterConstruction; override;
   end;
 
   { TACLComboBoxUIInsightAdapter }
 
   TACLComboBoxUIInsightAdapter = class(TACLBasicComboBoxUIInsightAdapter)
   public
-    class procedure GetChildren(AObject: TObject; ABuilder: TACLUIInsightSearchQueueBuilder); override;
+    class procedure GetChildren(AObject: TObject;
+      ABuilder: TACLUIInsightSearchQueueBuilder); override;
   end;
+
+{$ENDREGION}
 
 implementation
 
@@ -343,6 +406,8 @@ begin
 end;
 {$ENDIF}
 
+{$REGION ' Abstract '}
+
 { TACLStyleDropDownList }
 
 procedure TACLStyleDropDownList.InitializeResources;
@@ -351,158 +416,596 @@ begin
   BorderColor.InitailizeDefaults('EditBox.Colors.BorderFocused', True);
 end;
 
-{ TACLCustomComboBox }
+{ TACLAbstractComboBox }
 
-constructor TACLCustomComboBox.Create(AOwner: TComponent);
+procedure TACLAbstractComboBox.CalculateButtons(var ARect: TRect; AIndent: Integer);
+var
+  LRect: TRect;
 begin
-  inherited Create(AOwner);
-  FDropDownListSize := 8;
-  FStyleDropDownList := TACLStyleDropDownList.Create(Self);
-  FStyleDropDownListScrollBox := TACLStyleScrollBox.Create(Self);
+  inherited;
+  if DropDownButtonVisible then
+  begin
+    LRect := ARect;
+    LRect.Inflate(-AIndent);
+    DropDownButton.Calculate(LRect.Split(srRight, StyleButton.Texture.FrameWidth));
+    ARect.Right := DropDownButton.Bounds.Left;
+  end
+  else
+    DropDownButton.Calculate(NullRect);
 end;
 
-destructor TACLCustomComboBox.Destroy;
+function TACLAbstractComboBox.CreateDropDownButton: TACLButtonSubClass;
 begin
-  FreeAndNil(FStyleDropDownListScrollBox);
-  FreeAndNil(FStyleDropDownList);
-  inherited Destroy;
+  Result := TACLComboBoxDropDownButton.Create(Self, StyleButton);
 end;
 
-function TACLCustomComboBox.CreateStyleButton: TACLStyleButton;
+function TACLAbstractComboBox.CreateStyleButton: TACLStyleButton;
 begin
   Result := TACLStyleEditButton.Create(Self);
 end;
 
-procedure TACLCustomComboBox.KeyDown(var Key: Word; Shift: TShiftState);
+procedure TACLAbstractComboBox.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
-  inherited KeyDown(Key, Shift);
-  if acIsDropDownCommand(Key, Shift) then
-    DroppedDown := True;
+  if (Button = mbLeft) and not FEditBox.Iteract and
+    (SubClasses.HitTest(Point(X, Y)) = FEditBox)
+  then
+    DroppedDown := True
+  else
+    inherited;
+end;
+{$ENDREGION}
+
+{$REGION ' Basic '}
+
+{ TACLBasicComboBox }
+
+constructor TACLBasicComboBox.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+  FEditBox.OnDisplayFormat := GetDisplayText;
+  FStyleDropDownList := TACLStyleDropDownList.Create(Self);
+  FStyleDropDownListScrollBox := TACLStyleScrollBox.Create(Self);
+  FDropDownListSize := 8;
+  FLoadedItemIndex := -1;
+  FItemIndex := -1;
 end;
 
-procedure TACLCustomComboBox.SetTargetDPI(AValue: Integer);
+constructor TACLBasicComboBox.CreateInplace(const AParams: TACLInplaceInfo);
+begin
+  inherited CreateInplace(AParams);
+  OnSelect := AParams.OnApply;
+end;
+
+destructor TACLBasicComboBox.Destroy;
+begin
+  FreeAndNil(FStyleDropDownListScrollBox);
+  FreeAndNil(FStyleDropDownList);
+  inherited;
+end;
+
+procedure TACLBasicComboBox.CalculateContent(ARect: TRect);
+begin
+  FContentBounds := ARect;
+  inherited;
+end;
+
+procedure TACLBasicComboBox.ChangeItemIndex(AValue: Integer);
+begin
+  if csLoading in ComponentState then
+  begin
+    FLoadedItemIndex := AValue;
+    Exit;
+  end;
+
+  FItemIndex := ValidateItemIndex(AValue);
+  ItemIndexChanged;
+  Invalidate;
+end;
+
+procedure TACLBasicComboBox.CMExit(var Message: TMessage);
+begin
+  HideDropDownWindowPostponed;
+  inherited;
+end;
+
+procedure TACLBasicComboBox.DoBeforeRemoveItem(AObject: TObject);
+begin
+  if Assigned(OnDeleteItemObject) then
+    OnDeleteItemObject(Self, AObject);
+end;
+
+procedure TACLBasicComboBox.DoCustomDrawItem(
+  ACanvas: TCanvas; const R: TRect; AIndex: Integer; var AHandled: Boolean);
+begin
+  if Assigned(OnCustomDrawItem) then
+    OnCustomDrawItem(Self, ACanvas, R, AIndex, AHandled);
+end;
+
+procedure TACLBasicComboBox.DoDropDown;
+begin
+  DoPrepareDropDownData;
+  inherited;
+end;
+
+procedure TACLBasicComboBox.DoGetDisplayText(AIndex: Integer; var AText: string);
+begin
+  if Assigned(OnGetDisplayItemName) then
+    OnGetDisplayItemName(Self, AIndex, AText);
+end;
+
+procedure TACLBasicComboBox.DoGetGroupName(AIndex: Integer; var AText: string);
+begin
+  if Assigned(OnGetDisplayItemGroupName) then
+    OnGetDisplayItemGroupName(Self, AIndex, AText);
+end;
+
+procedure TACLBasicComboBox.DoSelect;
+begin
+  CallNotifyEvent(Self, OnSelect);
+end;
+
+procedure TACLBasicComboBox.DoPrepareDropDownData;
+begin
+  if Count = 0 then
+    CallNotifyEvent(Self, OnPrepareDropDownData);
+end;
+
+procedure TACLBasicComboBox.DoPrepareDropDownList(AList: TACLTreeListSubClass);
+begin
+  if Assigned(OnPrepareDropDownList) then
+    OnPrepareDropDownList(Self, AList);
+end;
+
+function TACLBasicComboBox.GetDisplayText: string;
+begin
+  Result := FEditBox.Text;
+  if Assigned(OnGetDisplayText) then
+    OnGetDisplayText(Self, Result)
+  else
+    if Assigned(OnGetDisplayItemName) and (ItemIndex >= 0) then
+      OnGetDisplayItemName(Self, ItemIndex, Result);
+end;
+
+function TACLBasicComboBox.GetDropDownList(out AList: TACLTreeListSubClass): Boolean;
+begin
+  Result := DroppedDown;
+  if Result then
+    AList := TACLBasicComboBoxDropDown(DropDownWindow).List
+end;
+
+function TACLBasicComboBox.IsDropDownKey(Key: Word; Shift: TShiftState): Boolean;
+begin
+  Result := True;
+end;
+
+function TACLBasicComboBox.IsDropDownKey(Key: WideChar): Boolean;
+begin
+  Result := True;
+end;
+
+procedure TACLBasicComboBox.ItemIndexChanged;
+begin
+  if DroppedDown then
+    TACLBasicComboBoxDropDown(DropDownWindow).SyncItemIndex;
+  if (FChangeLockCount = 0) and not (csLoading in ComponentState) then
+  begin
+    DoSelect;
+    Changed;
+  end;
+end;
+
+procedure TACLBasicComboBox.KeyChar(var Key: WideChar);
+var
+  LDropDownList: TACLTreeListSubClass;
+begin
+  if GetDropDownList(LDropDownList) and IsDropDownKey(Key) then
+    LDropDownList.KeyChar(Key)
+  else
+    inherited;
+end;
+
+procedure TACLBasicComboBox.KeyDown(var Key: Word; Shift: TShiftState);
+var
+  LDropDownList: TACLTreeListSubClass;
+  LIndex: Integer;
+begin
+  if GetDropDownList(LDropDownList) and IsDropDownKey(Key, Shift) then
+  begin
+    LDropDownList.KeyDown(Key, Shift);
+    Exit;
+  end;
+
+  inherited;
+
+  if [ssShift, ssAlt, ssCtrl] * Shift = [] then
+  begin
+    case Key of
+      vkUp:
+        begin
+          DoPrepareDropDownData;
+          LIndex := Max(0, ItemIndex - 1);
+        end;
+      vkDown:
+        begin
+          DoPrepareDropDownData;
+          LIndex := Min(Count - 1, ItemIndex + 1);
+        end;
+    else
+      Exit;
+    end;
+
+    if LIndex <> ItemIndex then
+    begin
+      ItemIndex := LIndex;
+      Execute(eaSelectAll);
+    end;
+    Key := 0;
+  end;
+end;
+
+procedure TACLBasicComboBox.KeyUp(var Key: Word; Shift: TShiftState);
+var
+  LDropDownList: TACLTreeListSubClass;
+begin
+  if GetDropDownList(LDropDownList) and IsDropDownKey(Key, Shift) then
+  begin
+    LDropDownList.KeyUp(Key, Shift);
+    case Key of
+      vkReturn, vkEscape:
+        TACLBasicComboBoxDropDown(DropDownWindow).ClosePopup(Key = VK_RETURN);
+    end;
+  end
+  else
+    inherited;
+end;
+
+procedure TACLBasicComboBox.Loaded;
+begin
+  inherited;
+  ItemIndex := FLoadedItemIndex;
+end;
+
+procedure TACLBasicComboBox.LockChanges(ALock: Boolean);
+begin
+  if ALock then
+    Inc(FChangeLockCount)
+  else
+    Dec(FChangeLockCount);
+end;
+
+function TACLBasicComboBox.MouseWheel(Direction: TACLMouseWheelDirection;
+  Shift: TShiftState; const MousePos: TPoint): Boolean;
+var
+  LList: TACLTreeListSubClass;
+begin
+  Result := inherited;
+  if not Result then
+  begin
+    if GetDropDownList(LList) then
+      LList.MouseWheel(Direction, Shift)
+    else
+    begin
+      DoPrepareDropDownData;
+      ItemIndex := Max(0, ItemIndex - TACLMouseWheel.DirectionToInteger[Direction]);
+    end;
+    Result := True;
+  end;
+end;
+
+procedure TACLBasicComboBox.PaintCore;
+begin
+  inherited;
+  if Assigned(OnCustomDraw) then
+    OnCustomDraw(Self, Canvas, FContentBounds);
+end;
+
+procedure TACLBasicComboBox.PostValue(AItemIndex: Integer; const AItemText: string);
+begin
+  // Если в OnSelect возникнет мобальный диалог с подтверждением -
+  // он сфорсирует закрытие дропа, что приведет к разрушению стэка вызова.
+  TACLMainThread.RunPostponed(
+    procedure
+    begin
+      if InRange(AItemIndex, 0, Count - 1) then
+        SetItemIndex(AItemIndex)
+      else // если список является лукапом и заполнился на эвенте
+        Text := AItemText;
+      Execute(eaSelectAll);
+    end, Self);
+end;
+
+procedure TACLBasicComboBox.SetDropDownListSize(AValue: Integer);
+begin
+  FDropDownListSize := EnsureRange(AValue, 1, 25);
+end;
+
+procedure TACLBasicComboBox.SetItemIndex(AValue: Integer);
+begin
+  AValue := ValidateItemIndex(AValue);
+  if AValue <> FItemIndex then
+    ChangeItemIndex(AValue);
+end;
+
+procedure TACLBasicComboBox.SetTargetDPI(AValue: Integer);
 begin
   inherited;
   StyleDropDownList.TargetDPI := AValue;
   StyleDropDownListScrollBox.TargetDPI := AValue;
 end;
 
-procedure TACLCustomComboBox.SetDropDownListSize(AValue: Integer);
+procedure TACLBasicComboBox.SetStyleDropDownListScrollBox(AValue: TACLStyleScrollBox);
 begin
-  FDropDownListSize := MinMax(AValue, 1, 25);
+  FStyleDropDownListScrollBox.Assign(AValue);
 end;
 
-procedure TACLCustomComboBox.SetStyleDropDownListScrollBox(const Value: TACLStyleScrollBox);
+procedure TACLBasicComboBox.SetStyleDropDownList(AValue: TACLStyleTreeList);
 begin
-  FStyleDropDownListScrollBox.Assign(Value);
+  FStyleDropDownList.Assign(AValue);
 end;
 
-procedure TACLCustomComboBox.SetStyleDropDownList(const Value: TACLStyleTreeList);
+function TACLBasicComboBox.ValidateItemIndex(AValue: Integer): Integer;
 begin
-  FStyleDropDownList.Assign(Value);
+  Result := EnsureRange(AValue, -1, Count - 1);
 end;
 
-{ TACLCustomComboBoxDropDown }
+{ TACLBasicComboBoxDropDown }
 
-constructor TACLCustomComboBoxDropDown.Create(AOwner: TComponent);
+constructor TACLBasicComboBoxDropDown.Create(AOwner: TComponent);
 begin
-  FOwner := AOwner as TACLCustomComboBox;
-  inherited Create(FOwner);
+  FOwner := AOwner as TACLBasicComboBox;
+  inherited Create(AOwner);
+  DropDownMode := True;
 
-  FControl := TACLTreeList.Create(Self);
-  FControl.Parent := Self;
-  FControl.Align := alClient;
-  FControl.OnMouseDown := HandlerMouseDown;
-  FControl.OnMouseUp := HandlerMouseUp;
+  FList := TACLTreeListSubClass.Create(Self);
+  FList.OnCustomDrawNode := HandlerCustomDraw;
+  FList.OnIncSearch := HandlerIncSearch;
 
-  PopulateList(Control);
-
-  FControl.BeginUpdate;
+  List.BeginUpdate;
   try
-    FControl.OptionsView.Columns.Visible := False;
-    FControl.OptionsView.Nodes.GridLines := [];
-    FControl.OptionsBehavior.HotTrack := True;
-    FControl.OptionsBehavior.IncSearchColumnIndex := 0;
-    FControl.OptionsBehavior.SortingMode := tlsmDisabled;
-    FControl.Style := Owner.StyleDropDownList;
-    FControl.StyleInplaceEdit := Owner.Style;
-    FControl.StyleScrollBox := Owner.StyleDropDownListScrollBox;
+    if Assigned(Owner.OnGetDisplayItemGroupName) then
+    begin
+      List.OnGetNodeGroup := HandlerGetGroupName;
+      List.OptionsBehavior.Groups := True;
+    end;
+
+    List.OptionsBehavior.GroupsFocus := False;
+    List.OptionsBehavior.HotTrack := True;
+    List.OptionsBehavior.IncSearchColumnIndex := 0;
+    List.OptionsBehavior.IncSearchMode := ismFilter;
+    List.OptionsBehavior.SortingMode := tlsmDisabled;
+    List.OptionsView.Columns.Visible := False;
+    List.OptionsView.Nodes.GridLines := [];
+    List.Style := Owner.StyleDropDownList;
+    List.StyleInplaceEdit := Owner.Style;
+    List.StyleScrollBox := Owner.StyleDropDownListScrollBox;
+    List.SetTargetDPI(FCurrentPPI);
+
+    DoInit;
+
+    Owner.DoPrepareDropDownList(List);
   finally
-    FControl.EndUpdate;
+    List.EndUpdate;
   end;
 end;
 
-function TACLCustomComboBoxDropDown.CalculateHeight: Integer;
+destructor TACLBasicComboBoxDropDown.Destroy;
+begin
+  FreeAndNil(FList);
+  inherited;
+end;
+
+procedure TACLBasicComboBoxDropDown.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  SyncItemIndex;
+end;
+
+function TACLBasicComboBoxDropDown.AddItem(ACaption: string): TACLTreeListNode;
 var
-  LFirstNode: TACLTreeListNode;
-  LFirstNodeCell: TACLCompoundControlBaseContentCell;
-  LLastNode: TACLTreeListNode;
-  LLastNodeCell: TACLCompoundControlBaseContentCell;
+  LIndex: Integer;
 begin
-  Result := 2;
-  if Control.AbsoluteVisibleNodes.Count > 0 then
-  begin
-    LFirstNode := Control.AbsoluteVisibleNodes[0];
-    LLastNode := Control.AbsoluteVisibleNodes[Min(Control.AbsoluteVisibleNodes.Count, Owner.DropDownListSize) - 1];
-    if Control.SubClass.ContentViewInfo.ViewItems.Find(LFirstNode, LFirstNodeCell) and
-       Control.SubClass.ContentViewInfo.ViewItems.Find(LLastNode, LLastNodeCell)
-    then
-      Result := LLastNodeCell.Bounds.Bottom - LFirstNodeCell.Bounds.Top +
-        Control.SubClass.ViewInfo.Bounds.Height -
-        Control.SubClass.ViewInfo.Content.ViewItemsArea.Height;
-  end;
+  LIndex := List.RootNode.ChildrenCount;
+  Owner.DoGetDisplayText(LIndex, ACaption);
+  Result := List.RootNode.AddChild;
+  Result.Caption := ACaption;
+  Result.Tag := LIndex;
 end;
 
-procedure TACLCustomComboBoxDropDown.AdjustSize;
+procedure TACLBasicComboBoxDropDown.AdjustSize;
 begin
-  if Control <> nil then
+  if List <> nil then
+  begin
     Height := CalculateHeight;
+    List.MakeVisible(List.FocusedNode);
+  end;
 {$IFDEF FPC}
   inherited;
 {$ENDIF}
 end;
 
-procedure TACLCustomComboBoxDropDown.DoClick(AHitTest: TACLTreeListHitTest);
+procedure TACLBasicComboBoxDropDown.AlignControls(AControl: TControl; var Rect: TRect);
 begin
-  // do nothing
+  if List <> nil then
+    List.Calculate(Rect);
 end;
 
-procedure TACLCustomComboBoxDropDown.HandlerMouseDown(
-  Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  FCapturedObject := Control.ObjectAtPos(X, Y);
-end;
-
-procedure TACLCustomComboBoxDropDown.HandlerMouseUp(
-  Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  if FCapturedObject = Control.ObjectAtPos(X, Y) then
-    DoClick(Control.SubClass.HitTest);
-end;
-
-{ TACLComboBoxDropDown }
-
-constructor TACLComboBoxDropDown.Create(AOwner: TComponent);
-begin
-  inherited Create(AOwner);
-  Control.OptionsBehavior.IncSearchColumnIndex := IfThen(TACLComboBox(Owner).AutoComplete, 0, -1);
-end;
-
-procedure TACLComboBoxDropDown.PopulateListCore(AList: TACLTreeList);
+function TACLBasicComboBoxDropDown.CalculateHeight: Integer;
 var
-  I: Integer;
+  LCell: TACLCompoundControlBaseContentCell;
+  LNode: Integer;
 begin
-  for I := 0 to TACLComboBox(Owner).Items.Count - 1 do
-    AddItem(AList, TACLComboBox(Owner).Items[I]);
+  Result := 2;
+  if List.AbsoluteVisibleNodes.Count > 0 then
+  begin
+    LNode := Min(List.AbsoluteVisibleNodes.Count, Owner.DropDownListSize) - 1;
+    if List.ContentViewInfo.ViewItems.Find(List.AbsoluteVisibleNodes[LNode], LCell) then
+      Result := LCell.AbsBounds.Bottom + List.Bounds.Height -
+        List.ViewInfo.Content.ViewItemsArea.Height;
+  end;
 end;
+
+procedure TACLBasicComboBoxDropDown.ClosePopup(AAccept: Boolean);
+begin
+  if AAccept and List.HasSelection then
+    Owner.PostValue(List.FocusedNode.Tag, List.FocusedNode.Caption);
+  inherited ClosePopup;
+end;
+
+procedure TACLBasicComboBoxDropDown.CMFontChanged(var Message: TMessage);
+begin
+  inherited;
+  if List <> nil then
+  begin
+    List.FullRefresh;
+    AdjustSize;
+  end;
+end;
+
+procedure TACLBasicComboBoxDropDown.HandlerCustomDraw(
+  Sender: TObject; ACanvas: TCanvas; const R: TRect;
+  ANode: TACLTreeListNode; var AHandled: Boolean);
+begin
+  Owner.DoCustomDrawItem(ACanvas, R, ANode.Tag, AHandled);
+end;
+
+procedure TACLBasicComboBoxDropDown.HandlerGetGroupName(
+  Sender: TObject; ANode: TACLTreeListNode; var AGroupName: string);
+begin
+  Owner.DoGetGroupName(ANode.Tag, AGroupName);
+end;
+
+procedure TACLBasicComboBoxDropDown.HandlerIncSearch(Sender: TObject);
+var
+  LNewHeight: Integer;
+begin
+  if List.IncSearch.Mode = ismFilter then
+  begin
+    LNewHeight := CalculateHeight;
+    if LNewHeight <> Height then
+    begin
+      if Top < FOwner.ClientOrigin.Y then // над комбиком?
+        SetBounds(Left, Top + Height - LNewHeight, Width, LNewHeight)
+      else
+        Height := LNewHeight;
+    end;
+  end;
+end;
+
+procedure TACLBasicComboBoxDropDown.InvalidateRect(const R: TRect);
+begin
+  acInvalidateRect(Self, R);
+end;
+
+procedure TACLBasicComboBoxDropDown.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  List.MouseDown(Button, Shift, Point(X, Y));
+  FCapturedObject := List.HitTest.HitObject;
+end;
+
+procedure TACLBasicComboBoxDropDown.MouseMove(Shift: TShiftState; X, Y: Integer);
+begin
+  List.MouseMove(Shift, Point(X, Y));
+end;
+
+procedure TACLBasicComboBoxDropDown.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  List.MouseUp(Button, Shift, Point(X, Y));
+  if (FCapturedObject = List.HitTest.HitObject) and List.HitTest.HitAtNode then
+  begin
+    if List.OptionsView.CheckBoxes then
+    begin
+      if not List.HitTest.IsCheckable then
+        List.HitTest.Node.Checked := not List.HitTest.Node.Checked;
+    end
+    else
+      ClosePopup(True);
+  end;
+end;
+
+procedure TACLBasicComboBoxDropDown.Paint;
+begin
+  List.Draw(Canvas);
+end;
+
+procedure TACLBasicComboBoxDropDown.DoShow;
+begin
+  inherited;
+  List.MakeVisible(List.FocusedNode);
+end;
+
+procedure TACLBasicComboBoxDropDown.DpiChanged;
+begin
+  inherited;
+  if List <> nil then
+    List.SetTargetDPI(FCurrentPPI);
+end;
+
+function TACLBasicComboBoxDropDown.GetControl: TWinControl;
+begin
+  Result := Self;
+end;
+
+function TACLBasicComboBoxDropDown.GetCursor(const P: TPoint): TCursor;
+begin
+  if List <> nil then
+    Result := List.GetCursor(P)
+  else
+    Result := crDefault;
+end;
+
+function TACLBasicComboBoxDropDown.GetFocused: Boolean;
+begin
+  Result := True;
+end;
+
+function TACLBasicComboBoxDropDown.GetFont: TFont;
+begin
+  Result := Font;
+end;
+
+procedure TACLBasicComboBoxDropDown.SyncItemIndex;
+var
+  AItem: TACLTreeListNode;
+begin
+  if List.RootNode.Find(AItem, Owner.ItemIndex) then
+    List.FocusedNode := AItem;
+end;
+
+procedure TACLBasicComboBoxDropDown.WndProc(var Message: TMessage);
+const
+  MSG_MOUSEWHEEL = {$IFDEF FPC}WM_MOUSEWHEEL{$ELSE}CM_MOUSEWHEEL{$ENDIF};
+begin
+  if Message.Msg = WM_MOUSEWHEEL then
+    Message.Result := Owner.Perform(MSG_MOUSEWHEEL, Message.WParam, Message.LParam)
+  else
+    inherited;
+end;
+
+{ TACLBasicComboBoxUIInsightAdapter }
+
+class function TACLBasicComboBoxUIInsightAdapter.GetCaption(
+  AObject: TObject; out AValue: string): Boolean;
+var
+  LCtrl: TACLBasicComboBox absolute AObject;
+begin
+  Result := LCtrl.ItemIndex = -1;
+  if Result then
+    AValue := LCtrl.Text;
+end;
+
+{$ENDREGION}
 
 { TACLComboBox }
 
 constructor TACLComboBox.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FAutoComplete := True;
+  FAutoComplete := TACLComboBoxAutoCompleteMode.Standard;
   FItems := TACLComboBoxStrings.Create(Self);
+  FEditBox.Iteract := True;
 end;
 
 constructor TACLComboBox.CreateInplace(const AParams: TACLInplaceInfo);
@@ -522,76 +1025,45 @@ begin
   Items.AddObject(S, AObject)
 end;
 
-function TACLComboBox.CalculateEditorPosition: TRect;
-begin
-  Result := FTextRect;
-end;
-
-function TACLComboBox.CanAutoComplete: Boolean;
-begin
-  Result := AutoComplete and
-    (FAutoCompletionLastKey <> 0) and
-    (FAutoCompletionLastKey <> VK_DELETE) and
-    (FAutoCompletionLastKey <> VK_BACK);
-end;
-
-function TACLComboBox.CanDropDown(X, Y: Integer): Boolean;
-begin
-  Result := (Mode = cbmList) and inherited CanDropDown(X, Y);
-end;
-
-function TACLComboBox.CanOpenEditor: Boolean;
-begin
-  Result := (Mode = cbmEdit) and not (csDesigning in ComponentState);
-end;
-
 function TACLComboBox.CreateDropDownWindow: TACLPopupWindow;
 begin
   Result := TACLComboBoxDropDown.Create(Self);
 end;
 
-function TACLComboBox.CreateEditor: TWinControl;
+procedure TACLComboBox.DoAutoComplete;
 var
-  AEdit: TACLInnerEdit;
+  LCurrText: string;
+  LCurrTextLen: Integer;
+  LDropDownList: TACLTreeListSubClass;
 begin
-  AEdit := TACLInnerEdit.Create(nil);
-  AEdit.Text := Text; // Must be before assigning OnChange event
-  AEdit.OnChange := DoTextFromEditorChanged;
-  Result := AEdit;
+  case AutoComplete of
+    TACLComboBoxAutoCompleteMode.Lookup:
+      begin
+        DroppedDown := True;
+        if GetDropDownList(LDropDownList) then
+          LDropDownList.IncSearch.Text := FEditBox.Text;
+      end;
+
+    TACLComboBoxAutoCompleteMode.Standard:
+      if (FAutoCompletionLastKey <> 0) and
+         (FAutoCompletionLastKey <> vkDelete) and
+         (FAutoCompletionLastKey <> vkBack) then
+      begin
+        LCurrText := FEditBox.Text;
+        LCurrTextLen := acCharCount(LCurrText);
+        FItemIndex := TACLComboBoxStrings(FItems).FindItemBeginsWith(LCurrText);
+        if ItemIndex >= 0 then
+        begin
+          FEditBox.Text := Items.Strings[ItemIndex];
+          FEditBox.Select(LCurrTextLen, acCharCount(FEditBox.Text) - LCurrTextLen);
+        end;
+      end;
+  end;
 end;
 
 procedure TACLComboBox.DoStringChanged;
 begin
   ItemIndex := Items.IndexOf(Text);
-end;
-
-procedure TACLComboBox.DoTextFromEditorChanged(Sender: TObject);
-var
-  LCurrText: string;
-  LCurrTextLen: Integer;
-begin
-  if FTextChangeLockCount = 0 then
-  begin
-    if (Mode = cbmEdit) and CanAutoComplete then
-    begin
-      Inc(FTextChangeLockCount);
-      try
-        DoPrepareDropDownData;
-        LCurrText := InnerEdit.Text;
-        FItemIndex := TACLComboBoxStrings(FItems).FindItemBeginsWith(LCurrText);
-        if ItemIndex >= 0 then
-        begin
-          LCurrTextLen := acCharCount(LCurrText);
-          InnerEdit.Text := Items.Strings[ItemIndex];
-          InnerEdit.SelStart := LCurrTextLen;
-          InnerEdit.SelLength := acCharCount(InnerEdit.Text) - LCurrTextLen;
-        end;
-      finally
-        Dec(FTextChangeLockCount);
-      end;
-    end;
-    RetriveValueFromInnerEdit;
-  end;
 end;
 
 function TACLComboBox.IndexOf(const S: string): Integer;
@@ -602,6 +1074,22 @@ end;
 function TACLComboBox.IndexOfObject(AObject: TObject): Integer;
 begin
   Result := Items.IndexOfObject(AObject);
+end;
+
+function TACLComboBox.IsDropDownKey(Key: WideChar): Boolean;
+begin
+  if AutoComplete = TACLComboBoxAutoCompleteMode.Lookup then
+    Result := Ord(Key) in [{vkUp, vkDown, }vkEscape, vkReturn]
+  else
+    Result := inherited;
+end;
+
+function TACLComboBox.IsDropDownKey(Key: Word; Shift: TShiftState): Boolean;
+begin
+  if AutoComplete = TACLComboBoxAutoCompleteMode.Lookup then
+    Result := Key in [vkUp, vkDown, vkEscape, vkReturn]
+  else
+    Result := inherited;
 end;
 
 procedure TACLComboBox.ItemIndexChanged;
@@ -640,9 +1128,9 @@ var
 begin
   LockChanges(True);
   try
-    inherited;
     LPrevItemIndex := FItemIndex;
     try
+      inherited;
       LangApplyToItems(LangSubSection(ASection, AName), Items);
     finally
       ItemIndex := LPrevItemIndex;
@@ -662,13 +1150,10 @@ begin
   if AValue <> FMode then
   begin
     FMode := AValue;
-    if AValue = cbmEdit then
-      EditorOpen
-    else
-    begin
+    if Mode = cbmList then
       DoPrepareDropDownData;
-      EditorClose;
-    end;
+    FEditBox.Iteract := Mode = cbmEdit;
+    FEditBox.Select(0, 0);
   end;
 end;
 
@@ -691,18 +1176,17 @@ end;
 
 procedure TACLComboBox.SetTextCore(const AValue: string);
 begin
-  FText := '';
   if not HasSelection or (Items[ItemIndex] <> AValue) then
     FItemIndex := Items.IndexOf(AValue);
-  if not ((Mode = cbmList) and (ItemIndex < 0)) then
-  begin
-    FText := AValue;
-    if InnerEdit <> nil then
-    begin
-      Inc(FTextChangeLockCount);
-      InnerEdit.Text := AValue;
-      Dec(FTextChangeLockCount);
-    end;
+
+  Inc(FTextChangeLockCount);
+  try
+    if (Mode = cbmList) and (ItemIndex < 0) then
+      inherited SetTextCore(acEmptyStr)
+    else
+      inherited SetTextCore(AValue);
+  finally
+    Dec(FTextChangeLockCount);
   end;
 end;
 
@@ -714,291 +1198,57 @@ begin
     Text := '';
 end;
 
-{ TACLBasicComboBox }
+procedure TACLComboBox.TextChanged;
+begin
+  if FTextChangeLockCount = 0 then
+  begin
+    if (Mode = cbmEdit) and (AutoComplete <> TACLComboBoxAutoCompleteMode.False) then
+    begin
+      Inc(FTextChangeLockCount);
+      try
+        DoPrepareDropDownData;
+        DoAutoComplete;
+      finally
+        Dec(FTextChangeLockCount);
+      end;
+    end
+    else
+      FItemIndex := Items.IndexOf(Text);
 
-constructor TACLBasicComboBox.Create(AOwner: TComponent);
+    inherited;
+  end;
+end;
+
+{ TACLComboBoxDropDown }
+
+constructor TACLComboBoxDropDown.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FLoadedItemIndex := -1;
-  FItemIndex := -1;
+  if TACLComboBox(Owner).AutoComplete = TACLComboBoxAutoCompleteMode.False then
+    List.OptionsBehavior.IncSearchColumnIndex := -1;
+  if TACLComboBox(Owner).AutoComplete = TACLComboBoxAutoCompleteMode.Lookup then
+    List.OptionsBehavior.IncSearchAutoSelect := False;
 end;
 
-constructor TACLBasicComboBox.CreateInplace(const AParams: TACLInplaceInfo);
-begin
-  inherited CreateInplace(AParams);
-  OnSelect := AParams.OnApply;
-end;
-
-procedure TACLBasicComboBox.ChangeItemIndex(AValue: Integer);
-begin
-  if csLoading in ComponentState then
-  begin
-    FLoadedItemIndex := AValue;
-    Exit;
-  end;
-
-  FItemIndex := ValidateItemIndex(AValue);
-  ItemIndexChanged;
-  Invalidate;
-end;
-
-procedure TACLBasicComboBox.LockChanges(ALock: Boolean);
-begin
-  if ALock then
-    Inc(FChangeLockCount)
-  else
-    Dec(FChangeLockCount);
-end;
-
-function TACLBasicComboBox.MouseWheel(Direction: TACLMouseWheelDirection;
-  Shift: TShiftState; const MousePos: TPoint): Boolean;
-begin
-  Result := inherited;
-  if not Result then
-  begin
-    if DroppedDown then
-      TACLBasicComboBoxDropDown(DropDownWindow).Control.SubClass.MouseWheel(Direction, Shift)
-    else
-    begin
-      DoPrepareDropDownData;
-      ItemIndex := Max(0, ItemIndex - TACLMouseWheel.DirectionToInteger[Direction]);
-    end;
-    Result := True;
-  end;
-end;
-
-procedure TACLBasicComboBox.DoPrepareDropDownData;
-begin
-  if Count = 0 then
-    CallNotifyEvent(Self, OnPrepareDropDownData);
-end;
-
-procedure TACLBasicComboBox.DoPrepareDropDownList(AList: TACLTreeList);
-begin
-  if Assigned(OnPrepareDropDownList) then
-    OnPrepareDropDownList(Self, AList);
-end;
-
-procedure TACLBasicComboBox.DoBeforeRemoveItem(AObject: TObject);
-begin
-  if Assigned(OnDeleteItemObject) then
-    OnDeleteItemObject(Self, AObject);
-end;
-
-procedure TACLBasicComboBox.DoCustomDrawItem(ACanvas: TCanvas;
-  const R: TRect; AIndex: Integer; var AHandled: Boolean);
-begin
-  if Assigned(OnCustomDrawItem) then
-    OnCustomDrawItem(Self, ACanvas, R, AIndex, AHandled);
-end;
-
-procedure TACLBasicComboBox.DoDropDown;
-begin
-  DoPrepareDropDownData;
-  inherited;
-end;
-
-procedure TACLBasicComboBox.DoGetDisplayText(AIndex: Integer; var AText: string);
-begin
-  if Assigned(OnGetDisplayItemName) then
-    OnGetDisplayItemName(Self, AIndex, AText);
-end;
-
-procedure TACLBasicComboBox.DoGetGroupName(AIndex: Integer; var AText: string);
-begin
-  if Assigned(OnGetDisplayItemGroupName) then
-    OnGetDisplayItemGroupName(Self, AIndex, AText);
-end;
-
-procedure TACLBasicComboBox.DoSelect;
-begin
-  CallNotifyEvent(Self, OnSelect);
-end;
-
-procedure TACLBasicComboBox.ItemIndexChanged;
-begin
-  if DropDownWindow is TACLBasicComboBoxDropDown then
-    TACLBasicComboBoxDropDown(DropDownWindow).SyncItemIndex;
-  if (FChangeLockCount = 0) and not (csLoading in ComponentState) then
-    DoSelect;
-end;
-
-procedure TACLBasicComboBox.KeyDown(var Key: Word; Shift: TShiftState);
+procedure TACLComboBoxDropDown.DoInit;
 var
-  AItemIndex: Integer;
+  I: Integer;
 begin
-  inherited KeyDown(Key, Shift);
-
-  if [ssShift, ssAlt, ssCtrl] * Shift = [] then
-  begin
-    case Key of
-      VK_UP:
-        begin
-          DoPrepareDropDownData;
-          AItemIndex := Max(0, ItemIndex - 1);
-        end;
-      VK_DOWN:
-        begin
-          DoPrepareDropDownData;
-          AItemIndex := Min(Count - 1, ItemIndex + 1);
-        end;
-    else
-      Exit;
-    end;
-
-    if AItemIndex <> ItemIndex then
-    begin
-      ItemIndex := AItemIndex;
-      if InnerEdit <> nil then
-        InnerEdit.SelectAll;
-    end;
-    Key := 0;
-  end;
+  for I := 0 to TACLComboBox(Owner).Items.Count - 1 do
+    AddItem(TACLComboBox(Owner).Items[I]);
 end;
 
-procedure TACLBasicComboBox.Loaded;
+{ TACLComboBoxDropDownButton }
+
+procedure TACLComboBoxDropDownButton.AfterConstruction;
 begin
   inherited;
-  ItemIndex := FLoadedItemIndex;
+  Part := abpDropDownArrow;
 end;
 
-procedure TACLBasicComboBox.SetItemIndex(AValue: Integer);
+procedure TACLComboBoxDropDownButton.DrawBackground(ACanvas: TCanvas; const R: TRect);
 begin
-  AValue := ValidateItemIndex(AValue);
-  if AValue <> FItemIndex then
-    ChangeItemIndex(AValue);
-end;
-
-function TACLBasicComboBox.TextToDisplayText(const AText: string): string;
-begin
-  Result := inherited;
-  if Assigned(OnGetDisplayItemName) and (ItemIndex >= 0) then
-    OnGetDisplayItemName(Self, ItemIndex, Result);
-end;
-
-function TACLBasicComboBox.ValidateItemIndex(AValue: Integer): Integer;
-begin
-  Result := MinMax(AValue, -1, Count - 1);
-end;
-
-procedure TACLBasicComboBox.WMGetDlgCode(var Message: TWMGetDlgCode);
-begin
-  inherited;
-  Message.Result := Message.Result or DLGC_WANTARROWS;
-end;
-
-{ TACLBasicComboBoxDropDown }
-
-constructor TACLBasicComboBoxDropDown.Create(AOwner: TComponent);
-begin
-  inherited Create(AOwner);
-  Control.OptionsBehavior.GroupsFocus := False;
-  Control.OptionsBehavior.IncSearchMode := ismFilter;
-  Control.OnCustomDrawNode := DoCustomDraw;
-  Control.OnKeyUp := DoKeyUp;
-end;
-
-procedure TACLBasicComboBoxDropDown.AfterConstruction;
-begin
-  inherited AfterConstruction;
-  Owner.DoPrepareDropDownList(Control);
-  SyncItemIndex;
-end;
-
-procedure TACLBasicComboBoxDropDown.DoClick(AHitTest: TACLTreeListHitTest);
-begin
-  if AHitTest.HitAtNode then
-    DoSelectItem;
-end;
-
-procedure TACLBasicComboBoxDropDown.DoCustomDraw(Sender: TObject;
-  ACanvas: TCanvas; const R: TRect; ANode: TACLTreeListNode; var AHandled: Boolean);
-begin
-  Owner.DoCustomDrawItem(ACanvas, R, ANode.Tag, AHandled);
-end;
-
-procedure TACLBasicComboBoxDropDown.DoGetGroupName(
-  Sender: TObject; ANode: TACLTreeListNode; var AGroupName: string);
-begin
-  Owner.DoGetGroupName(ANode.Tag, AGroupName);
-end;
-
-procedure TACLBasicComboBoxDropDown.DoKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
-begin
-  if Key = VK_RETURN then
-    DoSelectItem;
-end;
-
-procedure TACLBasicComboBoxDropDown.DoSelectItem;
-var
-  AReference: TObject;
-begin
-  TACLObjectLinks.RegisterWeakReference(Self, @AReference);
-  try
-    if Control.HasSelection then
-      Owner.ItemIndex := Control.FocusedNode.Tag;
-  finally
-    if AReference <> nil then
-      ClosePopup;
-    TACLObjectLinks.UnregisterWeakReference(@AReference);
-  end;
-end;
-
-procedure TACLBasicComboBoxDropDown.DoShow;
-begin
-  inherited;
-  Control.MakeVisible(Control.FocusedNode);
-end;
-
-procedure TACLBasicComboBoxDropDown.SyncItemIndex;
-var
-  AItem: TACLTreeListNode;
-begin
-  if Control.RootNode.Find(AItem, Owner.ItemIndex) then
-    Control.FocusedNode := AItem;
-end;
-
-function TACLBasicComboBoxDropDown.AddItem(AList: TACLTreeList; ACaption: string): TACLTreeListNode;
-var
-  AIndex: Integer;
-begin
-  AIndex := AList.RootNode.ChildrenCount;
-  Owner.DoGetDisplayText(AIndex, ACaption);
-  Result := AList.RootNode.AddChild;
-  Result.Caption := ACaption;
-  Result.Tag := AIndex;
-end;
-
-procedure TACLBasicComboBoxDropDown.PopulateList(AList: TACLTreeList);
-begin
-  AList.BeginUpdate;
-  try
-    AList.Clear;
-    if Assigned(Owner.OnGetDisplayItemGroupName) then
-    begin
-      AList.OnGetNodeGroup := DoGetGroupName;
-      AList.OptionsBehavior.Groups := True;
-    end;
-    PopulateListCore(AList);
-  finally
-    AList.EndUpdate;
-  end;
-end;
-
-function TACLBasicComboBoxDropDown.GetOwnerEx: TACLBasicComboBox;
-begin
-  Result := TACLBasicComboBox(inherited Owner);
-end;
-
-{ TACLBasicComboBoxUIInsightAdapter }
-
-class function TACLBasicComboBoxUIInsightAdapter.GetCaption(AObject: TObject; out AValue: string): Boolean;
-var
-  AComboBox: TACLBasicComboBox absolute AObject;
-begin
-  Result := AComboBox.ItemIndex = -1;
-  if Result then
-    AValue := AComboBox.Text;
+  Style.Texture.Draw(ACanvas, R, 5 + Ord(State));
 end;
 
 { TACLComboBoxStrings }
@@ -1058,11 +1308,11 @@ end;
 class procedure TACLComboBoxUIInsightAdapter.GetChildren(
   AObject: TObject; ABuilder: TACLUIInsightSearchQueueBuilder);
 var
-  AComboBox: TACLComboBox absolute AObject;
+  LComboBox: TACLComboBox absolute AObject;
   I: Integer;
 begin
-  for I := 0 to AComboBox.Count - 1 do
-    ABuilder.AddCandidate(AComboBox, AComboBox.Items[I]);
+  for I := 0 to LComboBox.Count - 1 do
+    ABuilder.AddCandidate(LComboBox, LComboBox.Items[I]);
 end;
 
 initialization

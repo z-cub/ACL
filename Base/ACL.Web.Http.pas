@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Http Client
 //
@@ -309,7 +309,7 @@ begin
   AllowRedirect := True;
   ConnectTimeout := TACLWebSettings.ConnectionTimeOut;
   IOTimeout := TACLWebSettings.ConnectionTimeOut;
-  if TACLWebSettings.ConnectionMode = ncmUserDefined then
+  if TACLWebSettings.ActualConnectionMode = ncmUserDefined then
   begin
     Proxy.Host := TACLWebSettings.Proxy.Server;
     Proxy.Port := StrToIntDef(TACLWebSettings.Proxy.ServerPort, 8080);
@@ -478,7 +478,7 @@ var
 begin
   FURL := URL;
 {$IFNDEF FPC}
-  case TACLWebSettings.ConnectionMode of
+  case TACLWebSettings.ActualConnectionMode of
     ncmDirect:
       FSession := InternetOpenW(nil, INTERNET_OPEN_TYPE_DIRECT, nil, nil, 0);
     ncmUserDefined:
@@ -500,7 +500,7 @@ begin
   if FHandle = nil then
     raise EHttpError.Create('InternetConnectW failed');
 
-  if (TACLWebSettings.ConnectionMode = ncmUserDefined) and (TACLWebSettings.Proxy.UserName <> '') then
+  if (TACLWebSettings.ActualConnectionMode = ncmUserDefined) and (TACLWebSettings.Proxy.UserName <> '') then
   begin
     SetOption(FHandle, INTERNET_OPTION_PROXY_USERNAME, TACLWebSettings.Proxy.UserName);
     SetOption(FHandle, INTERNET_OPTION_PROXY_PASSWORD, TACLWebSettings.Proxy.UserPass);
@@ -610,7 +610,7 @@ var
 begin
   LClient := TLazHttpClient.Create(nil);
   try
-    if TACLWebSettings.ConnectionMode = ncmUserDefined then
+    if TACLWebSettings.ActualConnectionMode = ncmUserDefined then
     begin
       LClient.Proxy.Host := TACLWebSettings.Proxy.Server;
       LClient.Proxy.Port := StrToIntDef(TACLWebSettings.Proxy.ServerPort, 80);
@@ -747,7 +747,9 @@ begin
       raise EHttpError.Create('HttpOpenRequest failed');
 
     if not SendRequest(LRequest) then
-      raise EHttpError.Create('HttpSendRequest failed');
+      raise EHttpError.Create(
+        'HttpSendRequest failed.' + sLineBreak +
+        'Ensure that TLS 1.2/1.3 are switched on');
 
     AResponse.ContentRange := HTTPQueryString(LRequest, HTTP_QUERY_CONTENT_RANGE);
     AResponse.ContentLength := HttpQueryDWORD(LRequest, HTTP_QUERY_CONTENT_LENGTH);
@@ -1213,7 +1215,7 @@ var
 begin
   LInst := TACLHttp.Create;
   LInst.FMethod := AMethod;
-  LInst.FUrl := TACLWebURL.ParseHttp(AUrl);
+  LInst.FUrl := TACLWebURL.Parse(AUrl);
   Result := LInst;
 end;
 

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Macros-based expressions
 //
@@ -20,6 +20,7 @@ interface
 uses
   {System.}Math,
   {System.}Classes,
+  {System.}StrUtils,
   {System.}SysUtils,
   {System.}Variants,
   // ACL
@@ -80,6 +81,7 @@ type
     class function FunctionStrCopy(AContext: TObject; AParams: TACLExpressionElements): Variant;
     class function FunctionStrDetransliterate(AContext: TObject; AParams: TACLExpressionElements): Variant;
     class function FunctionStrLeft(AContext: TObject; AParams: TACLExpressionElements): Variant;
+    class function FunctionStrPart(AContext: TObject; AParams: TACLExpressionElements): Variant;
     class function FunctionStrPos(AContext: TObject; AParams: TACLExpressionElements): Variant;
     class function FunctionStrRight(AContext: TObject; AParams: TACLExpressionElements): Variant;
     class function FunctionStrTransliterate(AContext: TObject; AParams: TACLExpressionElements): Variant;
@@ -390,6 +392,7 @@ begin
   RegisterFunction('ReplaceEx', FunctionReplaceEx, -1, True, CategoryStrings);
   RegisterFunction('StrCopy', FunctionStrCopy, 3, True, CategoryStrings);
   RegisterFunction('StrLeft', FunctionStrLeft, 2, True, CategoryStrings);
+  RegisterFunction('StrPart', FunctionStrPart, 3, True, CategoryStrings);
   RegisterFunction('StrPos', FunctionStrPos, 2, True, CategoryStrings);
   RegisterFunction('StrRight', FunctionStrRight, 2, True, CategoryStrings);
   RegisterFunction('StrTrim', FunctionStrTrim, 1, True, CategoryStrings);
@@ -401,7 +404,8 @@ begin
   RegisterFunction('Inc', FunctionInc, 2, True, CategoryMath);
 end;
 
-class function TACLFormatStringFactory.TryProcessAsNumber(const AValue: Variant; out ANumber: Integer): Boolean;
+class function TACLFormatStringFactory.TryProcessAsNumber(
+  const AValue: Variant; out ANumber: Integer): Boolean;
 begin
   if VarIsNumeric(AValue) then
   begin
@@ -411,17 +415,20 @@ begin
   Result := TryStrToInt(acTrim(AValue), ANumber);
 end;
 
-class function TACLFormatStringFactory.FunctionCaps(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionCaps(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := acAllWordsWithCaptialLetter(AParams[0].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionCaps2(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionCaps2(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := acAllWordsWithCaptialLetter(AParams[0].Evaluate(AContext), True);
 end;
 
-class function TACLFormatStringFactory.FunctionCase(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionCase(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   ACompareResult: Boolean;
   I: Integer;
@@ -440,7 +447,8 @@ begin
   end;
 end;
 
-class function TACLFormatStringFactory.FunctionChar(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionChar(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   AValue: Integer;
 begin
@@ -449,12 +457,14 @@ begin
     Result := Char(AValue);
 end;
 
-class function TACLFormatStringFactory.FunctionDec(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionDec(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := FunctionIncCore(AContext, AParams, -1);
 end;
 
-class function TACLFormatStringFactory.FunctionFormat(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionFormat(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   try
     Result := FormatFloat(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext));
@@ -463,7 +473,8 @@ begin
   end;
 end;
 
-class function TACLFormatStringFactory.FunctionIF(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionIF(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   ACompareResult: Boolean;
 begin
@@ -479,7 +490,8 @@ begin
     Result := AParams[2].Evaluate(AContext);
 end;
 
-class function TACLFormatStringFactory.FunctionIFEqual(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionIFEqual(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   if SmartCompare(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext)) = vrEqual then
     Result := AParams[2].Evaluate(AContext)
@@ -487,7 +499,8 @@ begin
     Result := AParams[3].Evaluate(AContext);
 end;
 
-class function TACLFormatStringFactory.FunctionIFGreater(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionIFGreater(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   if SmartCompare(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext)) = vrGreaterThan then
     Result := AParams[2].Evaluate(AContext)
@@ -495,7 +508,8 @@ begin
     Result := AParams[3].Evaluate(AContext);
 end;
 
-class function TACLFormatStringFactory.FunctionIFGreaterOrEqual(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionIFGreaterOrEqual(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   if SmartCompare(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext)) in [vrEqual, vrGreaterThan] then
     Result := AParams[2].Evaluate(AContext)
@@ -503,34 +517,39 @@ begin
     Result := AParams[3].Evaluate(AContext);
 end;
 
-class function TACLFormatStringFactory.FunctionInc(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionInc(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := FunctionIncCore(AContext, AParams, 1);
 end;
 
-class function TACLFormatStringFactory.FunctionIncCore(AContext: TObject; AParams: TACLExpressionElements; ASign: Integer): Variant;
+class function TACLFormatStringFactory.FunctionIncCore(
+  AContext: TObject; AParams: TACLExpressionElements; ASign: Integer): Variant;
 var
-  ANumber1: Integer;
-  ANumber2: Integer;
+  LNumber1: Integer;
+  LNumber2: Integer;
 begin
-  if not TryProcessAsNumber(AParams[0].Evaluate(AContext), ANumber1) then
-    ANumber1 := 0;
-  if not TryProcessAsNumber(AParams[1].Evaluate(AContext), ANumber2) then
-    ANumber2 := 0;
-  Result := ANumber1 + ASign * ANumber2
+  if not TryProcessAsNumber(AParams[0].Evaluate(AContext), LNumber1) then
+    LNumber1 := 0;
+  if not TryProcessAsNumber(AParams[1].Evaluate(AContext), LNumber2) then
+    LNumber2 := 0;
+  Result := LNumber1 + ASign * LNumber2
 end;
 
-class function TACLFormatStringFactory.FunctionLength(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionLength(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := Length(AParams[0].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionLowerCase(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionLowerCase(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := acLowerCase(AParams[0].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionRemove(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionRemove(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   ASource: string;
   I: Integer;
@@ -546,12 +565,17 @@ begin
   Result := ASource;
 end;
 
-class function TACLFormatStringFactory.FunctionReplace(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionReplace(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
-  Result := acStringReplace(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext), AParams[2].Evaluate(AContext));
+  Result := acStringReplace(
+    AParams[0].Evaluate(AContext),
+    AParams[1].Evaluate(AContext),
+    AParams[2].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionReplaceEx(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionReplaceEx(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   AIndex: Integer;
   ACount: Integer;
@@ -571,34 +595,69 @@ begin
   ASource := AParams[0].Evaluate(AContext);
   while AIndex + 1 < ACount do
   begin
-    ASource := acStringReplace(ASource, AParams[AIndex].Evaluate(AContext), AParams[AIndex + 1].Evaluate(AContext));
+    ASource := acStringReplace(ASource,
+      AParams[AIndex].Evaluate(AContext),
+      AParams[AIndex + 1].Evaluate(AContext));
     Inc(AIndex, 2);
   end;
 
   Result := ASource;
 end;
 
-class function TACLFormatStringFactory.FunctionStrCopy(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionStrCopy(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
-  ANumber1: Integer;
-  ANumber2: Integer;
+  LNumber1: Integer;
+  LNumber2: Integer;
 begin
   Result := AParams[0].Evaluate(AContext);
-  if TryProcessAsNumber(AParams[1].Evaluate(AContext), ANumber1) and TryProcessAsNumber(AParams[2].Evaluate(AContext), ANumber2) then
-    Result := Copy(Result, ANumber1, ANumber2);
+  if TryProcessAsNumber(AParams[1].Evaluate(AContext), LNumber1) and
+     TryProcessAsNumber(AParams[2].Evaluate(AContext), LNumber2)
+  then
+    Result := Copy(Result, LNumber1, LNumber2);
 end;
 
-class function TACLFormatStringFactory.FunctionStrDetransliterate(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionStrDetransliterate(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := TACLTranslit.Decode(AParams[0].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionStrPos(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionStrPart(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
+var
+  LDelimiter: string;
+  LPart: Integer;
+  LParts: TArray<string>;
+  LString: string;
+begin
+  Result := AParams[0].Evaluate(AContext);
+
+  LString := VarToStr(Result);
+  LDelimiter := VarToStr(AParams[1].Evaluate(AContext));
+  if LString.Contains(LDelimiter) then
+  begin
+    if TryProcessAsNumber(AParams[2].Evaluate(AContext), LPart) then
+      LPart := Max(LPart - 1, 0) // 1-based to 0-based
+    else
+      LPart := 0;
+
+    LParts := LString.Split([LDelimiter]);
+    if InRange(LPart, Low(LParts), High(LParts)) then
+      Result := LParts[LPart]
+    else
+      Result := '';
+  end;
+end;
+
+class function TACLFormatStringFactory.FunctionStrPos(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 begin
   Result := Pos(AParams[0].Evaluate(AContext), AParams[1].Evaluate(AContext));
 end;
 
-class function TACLFormatStringFactory.FunctionStrLeft(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionStrLeft(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   P: Integer;
   S: string;
@@ -618,7 +677,8 @@ begin
   Result := Copy(S, 1, P);
 end;
 
-class function TACLFormatStringFactory.FunctionStrRight(AContext: TObject; AParams: TACLExpressionElements): Variant;
+class function TACLFormatStringFactory.FunctionStrRight(
+  AContext: TObject; AParams: TACLExpressionElements): Variant;
 var
   C: Integer;
   S: string;
@@ -810,7 +870,7 @@ begin
         try
           while I <= J do
           begin
-            ABuffer.Append(string(AParams[I].Evaluate(nil)));
+            ABuffer.Append(VarToStr(AParams[I].Evaluate(nil)));
             TObject(AParams.FList[I]).Free;
             AParams.FList.Delete(I);
             Dec(J);
@@ -827,7 +887,7 @@ end;
 
 function TACLFormatStringConcatenateFunction.Evaluate(AContext: TObject): Variant;
 var
-  ABuffer: TACLStringBuilder;
+  LBuffer: TACLStringBuilder;
   I: Integer;
 begin
   if FParams.Count = 0 then
@@ -835,13 +895,13 @@ begin
   if FParams.Count = 1 then
     Exit(FParams[0].Evaluate(AContext));
 
-  ABuffer := TACLStringBuilder.Get(256);
+  LBuffer := TACLStringBuilder.Get(256);
   try
     for I := 0 to FParams.Count - 1 do
-      ABuffer.Append(string(FParams[I].Evaluate(AContext)));
-    Result := ABuffer.ToString;
+      LBuffer.Append(VarToStr(FParams[I].Evaluate(AContext)));
+    Result := LBuffer.ToString;
   finally
-    ABuffer.Release;
+    LBuffer.Release;
   end;
 end;
 

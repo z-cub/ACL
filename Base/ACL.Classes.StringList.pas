@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   StringList
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -24,6 +24,7 @@ uses
   {System.}Types,
   // ACL
   ACL.Classes,
+  ACL.Math,
   ACL.Utils.Common,
   ACL.Utils.Strings;
 
@@ -47,9 +48,7 @@ type
 
   TACLStringListCompareProc = reference to function (const Item1, Item2: TACLStringListItem): Integer;
 
-  TACLStringList = class(TACLUnknownPersistent,
-    IACLUpdateLock,
-    IStringReceiver)
+  TACLStringList = class(TACLUnknownPersistent, IACLUpdateLock)
   strict private
     FCapacity: Integer;
     FCount: Integer;
@@ -58,7 +57,6 @@ type
     FIgnoryCase: Boolean;
     FList: PACLStringListItemList;
 
-    function GetCount: Integer;
     function GetInterface(AIndex: Integer): IUnknown;
     function GetName(AIndex: Integer): string;
     function GetObject(AIndex: Integer): TObject;
@@ -80,9 +78,6 @@ type
     procedure Changed; virtual;
     procedure SetString(AIndex: Integer; const AValue: string); virtual;
     procedure SetText(const S: string); virtual;
-    // IStringReceiver
-    procedure IStringReceiver.Add = DoAdd;
-    procedure DoAdd(const S: string);
     //# Properties
     property List: PACLStringListItemList read FList;
   public
@@ -152,7 +147,7 @@ type
 
     // Properties
     property Capacity: Integer read FCapacity write SetCapacity;
-    property Count: Integer read GetCount;
+    property Count: Integer read FCount;
     property Data: Pointer read FData write FData;
     property Delimiter: Char read FDelimiter write FDelimiter;
     property IgnoryCase: Boolean read FIgnoryCase write FIgnoryCase;
@@ -301,10 +296,10 @@ begin
     ALength := Length(AText);
     if ALength > 0 then
     begin
-      if Ord(AText[ALength]) = Ord(ADelimiter) then
+      if AText[ALength] = ADelimiter then
         Dec(ALength);
-      acExplodeString(PChar(AText), ALength, ADelimiter,
-        procedure (ACursorStart, ACursorNext: PChar; var {%H-}ACanContinue: Boolean)
+      acSplitString(PChar(AText), ALength, ADelimiter,
+        procedure (ACursorStart, ACursorNext: PChar)
         begin
           Add(acMakeString(ACursorStart, ACursorNext));
         end)
@@ -783,16 +778,6 @@ begin
   end;
 end;
 
-procedure TACLStringList.DoAdd(const S: string);
-begin
-  Add(S);
-end;
-
-function TACLStringList.GetCount: Integer;
-begin
-  Result := FCount;
-end;
-
 function TACLStringList.GetInterface(AIndex: Integer): IUnknown;
 begin
   if IsValid(AIndex) then
@@ -904,7 +889,7 @@ begin
     L.Assign(Self);
     for I := 0 to Count - 1 do
     begin
-      J := Random(L.Count);
+      J := acRandom(L.Count);
       List[I].Assign(L.List[J]);
       L.Delete(J);
     end;

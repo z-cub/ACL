@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
-//  Purpose:   Shell Api Wrappers
+//  Purpose:   Shell Wrappers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -25,8 +25,10 @@ uses
   Winapi.Windows,
   Win.ComObj,
 {$ELSE}
+  LazFileUtils,
   LCLIntf,
   LCLType,
+  Process,
   UTF8Process,
 {$ENDIF}
   // System
@@ -35,8 +37,13 @@ uses
   {System.}SysUtils,
   // ACL
   ACL.Classes.StringList,
+  ACL.Threading,
   ACL.Utils.Common,
-  ACL.Utils.FileSystem;
+  ACL.Utils.FileSystem,
+{$IFDEF FPC}
+  ACL.Utils.FileSystem.GIO, // must be defined in interface section
+{$ENDIF}
+  ACL.Math;
 
 const
   acMailToPrefix = 'mailto:';
@@ -63,12 +70,13 @@ type
   IShellFolder = Pointer;
   PItemIDList = ^TItemIDList;
   TItemIDList = record
+    Name: string;
     Path: string;
     Flags: Integer;
   end;
 {$ENDIF}
 
-  TShellShutdownMode = (sdPowerOff, sdLogOff, sdHibernate, sdSleep, sdReboot);
+{$REGION ' TACLShellFolder '}
 
   { TACLShellFolder }
 
@@ -118,12 +126,39 @@ type
     property ShellFolder: IShellFolder read FShellFolder;
   end;
 
+{$ENDREGION}
+
+{$REGION ' TACLShellSearchPaths '}
+
   { TACLShellSearchPaths }
 
   TACLShellSearchPaths = class(TACLSearchPaths)
   public
     function CreatePathList: TACLStringList; override;
   end;
+
+{$ENDREGION}
+
+{$REGION ' TACLRecycleBin '}
+
+  { TACLRecycleBin }
+
+  TACLRecycleBin = class
+  strict private
+    class var FLastError: HRESULT;
+    class var FLastErrorText: string;
+    class function GetLastErrorText: string; static;
+  public
+    class function Delete(AFilesOrFolders: TACLStringList): HRESULT; overload;
+    class function Delete(const AFileOrFolder: string): HRESULT; overload;
+    class function Restore(const AFileOrFolder: string): HRESULT;
+    class property LastError: HRESULT read FLastError;
+    class property LastErrorText: string read GetLastErrorText;
+  end;
+
+{$ENDREGION}
+
+{$REGION ' TPIDLHelper '}
 
   { TPIDLHelper }
 
@@ -151,31 +186,29 @@ type
   {$ENDIF}
   end;
 
-  { TACLRecycleBin }
+{$ENDREGION}
 
-  TACLRecycleBin = class
-  strict private
-    class var FLastError: HRESULT;
-    class var FLastErrorText: string;
-    class function GetLastErrorText: string; static;
-  public
-    class function Delete(AFilesOrFolders: TACLStringList): HRESULT; overload;
-    class function Delete(const AFileOrFolder: string): HRESULT; overload;
-    class function Restore(const AFileOrFolder: string): HRESULT;
-    class property LastError: HRESULT read FLastError;
-    class property LastErrorText: string read GetLastErrorText;
-  end;
+  TShellDesktopEnvironment = (sdeUnknown, sdeWindows, sdeCinnamon, sdeKDE, sdeGnome, sdeXFCE);
+  TShellPowerState = set of (psKeepPowerOn, psKeepScreenOn);
+  TShellShutdownMode = (sdPowerOff, sdLogOff, sdHibernate, sdSleep, sdReboot);
+
+function ShellDesktopEnv: TShellDesktopEnvironment;
 
 // Shell - Executing
-function ShellExecute(const AFileName, AParameters: string): Boolean; overload;
-function ShellExecute(const AFileName: string): Boolean; overload;
-function ShellExecuteURL(const ALink: string): Boolean;
+procedure ShellExecute(const AFileName: string); // Postponed call
+procedure ShellExecuteURL(const ALink: string);
+function ShellExecuteEx(const AFileName: string; const AParameters: string = ''): Boolean;
 function ShellJumpToFile(const AFileName: string): Boolean;
+{$IFDEF LINUX}
+function ShellGetMimeType(const AFileName: string): string;
+{$ENDIF}
+function ShellOpenStream(const AFileName: string): TStream;
 
 // Shell - System Paths
 function ShellPath(CLSID: Integer): string;
 function ShellPathAppData: string;
 function ShellPathDesktop: string;
+function ShellPathHome: string;
 function ShellPathMyDocuments: string;
 function ShellPathMyMusic: string;
 {$IFDEF MSWINDOWS}
@@ -185,7 +218,7 @@ function ShellPathSystem32WOW64: string;
 {$ENDIF}{$ENDIF}
 
 // Shell - Libraries
-procedure ShellExpandPath(const APath: string; AReceiver: IStringReceiver);
+procedure ShellExpandPath(const APath: string; AReceiver: TACLStringEnumMethod);
 function ShellIsLibraryPath(const APath: string): Boolean;
 
 // Shell - Shortcuts
@@ -195,6 +228,7 @@ function ShellShortcutResolve(const AShortcutFileName: string; out AFileName: st
 function ShellGetFreeSpace(const AFileName: string): Int64;
 function ShellShutdown(AMode: TShellShutdownMode): Boolean;
 procedure ShellFlushCache;
+procedure ShellRequirePowerState(AState: TShellPowerState);
 implementation
 
 uses
@@ -202,13 +236,8 @@ uses
 {$IFDEF MSWINDOWS}
   ACL.Utils.Registry,
   ACL.Utils.Stream,
-{$ELSE}
-  ACL.Utils.FileSystem.GIO,
-  ACL.Web,
 {$ENDIF}
-{$IFDEF ACL_LOG_SHELL}
   ACL.Utils.Logger,
-{$ENDIF}
   ACL.Utils.Strings;
 
 {$IFNDEF MSWINDOWS}
@@ -236,6 +265,28 @@ function g_get_user_special_dir(directory: DWORD): PChar; cdecl; external libGLi
 //------------------------------------------------------------------------------
 
 {$REGION ' General '}
+
+function ShellDesktopEnv: TShellDesktopEnvironment;
+{$IFDEF MSWINDOWS}
+begin
+  Result := sdeWindows;
+{$ELSE}
+const
+  DesktopEnv: string = '';
+begin
+  if DesktopEnv = '' then
+    DesktopEnv := IfThenW(LowerCase(GetEnvironmentVariable('XDG_SESSION_DESKTOP')), '?');
+  if acContains('cinnamon', DesktopEnv) then
+    Exit(sdeCinnamon);
+  if acContains('gnome', DesktopEnv) then
+    Exit(sdeGnome);
+  if acContains('kde', DesktopEnv) then
+    Exit(sdeKDE);
+  if acContains('lightdm', DesktopEnv) then
+    Exit(sdeXFCE);
+  Result := sdeUnknown;
+{$ENDIF}
+end;
 
 {$IFDEF MSWINDOWS}
 type
@@ -296,7 +347,8 @@ function ShellShutdown(AMode: TShellShutdownMode): Boolean;
   var
     ALength: Cardinal;
     ALuID: TLargeInteger;
-    ANewPriv, APrevPriv: TTokenPrivileges;
+    ANewPriv: TTokenPrivileges;
+    APrevPriv: TTokenPrivileges;
     AToken: THandle;
   begin
     Result := False;
@@ -369,6 +421,26 @@ begin
   SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST or SHCNF_FLUSH, nil, nil);
   Sleep(1000);
 {$ENDIF}
+{$IFDEF LINUX}
+  ShellExecuteEx('update-desktop-database', '/usr/share/applications');
+  ShellExecuteEx('update-mime-database', '/usr/share/mime');
+{$ENDIF}
+end;
+
+procedure ShellRequirePowerState(AState: TShellPowerState);
+{$IFDEF MSWINDOWS}
+var
+  LFlags: EXECUTION_STATE;
+{$ENDIF}
+begin
+{$IFDEF MSWINDOWS}
+  LFlags := ES_CONTINUOUS;
+  if psKeepScreenOn in AState then
+    LFlags := LFlags or ES_DISPLAY_REQUIRED;
+  if psKeepPowerOn in AState then
+    LFlags := LFlags or ES_SYSTEM_REQUIRED;
+  SetThreadExecutionState(LFlags);
+{$ENDIF}
 end;
 
 {$ENDREGION}
@@ -380,21 +452,20 @@ end;
 {$REGION ' Executing '}
 
 function ShellOpen(const AFileName, AParameters: string): Boolean;
-begin
 {$IFDEF FPC}
-  if AParameters <> '' then
-  try
-    RunCmdFromPath(AFileName, AParameters);
-    Result := True;
-  except
-    Result := False;
-  end
+var
+  LRunAsExecutable: Boolean;
+begin
+  LRunAsExecutable := (AParameters <> '') or FileIsExecutable(AFileName);
+  if LRunAsExecutable then
+    Result := TACLProcess.Execute('"' + AFileName + '" ' + AParameters)
   else
     Result := OpenDocument(AFileName);
 {$ELSE}
-  Result := ShellExecuteW(0, nil, PWideChar(AFileName),
-    PWideChar(AParameters), '', SW_SHOW) > HINSTANCE_ERROR;
+begin
+  Result := ShellExecuteW(0, nil, PWideChar(AFileName), PWideChar(AParameters), '', SW_SHOW) > HINSTANCE_ERROR;
 {$ENDIF}
+  LogEntry(acGeneralLogFileName, 'Shell', 'ShellOpen(%s,%s)=%s', [AFileName, AParameters, BoolToStr(Result)]);
 end;
 
 function ShellOpenUrl(const Url: string): Boolean;
@@ -407,14 +478,36 @@ begin
   else
     Result := ShellOpen(Url, '');
 {$ENDIF}
+  LogEntry(acGeneralLogFileName, 'Shell', 'ShellOpenUrl(%s)=%s', [Url, BoolToStr(Result)]);
 end;
 
-function ShellExecute(const AFileName: string): Boolean;
+procedure ShellExecute(const AFileName: string);
 begin
-  Result := ShellExecute(AFileName, '');
+  // Суть в том, что ShellExecute блокирует управление, но при крутит свой цикл
+  // обработки сообщений, что позволяет нам закрыть форму. Таким образом,
+  // когда ShellExecute вернет нам управление, мы пойдем по цепочке вызовов
+  // обратно по уже убитым объектам, это и приводит к AV-шке.
+  TACLMainThread.RunPostponed(
+    procedure
+    begin
+      ShellExecuteEx(AFileName, '');
+    end);
 end;
 
-function ShellExecute(const AFileName, AParameters: string): Boolean; overload;
+procedure ShellExecuteURL(const ALink: string);
+begin
+  if ALink <> '' then
+  begin
+    if acContains('//', ALink) then
+      ShellOpenUrl(ALink)
+    else if acDirectoryExists(ALink) then
+      ShellOpen(ALink, '')
+    else
+      ShellOpenUrl('https://' + ALink);
+  end;
+end;
+
+function ShellExecuteEx(const AFileName, AParameters: string): Boolean;
 begin
   if AFileName = '' then
     Exit(False);
@@ -422,17 +515,6 @@ begin
     Result := ShellOpenUrl(AFileName)
   else
     Result := ShellOpen(AFileName, AParameters);
-end;
-
-function ShellExecuteURL(const ALink: string): Boolean;
-begin
-  if ALink = '' then
-    Result := False
-  else
-    if (Pos('//', ALink) = 0) and not acDirectoryExists(ALink) then
-      Result := ShellOpenUrl('https://' + ALink)
-    else
-      Result := ShellOpenUrl(ALink);
 end;
 
 function ShellJumpToFile(const AFileName: string): Boolean;
@@ -445,21 +527,67 @@ begin
     else
     begin
     {$IFDEF MSWINDOWS}
-      var WS := WideString(AFileName); // make a wide-string copy
-      var IL := ILCreateFromPathW(PWideChar(WS));
-      if IL <> nil then
       try
-        SHOpenFolderAndSelectItems(IL, 0, nil, 0);
-        Result := True;
-      finally
-        ILFree(IL);
+        var WS := WideString(AFileName); // make a wide-string copy
+        var IL := ILCreateFromPathW(PWideChar(WS));
+        if IL <> nil then
+        try
+          if Succeeded(SHOpenFolderAndSelectItems(IL, 0, nil, 0)) then
+            Exit(True);
+        finally
+          ILFree(IL);
+        end;
+      except
+        // do nothing;
       end;
-    {$ELSE}
-      Result := ShellExecute(acExtractFileDir(AFileName));
     {$ENDIF}
+      Result := ShellExecuteEx(acExtractFileDir(AFileName), '');
     end;
   end;
 end;
+
+{$IFDEF LINUX}
+function ShellGetMimeType(const AFileName: string): string;
+begin
+  Result := TACLProcess.ExecuteToString('xdg-mime query filetype "' + AFileName + '"');
+end;
+{$ENDIF}
+
+function ShellOpenStream(const AFileName: string): TStream;
+{$IFDEF MSWINDOWS}
+var
+  LPIDL: PItemIDList;
+  LRead: FixedInt;
+  LStat: TStatStg;
+  LStream: IStream;
+begin
+  LPIDL := TPIDLHelper.GetFolderPIDL(0, AFileName);
+  if LPIDL <> nil then
+  try
+    if Succeeded(TACLShellFolder.Root.ShellFolder.BindToStorage(LPIDL, nil, IStream, LStream)) then
+    begin
+      FillChar(LStat, SizeOf(LStat), 0);
+      if Succeeded(LStream.Stat(LStat, 0)) then
+      begin
+        // TODO: make a wrapper
+        Result := TMemoryStream.Create;
+        Result.Size := LStat.cbSize;
+        LStream.Read(
+          TMemoryStream(Result).Memory,
+          TMemoryStream(Result).Size, @LRead);
+        Result.Size := LRead;
+        Exit(Result);
+      end;
+    end;
+  finally
+    TPIDLHelper.DisposePIDL(LPIDL);
+  end;
+{$ELSE}
+begin
+{$ENDIF}
+  Result := TACLFileStream.Create(AFileName, fmOpenReadOnly);
+end;
+
 {$ENDREGION}
 
 //------------------------------------------------------------------------------
@@ -489,13 +617,22 @@ begin
 {$IFDEF MSWINDOWS}
   Result := ShellPath(CSIDL_APPDATA);
 {$ELSE}
-  Result := acIncludeTrailingPathDelimiter(GetUserDir) + '.config/';
+  Result := acIncludeTrailingPathDelimiter(ShellPathHome) + '.config/';
 {$ENDIF}
 end;
 
 function ShellPathDesktop: string;
 begin
   Result := ShellPath(CSIDL_DESKTOP);
+end;
+
+function ShellPathHome: string;
+begin
+{$IFDEF MSWINDOWS}
+  Result := ShellPath(CSIDL_PROFILE);
+{$ELSE}
+  Result := GetUserDir;
+{$ENDIF}
 end;
 
 function ShellPathMyDocuments: string;
@@ -555,7 +692,7 @@ begin
 {$ENDIF}
 end;
 
-function ShellReadLibrary(const APathForParsing: string; AReceiver: IStringReceiver): Boolean;
+function ShellReadLibrary(const APathForParsing: string; ACallback: TACLStringEnumMethod): Boolean;
 {$IFDEF MSWINDOWS}
 var
   ACount: Cardinal;
@@ -578,7 +715,7 @@ begin
       begin
         if Succeeded(AShellItem.GetDisplayName(SIGDN_FILESYSPATH, APath)) then
         try
-          AReceiver.Add(acIncludeTrailingPathDelimiter(APath));
+          ACallback(acIncludeTrailingPathDelimiter(APath));
         finally
           CoTaskMemFree(APath);
         end;
@@ -589,14 +726,14 @@ begin
 {$ENDIF}
 end;
 
-procedure ShellExpandPath(const APath: string; AReceiver: IStringReceiver);
+procedure ShellExpandPath(const APath: string; AReceiver: TACLStringEnumMethod);
 begin
   if APath <> '' then
   begin
     if ShellIsLibraryPath(APath) then
       ShellReadLibrary(APath, AReceiver)
     else
-      AReceiver.Add(APath);
+      AReceiver(APath);
   end;
 end;
 
@@ -722,7 +859,7 @@ end;
 
 {$ENDREGION}
 
-{ TACLShellFolder }
+{$REGION ' TACLShellFolder '}
 
 constructor TACLShellFolder.Create;
 begin
@@ -790,7 +927,7 @@ begin
     try
     {$IFDEF CPUX64}
       if acOSCheckVersion(10, 0, 22000) then // Win11
-        SetExceptionMask(exAllArithmeticExceptions);
+        InitFPUforCLibs;
     {$ENDIF}
       LFlags := SHCONTF_FOLDERS;
       if AShowHidden then
@@ -808,9 +945,7 @@ begin
       SetErrorMode(LPrevErrMode);
     end;
   except
-  {$IFDEF ACL_LOG_SHELL}
-    AddToDebugLog('Shell', 'TACLShellFolder.Enum(%s) failed', [PathForParsing]);
-  {$ENDIF}
+    LogEntry(acGeneralLogFileName, 'Shell', 'TACLShellFolder.Enum(%s) failed', [PathForParsing]);
   end;
 {$ELSE}
 var
@@ -818,12 +953,15 @@ var
   LHomeDir: string;
   LInfo: TACLFindFileInfo;
   LItem: TItemIDList;
+  LNameDelim: Integer;
   I: Integer;
 begin
   if ID^.Flags and PIDL_BOOKMARK <> 0 then
     Exit;
 
-  ZeroMemory(@LItem, SizeOf(LItem));
+  LItem.Flags := 0;
+  LItem.Name := '';
+  LItem.Path := '';
   if ID^.Flags and PIDL_SPECIAL <> 0 then
     LItem.Flags := PIDL_SPECIAL2;
   if ID^.Path = TPIDLHelper.Favorites then
@@ -842,7 +980,16 @@ begin
         LHomeDir := LBookmarks[I];
         if LHomeDir.StartsWith(acFileProtocol, True) then
         begin
-          LItem.Path := acURLDecode(Copy(LHomeDir, Length(acFileProtocol) + 1));
+          LNameDelim := acPos(' ', LHomeDir);
+          if LNameDelim > 0 then
+          begin
+            LItem.Name := Copy(LHomeDir, LNameDelim + 1);
+            LHomeDir := Copy(LHomeDir, 1, LNameDelim - 1); // last
+          end
+          else
+            LItem.Name := '';
+
+          LItem.Path := acDecodeFileUri(LHomeDir);
           AProc(@LItem);
         end;
       end;
@@ -1007,7 +1154,7 @@ begin
     if Parent <> nil then
     begin
       if GetAttributes and (SFGAO_FILESYSANCESTOR or SFGAO_FILESYSTEM) = SFGAO_FILESYSANCESTOR then
-        ShellReadLibrary(PathForParsing, FLibrarySources);
+        ShellReadLibrary(PathForParsing, FLibrarySources.AddEx);
     end;
   {$ENDIF}
   end;
@@ -1031,19 +1178,160 @@ begin
 {$ENDIF}
 end;
 
-{ TACLShellSearchPaths }
+{$ENDREGION}
+
+{$REGION ' TACLShellSearchPaths '}
 
 function TACLShellSearchPaths.CreatePathList: TACLStringList;
 var
   I: Integer;
+  LList: TACLStringList;
 begin
-  Result := TACLStringList.Create;
-  Result.Capacity := Count;
+  LList := TACLStringList.Create;
+  LList.Capacity := Count;
   for I := 0 to Count - 1 do
-    ShellExpandPath(Paths[I], Result);
+    ShellExpandPath(Paths[I], LList.AddEx);
+  Result := LList;
 end;
 
-{ TPIDLHelper }
+{$ENDREGION}
+
+{$REGION ' TACLRecycleBin '}
+
+class function TACLRecycleBin.Delete(AFilesOrFolders: TACLStringList): HRESULT;
+{$IFDEF MSWINDOWS}
+begin
+  Result := ShellOperation(ShellEncodePaths(AFilesOrFolders),
+    acEmptyStr, soDelete, [sofCanUndo, sofNoConfirmation, sofNoDialog]);
+{$ELSE}
+var
+  LResult: HRESULT;
+  I: Integer;
+begin
+  Result := S_OK;
+  for I := 0 to AFilesOrFolders.Count - 1 do
+  begin
+    LResult := Delete(AFilesOrFolders[I]);
+    if LResult <> S_OK then
+      Result := LResult;
+  end;
+{$ENDIF}
+  FLastError := Result;
+end;
+
+class function TACLRecycleBin.Delete(const AFileOrFolder: string): HRESULT;
+{$IFDEF MSWINDOWS}
+var
+  LList: TACLStringList;
+begin
+  LList := TACLStringList.Create(AFileOrFolder);
+  try
+    Result := Delete(LList);
+  finally
+    LList.Free;
+  end;
+{$ELSE}
+begin
+  Result := gioTrash(AFileOrFolder, FLastErrorText);
+  FLastError := Result;
+{$ENDIF}
+end;
+
+class function TACLRecycleBin.GetLastErrorText: string;
+begin
+{$IFDEF MSWINDOWS}
+  FLastErrorText := '';
+  if HResultFacility(LastError) = FACILITY_WIN32 then
+    FLastErrorText := SysErrorMessage(HResultCode(LastError));
+{$ENDIF}
+  if FLastErrorText <> '' then
+    Result := FLastErrorText
+  else
+    Result := IntToHex(LastError);
+end;
+
+class function TACLRecycleBin.Restore(const AFileOrFolder: string): HRESULT;
+{$IFDEF MSWINDOWS}
+var
+  LRecycleBin: IShellFolder2;
+  LRecycleBinPIDL: PItemIDList;
+
+  function GetOriginalFileName(AItem: PItemIDList): string;
+  var
+    ADetails: TShellDetails;
+    AFileName: string;
+  begin
+    Result := acEmptyStr;
+    ZeroMemory(@ADetails, SizeOf(ADetails));
+    if Succeeded(LRecycleBin.GetDetailsOf(AItem, 0, ADetails)) then
+    begin
+      AFileName := TPIDLHelper.StrRetToString(AItem, ADetails.str);
+      if acExtractFileExt(AFileName) = '' then // когда отображение расширений отключено в Проводнике
+        AFileName := AFileName + acExtractFileExt(TPIDLHelper.GetDisplayName(LRecycleBin, AItem, SIGDN_FILESYSPATH));
+      if Succeeded(LRecycleBin.GetDetailsOf(AItem, 1, ADetails)) then
+        Result := IncludeTrailingPathDelimiter(TPIDLHelper.StrRetToString(AItem, ADetails.str)) + AFileName;
+    end;
+  end;
+
+  function Undelete(AItem: PItemIDList): HRESULT; overload;
+  var
+    ACommandInfo: TCMInvokeCommandInfo;
+    AContextMenu: IContextMenu;
+  begin
+    Result := LRecycleBin.GetUIObjectOf(0, 1, AItem, IContextMenu, nil, AContextMenu);
+    if Succeeded(Result) then
+    begin
+      ZeroMemory(@ACommandInfo, SizeOf(ACommandInfo));
+      ACommandInfo.cbSize := SizeOf(ACommandInfo);
+      ACommandInfo.lpVerb := 'undelete';
+      ACommandInfo.nShow := SW_SHOWNORMAL;
+      Result := AContextMenu.InvokeCommand(ACommandInfo);
+    end;
+  end;
+
+  function Undelete: HRESULT; overload;
+  const
+    SHCONTF_FLAGS = SHCONTF_FOLDERS or SHCONTF_NONFOLDERS or SHCONTF_INCLUDEHIDDEN;
+  var
+    ADesktop: IShellFolder;
+    AFetched: Cardinal;
+    AItem: PItemIDList;
+    AItems: IEnumIDList;
+  begin
+    Result := E_NOINTERFACE;
+    if Succeeded(SHGetSpecialFolderLocation(0, CSIDL_BITBUCKET, LRecycleBinPIDL)) then
+    try
+      if Failed(SHGetDesktopFolder(ADesktop)) then
+        Exit(E_NOINTERFACE);
+      if Failed(ADesktop.BindToObject(LRecycleBinPIDL, nil, IShellFolder2, LRecycleBin)) then
+        Exit(E_NOINTERFACE);
+      if Succeeded(LRecycleBin.EnumObjects(0, SHCONTF_FLAGS, AItems)) then
+      begin
+        AFetched := 0;
+        while Succeeded(AItems.Next(1, AItem, AFetched)) and (AFetched = 1) do
+        begin
+          if acSameText(AFileOrFolder, GetOriginalFileName(AItem)) then
+            Exit(Undelete(AItem));
+        end;
+      end;
+      Result := E_INVALIDARG;
+    finally
+      TPIDLHelper.DisposePIDL(LRecycleBinPIDL);
+    end;
+  end;
+
+begin
+  Result := Undelete;
+{$ELSE}
+begin
+  Result := gioUntrash(acExcludeTrailingPathDelimiter(AFileOrFolder), FLastErrorText);
+{$ENDIF}
+  FLastError := Result;
+end;
+
+{$ENDREGION}
+
+{$REGION ' TPIDLHelper '}
 
 class function TPIDLHelper.GetDisplayName(
   AParentFolder: IShellFolder; PIDL: PItemIDList; AFlags: DWORD): string;
@@ -1060,6 +1348,8 @@ begin
     Exit('Favorites');
   if PIDL^.Path = PathDelim then
     Exit('File System');
+  if PIDL^.Name <> '' then
+    Exit(PIDL^.Name);
 
   Result := acExtractFileName(PIDL^.Path);
   if (Result <> '') and (Result[1] = '.') then
@@ -1152,9 +1442,7 @@ begin
   if Failed(TACLShellFolder.Root.ShellFolder.ParseDisplayName(
     AOwnerWnd, nil, PWideChar(APath), AEaten, Result, AAttr)) then
   begin
-  {$IFDEF ACL_LOG_SHELL}
-    AddToDebugLog('Shell', 'ParseDisplayName(%s) failed', [APath]);
-  {$ENDIF}
+    LogEntry(acGeneralLogFileName, 'Shell', 'ParseDisplayName(%s) failed', [APath]);
     Result := nil;
   end;
 {$ELSE}
@@ -1372,138 +1660,6 @@ begin
   Result := AFiles <> nil;
 end;
 {$ENDIF}
-
-{ TACLRecycleBin }
-
-class function TACLRecycleBin.Delete(AFilesOrFolders: TACLStringList): HRESULT;
-{$IFDEF MSWINDOWS}
-begin
-  Result := ShellOperation(ShellEncodePaths(AFilesOrFolders),
-    acEmptyStr, soDelete, [sofCanUndo, sofNoConfirmation, sofNoDialog]);
-{$ELSE}
-var
-  LResult: HRESULT;
-  I: Integer;
-begin
-  Result := S_OK;
-  for I := 0 to AFilesOrFolders.Count - 1 do
-  begin
-    LResult := Delete(AFilesOrFolders[I]);
-    if LResult <> S_OK then
-      Result := LResult;
-  end;
-{$ENDIF}
-  FLastError := Result;
-end;
-
-class function TACLRecycleBin.Delete(const AFileOrFolder: string): HRESULT;
-{$IFDEF MSWINDOWS}
-var
-  LList: TACLStringList;
-begin
-  LList := TACLStringList.Create(AFileOrFolder);
-  try
-    Result := Delete(LList);
-  finally
-    LList.Free;
-  end;
-{$ELSE}
-begin
-  Result := gioTrash(AFileOrFolder, FLastErrorText);
-  FLastError := Result;
-{$ENDIF}
-end;
-
-class function TACLRecycleBin.GetLastErrorText: string;
-begin
-{$IFDEF MSWINDOWS}
-  FLastErrorText := '';
-  if HResultFacility(LastError) = FACILITY_WIN32 then
-    FLastErrorText := SysErrorMessage(HResultCode(LastError));
-{$ENDIF}
-  if FLastErrorText <> '' then
-    Result := FLastErrorText
-  else
-    Result := IntToHex(LastError);
-end;
-
-class function TACLRecycleBin.Restore(const AFileOrFolder: string): HRESULT;
-{$IFDEF MSWINDOWS}
-var
-  LRecycleBin: IShellFolder2;
-  LRecycleBinPIDL: PItemIDList;
-
-  function GetOriginalFileName(AItem: PItemIDList): string;
-  var
-    ADetails: TShellDetails;
-    AFileName: string;
-  begin
-    Result := acEmptyStr;
-    ZeroMemory(@ADetails, SizeOf(ADetails));
-    if Succeeded(LRecycleBin.GetDetailsOf(AItem, 0, ADetails)) then
-    begin
-      AFileName := TPIDLHelper.StrRetToString(AItem, ADetails.str);
-      if acExtractFileExt(AFileName) = '' then // когда отображение расширений отключено в Проводнике
-        AFileName := AFileName + acExtractFileExt(TPIDLHelper.GetDisplayName(LRecycleBin, AItem, SIGDN_FILESYSPATH));
-      if Succeeded(LRecycleBin.GetDetailsOf(AItem, 1, ADetails)) then
-        Result := IncludeTrailingPathDelimiter(TPIDLHelper.StrRetToString(AItem, ADetails.str)) + AFileName;
-    end;
-  end;
-
-  function Undelete(AItem: PItemIDList): HRESULT; overload;
-  var
-    ACommandInfo: TCMInvokeCommandInfo;
-    AContextMenu: IContextMenu;
-  begin
-    Result := LRecycleBin.GetUIObjectOf(0, 1, AItem, IContextMenu, nil, AContextMenu);
-    if Succeeded(Result) then
-    begin
-      ZeroMemory(@ACommandInfo, SizeOf(ACommandInfo));
-      ACommandInfo.cbSize := SizeOf(ACommandInfo);
-      ACommandInfo.lpVerb := 'undelete';
-      ACommandInfo.nShow := SW_SHOWNORMAL;
-      Result := AContextMenu.InvokeCommand(ACommandInfo);
-    end;
-  end;
-
-  function Undelete: HRESULT; overload;
-  const
-    SHCONTF_FLAGS = SHCONTF_FOLDERS or SHCONTF_NONFOLDERS or SHCONTF_INCLUDEHIDDEN;
-  var
-    ADesktop: IShellFolder;
-    AFetched: Cardinal;
-    AItem: PItemIDList;
-    AItems: IEnumIDList;
-  begin
-    Result := E_NOINTERFACE;
-    if Succeeded(SHGetSpecialFolderLocation(0, CSIDL_BITBUCKET, LRecycleBinPIDL)) then
-    try
-      if Failed(SHGetDesktopFolder(ADesktop)) then
-        Exit(E_NOINTERFACE);
-      if Failed(ADesktop.BindToObject(LRecycleBinPIDL, nil, IShellFolder2, LRecycleBin)) then
-        Exit(E_NOINTERFACE);
-      if Succeeded(LRecycleBin.EnumObjects(0, SHCONTF_FLAGS, AItems)) then
-      begin
-        AFetched := 0;
-        while Succeeded(AItems.Next(1, AItem, AFetched)) and (AFetched = 1) do
-        begin
-          if acSameText(AFileOrFolder, GetOriginalFileName(AItem)) then
-            Exit(Undelete(AItem));
-        end;
-      end;
-      Result := E_INVALIDARG;
-    finally
-      TPIDLHelper.DisposePIDL(LRecycleBinPIDL);
-    end;
-  end;
-
-begin
-  Result := Undelete;
-{$ELSE}
-begin
-  Result := gioUntrash(acExcludeTrailingPathDelimiter(AFileOrFolder), FLastErrorText);
-{$ENDIF}
-  FLastError := Result;
-end;
+{$ENDREGION}
 
 end.

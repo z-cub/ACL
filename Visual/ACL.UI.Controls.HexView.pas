@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   HexView
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -142,14 +142,14 @@ type
     function GetPositionFromHitTest(AHitTestInfo: TACLHitTestInfo): Int64;
     procedure ProcessChanges(AChanges: TIntegerSet = []); override;
     procedure ProcessKeyDown(var AKey: Word; AShift: TShiftState); override;
-    procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); override;
+    procedure ProcessMouseClick(AShift: TShiftState); override;
     procedure ProcessMouseDown(AButton: TMouseButton; AShift: TShiftState); override;
     procedure ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState); override;
     procedure ResourceChanged; override;
     procedure Select(AStart, ATarget: Int64);
     procedure UpdateCharacters;
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     procedure BeforeDestruction; override;
     procedure CopyToClipboard; overload;
@@ -635,7 +635,7 @@ end;
 
 { TACLHexViewSubClass }
 
-constructor TACLHexViewSubClass.Create(AOwner: TComponent);
+constructor TACLHexViewSubClass.Create(AOwner: IACLCompoundControlSubClassContainer);
 begin
   FCharacters := TACLHexViewCharacterSet.Create;
   FCharactersHex := TACLHexViewHexCharacterSet.Create;
@@ -770,7 +770,7 @@ end;
 
 function TACLHexViewSubClass.GetPositionFromHitTest(AHitTestInfo: TACLHitTestInfo): Int64;
 begin
-  Result := ViewInfo.BufferPosition + Integer(AHitTestInfo.HitObjectData[acHexViewHitDataOffset]);
+  Result := ViewInfo.BufferPosition + LongWord{%H-}(AHitTestInfo.Data[acHexViewHitDataOffset]);
 end;
 
 function TACLHexViewSubClass.GetSelFinish: Int64;
@@ -822,7 +822,7 @@ begin
     else
       FDataSize := 0;
 
-    SetSelection(0, 0);
+    Select(0, 0);
     FullRefresh;
   end;
 end;
@@ -885,17 +885,17 @@ begin
   AKey := 0;
 end;
 
-procedure TACLHexViewSubClass.ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState);
+procedure TACLHexViewSubClass.ProcessMouseClick(AShift: TShiftState);
 var
-  ACursor: Integer;
+  LCursor: Integer;
 begin
-  if (AButton = mbLeft) and (HitTest.HitObject is TACLHexViewChararterSetViewViewInfo) then
+  if HitTest.HitObject is TACLHexViewChararterSetViewViewInfo then
   begin
-    ACursor := GetPositionFromHitTest(HitTest);
+    LCursor := GetPositionFromHitTest(HitTest);
     if ssShift in AShift then
-      Select(FSelectionStart, ACursor)
+      Select(FSelectionStart, LCursor)
     else
-      Select(ACursor, ACursor);
+      Select(LCursor, LCursor);
   end;
   inherited;
 end;
@@ -1008,10 +1008,10 @@ begin
   O := IndentBetweenCharacters div 2;
   for I := 0 to acHexViewBytesPerRow - 1 do
   begin
-    if InRange(AInfo.HitPoint.X, X - O, X + W + O) then
+    if InRange(AInfo.Point.X, X - O, X + W + O) then
     begin
       AInfo.HitObject := Self;
-      AInfo.HitObjectData[acHexViewHitDataOffset] := TObject(I);
+      AInfo.Data[acHexViewHitDataOffset] := {%H-}Pointer(I);
       Break;
     end;
     Inc(X, W + IndentBetweenCharacters);
@@ -1367,30 +1367,34 @@ end;
 procedure TACLHexViewViewInfo.DoCalculateHitTest(const AInfo: TACLHitTestInfo);
 var
   LDataOffset: Integer;
-  ARowRect: TRect;
+  LOffset: PByte;
+  LRowRect: TRect;
 begin
   inherited;
 
-  if (FRowHeight > 0) and PtInRect(RowsArea, AInfo.HitPoint) then
+  if (FRowHeight > 0) and PtInRect(RowsArea, AInfo.Point) then
   begin
     LDataOffset := 0;
-    ARowRect := RowsArea;
-    ARowRect.Height := FRowHeight;
-    while (ARowRect.Top < FClientBounds.Bottom) and (LDataOffset < FBuffer.Used) do
+    LRowRect := RowsArea;
+    LRowRect.Height := FRowHeight;
+    while (LRowRect.Top < FClientBounds.Bottom) and (LDataOffset < FBuffer.Used) do
     begin
-      if PtInRect(ARowRect, AInfo.HitPoint) then
+      if LRowRect.Contains(AInfo.Point) then
       begin
-        AInfo.HitPoint := AInfo.HitPoint - ARowRect.TopLeft;
+        AInfo.Point := AInfo.Point - LRowRect.TopLeft;
         try
           if FRowViewInfo.CalculateHitTest(AInfo) then
-            AInfo.HitObjectData[acHexViewHitDataOffset] :=
-              TObject(LDataOffset + Integer(AInfo.HitObjectData[acHexViewHitDataOffset]));
+          begin
+            LOffset := AInfo.Data[acHexViewHitDataOffset];
+            Inc(LOffset, LDataOffset);
+            AInfo.Data[acHexViewHitDataOffset] := LOffset;
+          end;
         finally
-          AInfo.HitPoint := AInfo.HitPoint + ARowRect.TopLeft;
+          AInfo.Point := AInfo.Point + LRowRect.TopLeft;
         end;
         Break;
       end;
-      ARowRect.Offset(0, FRowHeight);
+      LRowRect.Offset(0, FRowHeight);
       Inc(LDataOffset, acHexViewBytesPerRow);
     end;
   end;
@@ -1410,7 +1414,7 @@ begin
   ACanvas.Brush.Style := bsClear;
   ACanvas.Font := SubClass.Font;
 
-  if acStartClippedDraw(ACanvas.Handle, FClientBounds, AClipRegion) then
+  if acStartClippedDraw(ACanvas, FClientBounds, AClipRegion) then
   try
     ARowRect := FClientBounds;
     ARowRect.Height := FHeaderHeight;
@@ -1436,7 +1440,7 @@ begin
       Inc(ADataOffset, acHexViewBytesPerRow);
     end;
   finally
-    acRestoreClipRegion(ACanvas.Handle, AClipRegion);
+    acEndClippedDraw(ACanvas, AClipRegion);
   end;
 end;
 

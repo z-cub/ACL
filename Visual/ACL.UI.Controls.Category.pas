@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Category Panel
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -121,8 +121,7 @@ end;
 
 function TACLStyleCategory.MeasureHeaderHeight: Integer;
 begin
-  MeasureCanvas.Font.Assign(HeaderTextFont);
-  Result := Max(acFontHeight(MeasureCanvas) + 8, 22);
+  Result := Max(HeaderTextFont.MeasureSize(acMeasureTextPattern).Height + 8, 22);
 end;
 
 procedure TACLStyleCategory.SetHeaderTextAlignment(AValue: TAlignment);
@@ -152,7 +151,7 @@ end;
 
 function TACLCategory.CreatePadding: TACLPadding;
 begin
-  Result := TACLPadding.Create(5);
+  Result := TACLPadding.Create(8);
 end;
 
 function TACLCategory.CreateStyle: TACLStyleBackground;

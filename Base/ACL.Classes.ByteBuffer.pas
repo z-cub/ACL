@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Raw data containers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -66,10 +66,13 @@ type
     FUsed: Integer;
   public
     constructor Create(ASize: Integer);
-    constructor CreateOwned(ABuffer: PByte; ASize: Integer);
+    constructor CreateCopy(ABuffer: TACLByteBuffer); overload;
+    constructor CreateCopy(AStream: TStream; ASize: Integer); overload;
+    constructor CreateOwned(ABuffer: PByte; ASize: Integer); overload;
     destructor Destroy; override;
+    procedure EnsureCapacity(ACapacity: Integer);
     function Equals(Obj: TObject): Boolean; override;
-    procedure Flush(AZeroMem: Boolean = True); virtual;
+    procedure Flush(AZeroMemory: Boolean = True); virtual;
     //# Properties
     property Data: PByte read FData;
     property DataArr: PByteArray read FDataArr;
@@ -98,7 +101,7 @@ type
     constructor Create(ASize: Integer);
     destructor Destroy; override;
     function BeginRead(out ABuffer: PByte; out ASize: Integer): Boolean;
-    procedure BeginWrite(out ABuffer: PByte; out ASize: Integer);
+    function BeginWrite(out ABuffer: PByte; out ASize: Integer): Boolean;
     procedure Compact(AMaxSize: Integer);
     procedure Flush;
     procedure EndRead(ASize: Integer);
@@ -245,6 +248,20 @@ begin
   Size := ASize;
 end;
 
+constructor TACLByteBuffer.CreateCopy(ABuffer: TACLByteBuffer);
+begin
+  Create(ABuffer.Used);
+  if ABuffer.Used > 0 then
+    FastMove(ABuffer.Data^, Data^, ABuffer.Used);
+end;
+
+constructor TACLByteBuffer.CreateCopy(AStream: TStream; ASize: Integer);
+begin
+  Create(ASize);
+  if ASize > 0 then
+    AStream.ReadBuffer(Data^, ASize);
+end;
+
 constructor TACLByteBuffer.CreateOwned(ABuffer: PByte; ASize: Integer);
 begin
   FData := ABuffer;
@@ -258,15 +275,21 @@ begin
   inherited Destroy;
 end;
 
+procedure TACLByteBuffer.EnsureCapacity(ACapacity: Integer);
+begin
+  Size := Max(Size, Used + ACapacity);
+end;
+
 function TACLByteBuffer.Equals(Obj: TObject): Boolean;
 begin
   Result := (Obj <> nil) and (Obj.ClassType = ClassType) and
-    (Size = TACLByteBuffer(Obj).Size) and CompareMem(Data, TACLByteBuffer(Obj).Data, Size);
+    (Size = TACLByteBuffer(Obj).Size) and
+    (CompareMem(Data, TACLByteBuffer(Obj).Data, Size));
 end;
 
-procedure TACLByteBuffer.Flush(AZeroMem: Boolean);
+procedure TACLByteBuffer.Flush(AZeroMemory: Boolean);
 begin
-  if AZeroMem then
+  if AZeroMemory then
     FastZeroMem(Data, Size);
   Used := 0;
 end;
@@ -278,17 +301,17 @@ end;
 
 procedure TACLByteBuffer.SetSize(AValue: Integer);
 var
-  ATempBuffer: PByte;
+  LTempBuffer: PByte;
 begin
   if (AValue <> Size) and (AValue >= 0) then
   begin
     if (Used > 0) and (AValue > 0) then
     begin
       Used := Min(Used, AValue);
-      ATempBuffer := AllocMem(AValue);
-      FastMove(Data^, ATempBuffer^, Used);
+      LTempBuffer := AllocMem(AValue);
+      FastMove(Data^, LTempBuffer^, Used);
       FreeMemAndNil(FData);
-      FData := ATempBuffer;
+      FData := LTempBuffer;
     end
     else
     begin
@@ -305,7 +328,7 @@ end;
 
 procedure TACLByteBuffer.SetUsed(AValue: Integer);
 begin
-  FUsed := MinMax(AValue, 0, Size);
+  FUsed := EnsureRange(AValue, 0, Size);
 end;
 
 { TACLCircularByteBuffer }
@@ -366,12 +389,13 @@ begin
   end;
 end;
 
-procedure TACLCircularByteBuffer.BeginWrite(out ABuffer: PByte; out ASize: Integer);
+function TACLCircularByteBuffer.BeginWrite(out ABuffer: PByte; out ASize: Integer): Boolean;
 begin
   FLock.Enter;
   try
     ASize := Min(SafeGetAvailableDataForWrite, FWriteChunkSize);
     ABuffer := PByte(FData) + FWritePosition;
+    Result := ASize > 0;
   finally
     FLock.Leave;
   end;
@@ -379,6 +403,7 @@ end;
 
 procedure TACLCircularByteBuffer.EndRead(ASize: Integer);
 begin
+  if ASize <= 0 then Exit;
   FLock.Enter;
   try
     Inc(FReadPosition, ASize);
@@ -398,6 +423,7 @@ end;
 
 procedure TACLCircularByteBuffer.EndWrite(ASize: Integer);
 begin
+  if ASize <= 0 then Exit;
   FLock.Enter;
   try
     Inc(FWritePosition, ASize);
@@ -480,7 +506,7 @@ constructor TACLDataContainer.Create(const AFileName: string);
 var
   LStream: TStream;
 begin
-  LStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  LStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     Create(LStream);
   finally

@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ObjectInspector - Built-in property editors
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -235,7 +235,7 @@ type
     procedure Edit; virtual; abstract;
   public
     function Attributes: TACLPropertyEditorAttributes; override;
-    //
+    // Properties
     property Font: TPersistent read GetFont;
   end;
 
@@ -610,28 +610,28 @@ end;
 
 function TACLBooleanPropertyEditor.CreateEditBox(const AParams: TACLInplaceInfo): TControl;
 var
-  ACheckBox: TACLInplaceCheckBox;
+  LCheckBox: TACLInplaceCheckBox;
 begin
-  ACheckBox := TACLInplaceCheckBox.CreateInplace(AParams);
-  InitializeStyles(ACheckBox);
-  Result := ACheckBox;
+  LCheckBox := TACLInplaceCheckBox.CreateInplace(AParams);
+  InitializeStyles(LCheckBox);
+  Result := LCheckBox;
 end;
 
 procedure TACLBooleanPropertyEditor.Draw(ACanvas: TCanvas; const R, ATextBounds: TRect);
 var
-  ACheckBox: TACLInplaceCheckBoxAccess;
+  LCheckBox: TACLInplaceCheckBoxAccess;
 begin
-  ACheckBox := TACLInplaceCheckBoxAccess.Create(nil);
+  LCheckBox := TACLInplaceCheckBoxAccess.Create(nil);
   try
-    ACheckBox.ParentFont := False;
-    ACheckBox.InplaceSetValue(Value);
-    ACheckBox.SubClass.IsEnabled := True;
-    InitializeStyles(ACheckBox);
-    ACheckBox.Font := ACanvas.Font;
-    ACheckBox.SubClass.Calculate(Rect(ATextBounds.Left, R.Top, R.Right, R.Bottom));
-    ACheckBox.SubClass.Draw(ACanvas);
+    LCheckBox.ParentFont := False;
+    LCheckBox.InplaceSetValue(Value);
+    LCheckBox.SubClass.IsEnabled := True;
+    InitializeStyles(LCheckBox);
+    LCheckBox.Font := ACanvas.Font;
+    LCheckBox.SubClass.Calculate(Rect(ATextBounds.Left, R.Top, R.Right, R.Bottom));
+    LCheckBox.SubClass.Draw(ACanvas);
   finally
-    ACheckBox.Free;
+    LCheckBox.Free;
   end;
 end;
 
@@ -639,12 +639,17 @@ procedure TACLBooleanPropertyEditor.InitializeStyles(ACheckBox: TACLCustomCheckB
 begin
   ACheckBox.ScaleForPPI(FStyleSet.Style.TargetDPI);
   ACheckBox.ResourceCollection := FStyleSet.ResourceCollection;
-  ACheckBox.Style.Collection := FStyleSet.Style.Collection;
-  ACheckBox.Style.Texture := FStyleSet.Style.CheckMark;
-  ACheckBox.Style.ColorText := FStyleSet.StyleInplaceEdit.ColorText;
-  ACheckBox.Style.ColorTextHover := FStyleSet.StyleInplaceEdit.ColorText;
-  ACheckBox.Style.ColorTextPressed := FStyleSet.StyleInplaceEdit.ColorText;
-  ACheckBox.Style.ColorTextDisabled := FStyleSet.StyleInplaceEdit.ColorTextDisabled;
+  ACheckBox.Style.BeginUpdate;
+  try
+    ACheckBox.Style.Collection := FStyleSet.Style.Collection;
+    ACheckBox.Style.Texture := FStyleSet.Style.CheckMark;
+    ACheckBox.Style.ColorText := FStyleSet.StyleInplaceEdit.ColorText;
+    ACheckBox.Style.ColorTextHover := FStyleSet.StyleInplaceEdit.ColorText;
+    ACheckBox.Style.ColorTextPressed := FStyleSet.StyleInplaceEdit.ColorText;
+    ACheckBox.Style.ColorTextDisabled := FStyleSet.StyleInplaceEdit.ColorTextDisabled;
+  finally
+    ACheckBox.Style.EndUpdate;
+  end;
 end;
 
 { TACLCustomFontPropertyEditor }
@@ -665,6 +670,7 @@ begin
 
     R1 := R;
     R1.Right := R1.Left + R1.Height;
+    ACanvas.Brush.Style := bsClear;
     ACanvas.Font.Name := ATempFont.Name;
     acTextDraw(ACanvas, Value,
       Rect(R1.Right + acTextIndent, R.Top, R.Right, R.Bottom),

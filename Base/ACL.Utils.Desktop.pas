@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Multi-monitor support
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -40,33 +40,40 @@ uses
 type
   TTaskBarPosition = (tbpLeft, tbpTop, tbpRight, tbpBottom);
 
-  TACLMonitor = TMonitor;
+  { TACLMonitor }
+
+  TACLMonitor = record
+    BoundsRect: TRect;
+    MonitorNum: Integer;
+    WorkareaRect: TRect;
+    function PixelsPerInch: Integer;
+    class function Null: TACLMonitor; static;
+    class operator Equal(const V1, V2: TACLMonitor): Boolean;
+  end;
 
   { TACLTaskbarInfo }
 
   TACLTaskbarInfo = record
     AutoHide: Boolean;
     Bounds: TRect;
+    BoundsMonitor: TRect;
     Position: TTaskBarPosition;
   end;
 
 // Monitors
-function MonitorAlignPopupWindow(const R: TRect): TRect;
-function MonitorGet(const P: TPoint): TACLMonitor; overload;
-function MonitorGet(const R: TRect): TACLMonitor; overload;
-function MonitorGet(Wnd: TWndHandle): TACLMonitor; overload;
-function MonitorGetBounds(const P: TPoint): TRect; overload;
-function MonitorGetBounds(Wnd: TWndHandle): TRect; overload;
-function MonitorGetBoundsByIndex(Index: Integer): TRect;
+function MonitorAlignPopupWindow(const AControlRect: TRect): TRect;
+function MonitorGet(const APoint: TPoint): TACLMonitor; overload;
+function MonitorGet(const AWnd: TWndHandle): TACLMonitor; overload;
 function MonitorGetByIndex(Index: Integer): TACLMonitor;
 function MonitorGetDefault: TACLMonitor;
-function MonitorGetDefaultBounds: TRect;
+
+// Одна из наших форм может быть тулбаром рабочего стола - усекать WorkArea,
+// и нам нужно знать доступное для нее пространство за вычетом таскабра.
 function MonitorGetDesktopClientArea(const P: TPoint): TRect;
-function MonitorGetFocusedForm: TCustomForm;
+
 function MonitorGetTaskBarInfo: TACLTaskbarInfo;
-function MonitorGetTaskBarRect: TRect;
-function MonitorGetWorkArea(const P: TPoint): TRect;
-function MonitorIsFullScreenApplicationRunning(AMonitor: TACLMonitor = nil): Boolean;
+function MonitorIsFullScreenApplicationRunning(const AMonitor: TACLMonitor): Boolean;
+
 // Mouse
 function MouseCurrentWindow: TWndHandle;
 function MouseCursorPos: TPoint;
@@ -74,88 +81,106 @@ function MouseCursorSize: TSize;
 implementation
 
 uses
+  ACL.Utils.DPIAware,
   ACL.Utils.Strings;
 
-function MonitorAlignPopupWindow(const R: TRect): TRect;
+function MonitorAlignPopupWindow(const AControlRect: TRect): TRect;
 var
-  AWorkArea: TRect;
+  LRect: TRect;
 begin
-  Result := R;
-  AWorkArea := MonitorGetBounds(Result.CenterPoint);
-  if Result.Top < AWorkArea.Top then
-    Result.Offset(0, AWorkArea.Top - Result.Top);
-  if Result.Left < AWorkArea.Left then
-    Result.Offset(AWorkArea.Left - Result.Left, 0);
-  if Result.Right > AWorkArea.Right then
-    Result.Offset(AWorkArea.Right - Result.Right, 0);
-  if Result.Bottom > AWorkArea.Bottom then
-    Result.Offset(0, AWorkArea.Bottom - Result.Bottom);
+  Result := AControlRect;
+  LRect := MonitorGet(Result.CenterPoint).BoundsRect;
+  if Result.Top < LRect.Top then
+    Result.Offset(0, LRect.Top - Result.Top);
+  if Result.Left < LRect.Left then
+    Result.Offset(LRect.Left - Result.Left, 0);
+  if Result.Right > LRect.Right then
+    Result.Offset(LRect.Right - Result.Right, 0);
+  if Result.Bottom > LRect.Bottom then
+    Result.Offset(0, LRect.Bottom - Result.Bottom);
+end;
+
+function MonitorGetInfo(AMonitor: TMonitor): TACLMonitor;
+var
+  LInfo: TMonitorInfo;
+begin
+  if AMonitor = nil then
+    Exit(MonitorGetDefault);
+
+  ZeroMemory(@LInfo, SizeOf(LInfo));
+  LInfo.cbSize := SizeOf(LInfo);
+  if GetMonitorInfo(AMonitor.Handle, @LInfo) then
+  begin
+    Result.MonitorNum := AMonitor.MonitorNum;
+    Result.BoundsRect := LInfo.rcMonitor;
+    Result.WorkareaRect := LInfo.rcWork;
+  end
+  else
+  begin
+    Result := TACLMonitor.Null;
+    Result.MonitorNum := AMonitor.MonitorNum;
+  end;
+end;
+
+function MonitorGet(const AWnd: TWndHandle): TACLMonitor;
+begin
+  Result := MonitorGetInfo(Screen.MonitorFromWindow(AWnd));
+end;
+
+function MonitorGet(const APoint: TPoint): TACLMonitor;
+begin
+  Result := MonitorGetInfo(Screen.MonitorFromPoint(APoint));
 end;
 
 function MonitorGetDefault: TACLMonitor;
-begin
-  Result := Screen.PrimaryMonitor;
-  if Result = nil then
-    Result := Screen.Monitors[0];
-end;
-
-function MonitorGetDefaultBounds: TRect;
 var
-  AMonitor: TACLMonitor;
+  LMonitor: TMonitor;
+  LMonitorCount: Integer;
 begin
-  AMonitor := MonitorGetDefault;
-  if AMonitor <> nil then
-    Result := AMonitor.BoundsRect
+  LMonitor := nil;
+  LMonitorCount := Screen.MonitorCount;
+  if (LMonitor = nil) and (LMonitorCount > 1) then
+    LMonitor := Screen.PrimaryMonitor;
+  if (LMonitor = nil) and (LMonitorCount > 0) then
+    LMonitor := Screen.Monitors[0];
+  if (LMonitor <> nil) then
+    Result := MonitorGetInfo(LMonitor)
   else
-    Result := NullRect;
-end;
-
-function MonitorGet(Wnd: TWndHandle): TACLMonitor;
-begin
-  Result := Screen.MonitorFromWindow(Wnd);
-  if Result = nil then
-    Result := MonitorGetDefault;
-end;
-
-function MonitorGet(const P: TPoint): TACLMonitor;
-begin
-  Result := Screen.MonitorFromPoint(P);
-  if Result = nil then
-    Result := MonitorGetDefault;
+    Result := TACLMonitor.Null;
 end;
 
 function MonitorGetByIndex(Index: Integer): TACLMonitor;
 begin
   if (Index >= 0) and (Index < Screen.MonitorCount) then
-    Result := Screen.Monitors[Index]
+    Result := MonitorGetInfo(Screen.Monitors[Index])
   else
     Result := MonitorGetDefault;
 end;
 
-function MonitorIsFullScreenApplicationRunning(AMonitor: TACLMonitor = nil): Boolean;
+function MonitorIsFullScreenApplicationRunning(const AMonitor: TACLMonitor): Boolean;
 {$IFDEF MSWINDOWS}
 
   function IsDesktopWindow(AHandle: TWndHandle): Boolean;
   begin
-    Result := acSameTextEx(acGetClassName(AHandle), ['progman', 'WorkerW']);
+    Result := acContains(acGetClassName(AHandle), ['progman', 'WorkerW'], True);
   end;
 
 var
-  AAppHandle: TWndHandle;
-  AAppMonitor: TACLMonitor;
-  R: TRect;
+  LAppHandle: TWndHandle;
+  LAppMonitor: TACLMonitor;
+  LRect: TRect;
 begin
   Result := False;
-  AAppHandle := GetForegroundWindow;
-  if (AAppHandle <> 0) and not IsDesktopWindow(AAppHandle) then
+  LAppHandle := GetForegroundWindow;
+  if (LAppHandle <> 0) and not IsDesktopWindow(LAppHandle) then
   begin
-    AAppMonitor := MonitorGet(AAppHandle);
-    if (AMonitor = nil) or (AMonitor = AAppMonitor) then
+    LAppMonitor := MonitorGet(LAppHandle);
+    if AMonitor = LAppMonitor then
     begin
-      if Assigned(AAppMonitor) and GetWindowRect(AAppHandle, R) then
+      if GetWindowRect(LAppHandle, LRect) then
       begin
-        with AAppMonitor.BoundsRect do
-          Result := (R.Right - R.Left >= Right - Left) and (R.Bottom - R.Top >= Bottom - Top);
+        with LAppMonitor.BoundsRect do
+          Result := (LRect.Width >= Width) and (LRect.Height >= Height);
       end;
     end;
   end;
@@ -165,117 +190,106 @@ begin
 {$ENDIF}
 end;
 
-function MonitorGetBoundsByIndex(Index: Integer): TRect;
-var
-  AMonitor: TACLMonitor;
-begin
-  AMonitor := MonitorGetByIndex(Index);
-  if AMonitor <> nil then
-    Result := AMonitor.BoundsRect
-  else
-    Result := NullRect;
-end;
-
-function MonitorGetBounds(Wnd: TWndHandle): TRect;
-var
-  AMonitor: TACLMonitor;
-begin
-  AMonitor := MonitorGet(Wnd);
-  if AMonitor <> nil then
-    Result := AMonitor.BoundsRect
-  else
-    Result := NullRect;
-end;
-
-function MonitorGetBounds(const P: TPoint): TRect;
-var
-  AMonitor: TACLMonitor;
-begin
-  AMonitor := MonitorGet(P);
-  if AMonitor <> nil then
-    Result := AMonitor.BoundsRect
-  else
-    Result := NullRect;
-end;
-
-function MonitorGet(const R: TRect): TACLMonitor;
-begin
-  Result := MonitorGet(Point((R.Left + R.Right) div 2, (R.Top + R.Bottom) div 2));
-end;
-
 function MonitorGetDesktopClientArea(const P: TPoint): TRect;
+{$IFDEF MSWINDOWS}
 var
-  ARect: TRect;
-  ATaskBar: TACLTaskbarInfo;
+  LRect: TRect;
+  LRects: array[0..3] of TRect;
+  LTaskBar: TACLTaskbarInfo;
 begin
-  //Note: One of our Forms can be a Desktop toolbar, so, we need to calculate client area manually
-  Result := MonitorGetBounds(P);
-  ATaskBar := MonitorGetTaskBarInfo;
-  if IntersectRect({%H-}ARect, Result, ATaskBar.Bounds) and not ATaskBar.AutoHide then
-    case ATaskBar.Position of
-      tbpLeft:
-        Result.Left := ATaskBar.Bounds.Right;
-      tbpTop:
-        Result.Top := ATaskBar.Bounds.Bottom;
-      tbpRight:
-        Result.Right := ATaskBar.Bounds.Left;
-      tbpBottom:
-        Result.Bottom := ATaskBar.Bounds.Top;
+  Result := MonitorGet(P).BoundsRect;
+  // Одна из наших форм может быть тулбаром рабочего стола - усекать WorkArea,
+  // и нам нужно знать доступное для нее пространство за вычетом таскабра.
+  // Посему все считаем вручную
+  LTaskBar := MonitorGetTaskBarInfo;
+  if LTaskBar.AutoHide or LTaskBar.Bounds.IsEmpty then
+    Exit;
+  if Result.IntersectsWith(LTaskBar.Bounds) then // окно на другом мониторе
+  begin
+    // У чела стоит Start11 и таскбар закреплен вверху экрана, однако API говорит,
+    // что Position = Bottom, но Bounds-ы возвращаются корректные (для Top-а)
+    // В итоге у нас получается рект с нулевой площадью, что приводит к поломке попапов
+    //    case ATaskBar.Position of
+    //      tbpLeft:
+    //        Result.Left := ATaskBar.Bounds.Right;
+    //      tbpTop:
+    //        Result.Top := ATaskBar.Bounds.Bottom;
+    //      tbpRight:
+    //        Result.Right := ATaskBar.Bounds.Left;
+    //      tbpBottom:
+    //        Result.Bottom := ATaskBar.Bounds.Top;
+    //    end;
+    // Поэтому делаем так: вычитаем рект taskbar-а, а в качестве результата
+    // возвращаем рект наибольшей площади
+    // +-----------+
+    // +     0     +
+    // +-----------+
+    // + 1 - T - 2 +
+    // +-----------+
+    // +     3     +
+    // -------------
+    LRects[0] := Rect(Result.Left, Result.Top, Result.Right, LTaskBar.Bounds.Top);
+    LRects[1] := Rect(Result.Left, LTaskBar.Bounds.Top, LTaskBar.Bounds.Left, LTaskBar.Bounds.Bottom);
+    LRects[2] := Rect(LTaskBar.Bounds.Right, LTaskBar.Bounds.Top, Result.Right, LTaskBar.Bounds.Bottom);
+    LRects[3] := Rect(Result.Left, LTaskBar.Bounds.Bottom, Result.Right, Result.Bottom);
+    Result := LRects[0];
+    for LRect in LRects do
+    begin
+      if LRect.Width * LRect.Height > Result.Width * Result.Height then
+        Result := LRect;
     end;
-end;
-
-function MonitorGetFocusedForm: TCustomForm;
-var
-  AControl: TControl;
+  end;
+{$ELSE}
 begin
-  AControl := FindControl(GetFocus);
-  if AControl <> nil then
-    Result := GetParentForm(AControl)
-  else
-    Result := nil;
+  // В Linux наши формы не поддерживают режим тулбара рабочего стола
+  Result := MonitorGet(P).WorkareaRect;
+{$ENDIF}
 end;
 
 function MonitorGetTaskBarInfo: TACLTaskbarInfo;
 {$IFDEF MSWINDOWS}
 var
-	AData: TAppBarData;
+  AData: TAppBarData;
 begin
+  ZeroMemory(@Result, SizeOf(Result));
   ZeroMemory(@AData, SizeOf(AData));
   AData.cbSize := SizeOf(TAppBarData);
-	AData.Hwnd := FindWindow('ShellTrayWnd', nil);
+  AData.Hwnd := FindWindow('ShellTrayWnd', nil);
   if AData.hWnd = 0 then
     AData.Hwnd := FindWindow('Shell_TrayWnd', nil);
-
-  ZeroMemory(@Result, SizeOf(Result));
   if AData.Hwnd <> 0 then
   begin
     SHAppBarMessage(ABM_GETTASKBARPOS, AData);
-    Result.Position := TTaskBarPosition(AData.uEdge);
-    Result.Bounds := AData.rc;
     Result.AutoHide := SHAppBarMessage(ABM_GETSTATE, AData) and ABS_AUTOHIDE = ABS_AUTOHIDE;
+    Result.Position := TTaskBarPosition(AData.uEdge);
+    Result.BoundsMonitor := MonitorGet(AData.rc.CenterPoint).BoundsRect;
+    Result.Bounds := AData.rc;
   end;
 end;
 {$ELSE}
+var
+  LMonitor: TACLMonitor;
 begin
-  FillChar(Result{%H-}, SizeOf(Result), 0);
+  LMonitor := MonitorGetDefault;
+  Result.AutoHide := False;
+  Result.BoundsMonitor := LMonitor.BoundsRect;
+  // Область уведомлений сверху (Ubuntu, Gnome-based linux)
+  if LMonitor.WorkareaRect.Top > LMonitor.BoundsRect.Top then
+  begin
+    Result.Bounds := Result.BoundsMonitor;
+    Result.Bounds.Bottom := LMonitor.WorkareaRect.Top;
+    Result.Position := tbpTop;
+  end
+  else
+  // Обычная панель задач (KDE Plasma, Mate, Cinnamon)
+  //if LMonitor.WorkareaRect.Bottom < LMonitor.BoundsRect.Bottom then
+  begin
+    Result.Bounds := Result.BoundsMonitor;
+    Result.Bounds.Top := LMonitor.WorkareaRect.Bottom;
+    Result.Position := tbpBottom;
+  end
 end;
 {$ENDIF}
-
-function MonitorGetTaskBarRect: TRect;
-begin
-  Result := MonitorGetTaskBarInfo.Bounds;
-end;
-
-function MonitorGetWorkArea(const P: TPoint): TRect;
-var
-  AMonitor: TACLMonitor;
-begin
-  AMonitor := MonitorGet(P);
-  if Assigned(AMonitor) then
-    Result := AMonitor.WorkareaRect
-  else
-    Result := NullRect;
-end;
 
 function MouseCurrentWindow: HWND;
 begin
@@ -292,6 +306,23 @@ function MouseCursorPos: TPoint;
 begin
   if not GetCursorPos(Result{%H-}) then
     Result := Point(-1, -1);
+end;
+
+{ TACLMonitor }
+
+class operator TACLMonitor.Equal(const V1, V2: TACLMonitor): Boolean;
+begin
+  Result := (V1.BoundsRect = V2.BoundsRect);// and (V1.WorkareaRect = V2.WorkareaRect);
+end;
+
+class function TACLMonitor.Null: TACLMonitor;
+begin
+  FillChar(Result{%H-}, SizeOf(Result), 0);
+end;
+
+function TACLMonitor.PixelsPerInch: Integer;
+begin
+  Result := acGetTargetDPI(BoundsRect.CenterPoint);
 end;
 
 end.

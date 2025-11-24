@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Clipboard and OS-wide data sharing utilities
 //
@@ -105,7 +105,7 @@ type
   end;
 {$ENDIF}
 
-function MakeFormat(AFormat: Word): TFormatEtc;
+function MakeFormat(AFormat: TClipboardFormat): TFormatEtc;
 function MediumAlloc(AData: Pointer; ASize: Integer; out AMedium: TStgMedium): Boolean;
 function MediumGetFiles(const AMedium: TStgMedium; out AFiles: TACLStringList): Boolean;
 function MediumGetStream(const AMedium: TStgMedium; out AStream: TCustomMemoryStream): Boolean;
@@ -137,7 +137,7 @@ uses
   ACL.Web;
 {$ENDIF}
 
-function {%H-}MakeFormat(AFormat: Word): TFormatEtc;
+function {%H-}MakeFormat(AFormat: TClipboardFormat): TFormatEtc;
 begin
   Result.cfFormat := AFormat;
 {$IFDEF MSWINDOWS}
@@ -186,10 +186,7 @@ begin
   if (AMedium.Data <> nil) and (AMedium.Size > 0) then
     AFiles.Append(PChar(AMedium.Data), AMedium.Size);
   for I := 0 to AFiles.Count - 1 do
-  begin
-    if AFiles[I].StartsWith(acFileProtocol, True) then
-      AFiles[I] := acURLDecode(Copy(AFiles[I], Length(acFileProtocol) + 1));
-  end;
+    AFiles[I] := TrimRight(acDecodeFileUri(AFiles[I]));
   Result := AFiles.Count > 0;
   if not Result then
     FreeAndNil(AFiles);
@@ -445,10 +442,7 @@ begin
   AFiles := AFiles.Clone;
   try
     for I := 0 to AFiles.Count - 1 do
-    begin
-      if not acIsUrlFileName(AFiles[I]) then
-        AFiles[I] := acFileProtocol + acURLEncode(AFiles[I]);
-    end;
+      AFiles[I] := acEncodeFileUri(AFiles[I]);
     Result := AFiles.GetDelimitedText(#10, False);
   finally
     AFiles.Free;

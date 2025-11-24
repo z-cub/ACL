@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Hashing Algorithms
 //
@@ -87,7 +87,7 @@ type
     PCRC32Table = ^TCRC32Table;
     TCRC32Table = array[Byte] of LongWord;
   public const
-  {$REGION 'CRC_TABLE'}
+  {$REGION ' CRC_TABLE '}
     Table: TCRC32Table = (
       $00000000, $04C11DB7, $09823B6E, $0D4326D9, $130476DC, $17C56B6B,
       $1A864DB2, $1E475005, $2608EDB8, $22C9F00F, $2F8AD6D6, $2B4BCB61,
@@ -237,6 +237,16 @@ type
     class procedure Update(var AState: Pointer; AData: PByte; ASize: Cardinal); override;
   end;
 
+  { TACLHashSHA1 }
+
+  TACLHashSHA1 = class(TACLHash)
+  public
+    class function Finalize(var AState: Pointer): Variant; override;
+    class procedure Initialize(out AState: Pointer); override;
+    class procedure Reset(var AState: Pointer); override;
+    class procedure Update(var AState: Pointer; AData: PByte; ASize: Cardinal); override;
+  end;
+
 {$ENDIF}
 
 // Elf
@@ -244,6 +254,7 @@ function ElfHash(S: PChar; ACount: Integer; AIgnoryCase: Boolean): Integer; over
 function ElfHash(const S: string; AIgnoryCase: Boolean = True): Integer; overload; inline;
 
 function acFileNameHash(const S: string): Cardinal; inline;
+function acFingerprint(AData: PByte; ASize: NativeUInt): string;
 function acVariantHash(const AVariant: Variant): Cardinal;
 implementation
 
@@ -259,6 +270,7 @@ uses
   Winapi.Windows,
 {$ELSE}
   md5,
+  sha1,
 {$ENDIF}
   // ACL
 {$IFDEF MSWINDOWS}
@@ -340,6 +352,7 @@ var
   LPath: TFileLongPath;
 {$ENDIF}
 begin
+  if S = '' then Exit(0);
   // тоже самое, но просто с меньшим числом вызовов
 {$IFDEF MSWINDOWS}
   LCount := LCMapString(LOCALE_INVARIANT, LCMAP_LOWERCASE, PChar(S), Length(S), @LPath[0], Length(LPath));
@@ -347,6 +360,14 @@ begin
 {$ELSE}
   Result := TACLHashBobJenkins.Calculate(acLowerCase(S));
 {$ENDIF}
+end;
+
+function acFingerprint(AData: PByte; ASize: NativeUInt): string;
+begin
+  if ASize > 0 then
+    Result := TACLHashMD5.Calculate(AData, ASize) + TACLHashSHA1.Calculate(AData, ASize)
+  else
+    Result := '';
 end;
 
 //==============================================================================
@@ -624,7 +645,7 @@ class procedure TACLHash.UpdateFromFile(var AState: Pointer;
 var
   AStream: TACLFileStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     Update(AState, AStream, AProgressEvent);
   finally
@@ -1079,13 +1100,44 @@ end;
 
 class procedure TACLHashMD5.Reset(var AState: Pointer);
 begin
-  FreeMemAndNil(AState);
-  Initialize(AState);
+  MD5Init(PMD5Context(AState)^);
 end;
 
 class procedure TACLHashMD5.Update(var AState: Pointer; AData: PByte; ASize: Cardinal);
 begin
   MD5Update(PMD5Context(AState)^, AData^, ASize);
+end;
+
+{ TACLHashSHA1 }
+type
+  PSHA1Context = ^TSHA1Context;
+
+class function TACLHashSHA1.Finalize(var AState: Pointer): Variant;
+var
+  LHash: TSHA1Digest;
+begin
+  SHA1Final(PSHA1Context(AState)^, LHash);
+  FreeMemAndNil(AState);
+  Result := SHA1Print(LHash);
+end;
+
+class procedure TACLHashSHA1.Initialize(out AState: Pointer);
+var
+  LContext: PSHA1Context;
+begin
+  New(LContext);
+  SHA1Init(LContext^);
+  AState := LContext;
+end;
+
+class procedure TACLHashSHA1.Reset(var AState: Pointer);
+begin
+  SHA1Init(PSHA1Context(AState)^);
+end;
+
+class procedure TACLHashSHA1.Update(var AState: Pointer; AData: PByte; ASize: Cardinal);
+begin
+  SHA1Update(PSHA1Context(AState)^, AData^, ASize);
 end;
 
 {$ENDIF}

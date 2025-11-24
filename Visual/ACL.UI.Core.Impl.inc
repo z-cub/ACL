@@ -1,0 +1,5 @@
+﻿{$IF DEFINED(LCLGtk2)}
+  ACL.UI.Core.Impl.Gtk2
+{$ELSEIF DEFINED(MSWINDOWS)}
+  ACL.UI.Core.Impl.Win32
+{$ENDIF}

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   High-level parsing routines
 //
@@ -50,12 +50,20 @@ type
   TACLRipperRuleAimingByTagsOption = (ratMultipleTargets, ratCaseInsensitive, ratConstrictionMode);
   TACLRipperRuleAimingByTagsOptions = set of TACLRipperRuleAimingByTagsOption;
   TACLRipperRuleAimingByTags = class(TACLRipperRule)
+  strict private type
+    TTag = record
+      Data: string;
+      Number: Integer;
+    end;
   strict private
-    FFinishTags: TStringDynArray;
+    FFinishTags: TArray<TTag>;
     FOptions: TACLRipperRuleAimingByTagsOptions;
-    FStartTags: TStringDynArray;
+    FStartTags: TArray<TTag>;
 
-    function Find(const AStrToFind, AStr: string; AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer;
+    function Find(const AStrToFind, AStr: string;
+      AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer; overload;
+    function Find(const ATagToFind: TTag; const AStr: string;
+      AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer; overload;
   protected
     procedure ProcessCore(const ATarget: TACLListOfString; const ASource: string); override;
   public
@@ -173,20 +181,20 @@ end;
 
 procedure TACLRipperRule.Process(var AData: TACLListOfString);
 var
-  ATarget: TACLListOfString;
+  LTarget: TACLListOfString;
   I: Integer;
 begin
   if FSource <> nil then
     FSource.Process(AData);
 
-  ATarget := TACLListOfString.Create;
+  LTarget := TACLListOfString.Create;
   try
-    ATarget.Capacity := AData.Count;
+    LTarget.Capacity := AData.Count;
     for I := 0 to AData.Count - 1 do
-      ProcessCore(ATarget, AData.List[I]);
-    TACLMath.ExchangePtr(AData, ATarget);
+      ProcessCore(LTarget, AData.List[I]);
+    TACLMath.ExchangePtr(AData, LTarget);
   finally
-    ATarget.Free;
+    LTarget.Free;
   end;
 end;
 
@@ -200,73 +208,72 @@ end;
 constructor TACLRipperRuleAimingByTags.Create(const AStartTags, AFinishTags: string;
   AOptions: TACLRipperRuleAimingByTagsOptions; ASource: TACLRipperRule);
 
-  procedure SplitTags(const S: string; var ATags: TStringDynArray);
+  procedure ParseTag(var ATag: TTag; const S: string);
   var
+    I, J: Integer;
+  begin
+    // +<number>:str-to-find
+    if S.StartsWith('+') then
+    begin
+      I := 2;
+      while CharInSet(S[I], ['0'..'9']) do
+        Inc(I);
+      if (S[I] = ':') and TryStrToInt(Copy(S, 2, I - 2), J) then
+      begin
+        ATag.Data := Copy(S, I + 1);
+        ATag.Number := J;
+        Exit;
+      end;
+    end;
+    ATag.Number := 1;
+    ATag.Data := S;
+  end;
+
+  procedure SplitTags(var ATags: TArray<TTag>; const S: string);
+  var
+    LTags: TStringDynArray;
     I: Integer;
   begin
-    acExplodeString(S, '|', ATags);
-    if ratCaseInsensitive in AOptions then
+    acSplitString(S, '|', LTags);
+    SetLength(ATags, Length(LTags));
+    for I := Low(LTags) to High(LTags) do
     begin
-      for I := Low(ATags) to High(ATags) do
-        ATags[I] := acUpperCase(ATags[I]);
+      ParseTag(ATags[I], LTags[I]);
+      if ratCaseInsensitive in AOptions then
+        ATags[I].Data := acUpperCase(ATags[I].Data);
     end;
   end;
 
 begin
   inherited Create(ASource);
   FOptions := AOptions;
-  SplitTags(AStartTags, FStartTags);
-  SplitTags(AFinishTags, FFinishTags);
+  SplitTags(FStartTags, AStartTags);
+  SplitTags(FFinishTags, AFinishTags);
 end;
 
-procedure TACLRipperRuleAimingByTags.ProcessCore(const ATarget: TACLListOfString; const ASource: string);
+function TACLRipperRuleAimingByTags.Find(const ATagToFind: TTag;
+  const AStr: string; AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer;
 var
-  I0: Integer;
-  L1, L2: Integer;
-  P1, P2, PE: Integer;
-  US: string;
+  LRepeat: Integer;
 begin
-  L1 := Length(FStartTags);
-  L2 := Length(FFinishTags);
-  if (L1 = 0) or (L2 = 0) then
-    Exit;
-
-  if ratCaseInsensitive in FOptions then
-    US := acUpperCase(ASource)
-  else
-    US := ASource;
-
-  P1 := 1;
-  repeat
-    PE := -1;
-    P2 := Length(ASource);
-
-    for I0 := 0 to Max(L1, L2) - 1 do
-    begin
-      if I0 < L1 then
-      begin
-        P1 := Find(FStartTags[I0], US, P1, P2, False);
-        if P1 = 0 then
-          Exit;
-        P1 := P1 + Length(FStartTags[I0]);
-      end;
-
-      if I0 < L2 then
-      begin
-        P2 := Find(FFinishTags[I0], US, P1, P2, ratConstrictionMode in FOptions);
-        if P2 = 0 then
-          Exit;
-        if PE < 0 then
-          PE := P2;
-      end;
-    end;
-    ATarget.Add(Copy(ASource, P1, P2 - P1));
-    P1 := PE;
-  until (P1 < 0) or not (ratMultipleTargets in FOptions);
+  LRepeat := ATagToFind.Number;
+  while True do
+  begin
+    Result := Find(ATagToFind.Data, AStr, AStartPos, AEndPos, AFromEnd);
+    if Result = 0 then
+      Exit;
+    Dec(LRepeat);
+    if LRepeat = 0 then
+      Break;
+    if AFromEnd then
+      AEndPos := Result
+    else
+      AStartPos := Result + Length(ATagToFind.Data);
+  end;
 end;
 
-function TACLRipperRuleAimingByTags.Find(const AStrToFind, AStr: string;
-  AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer;
+function TACLRipperRuleAimingByTags.Find(const AStrToFind: string;
+  const AStr: string; AStartPos, AEndPos: Integer; AFromEnd: Boolean): Integer;
 var
   AIterationCount: Integer;
   AStrScan: PChar;
@@ -312,6 +319,52 @@ begin
     end;
   end;
   Result := 0;
+end;
+
+procedure TACLRipperRuleAimingByTags.ProcessCore(const ATarget: TACLListOfString; const ASource: string);
+var
+  I0: Integer;
+  L1, L2: Integer;
+  P1, P2, PE: Integer;
+  US: string;
+begin
+  L1 := Length(FStartTags);
+  L2 := Length(FFinishTags);
+  if (L1 = 0) or (L2 = 0) then
+    Exit;
+
+  if ratCaseInsensitive in FOptions then
+    US := acUpperCase(ASource)
+  else
+    US := ASource;
+
+  P1 := 1;
+  repeat
+    PE := -1;
+    P2 := Length(ASource);
+
+    for I0 := 0 to Max(L1, L2) - 1 do
+    begin
+      if I0 < L1 then
+      begin
+        P1 := Find(FStartTags[I0], US, P1, P2, False);
+        if P1 = 0 then
+          Exit;
+        P1 := P1 + Length(FStartTags[I0].Data);
+      end;
+
+      if I0 < L2 then
+      begin
+        P2 := Find(FFinishTags[I0], US, P1, P2, ratConstrictionMode in FOptions);
+        if P2 = 0 then
+          Exit;
+        if PE < 0 then
+          PE := P2;
+      end;
+    end;
+    ATarget.Add(Copy(ASource, P1, P2 - P1));
+    P1 := PE;
+  until (P1 < 0) or not (ratMultipleTargets in FOptions);
 end;
 
 { TACLRipperRuleExpression }

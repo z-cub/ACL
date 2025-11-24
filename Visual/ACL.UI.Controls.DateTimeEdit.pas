@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   DateTimeEdit
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -59,14 +59,12 @@ type
 
   TACLDateTimeEditMode = (dtmDateAndTime, dtmDate);
 
-  TACLDateTimeEdit = class(TACLCustomComboBox)
+  TACLDateTimeEdit = class(TACLAbstractComboBox)
   strict private
     FMode: TACLDateTimeEditMode;
     FStyleCalendar: TACLStyleCalendar;
     FStylePushButton: TACLStyleButton;
     FStyleSpinButton: TACLStyleButton;
-
-    FOnSelect: TNotifyEvent;
 
     function IsValueStored: Boolean;
     procedure SetMode(AValue: TACLDateTimeEditMode);
@@ -74,7 +72,6 @@ type
     procedure SetStylePushButton(const Value: TACLStyleButton);
     procedure SetStyleSpinButton(const Value: TACLStyleButton);
   protected
-    procedure Changed; override;
     function CreateDropDownWindow: TACLPopupWindow; override;
     function TextToValue(const AText: string): Variant; override;
     function ValueToText(const AValue: Variant): string; override;
@@ -92,8 +89,6 @@ type
     property StylePushButton: TACLStyleButton read FStylePushButton write SetStylePushButton;
     property StyleSpinButton: TACLStyleButton read FStyleSpinButton write SetStyleSpinButton;
     property Value stored IsValueStored;
-
-    property OnSelect: TNotifyEvent read FOnSelect write FOnSelect;
   end;
 
   { TACLDateTimeEditDropDown }
@@ -141,12 +136,6 @@ begin
   inherited;
 end;
 
-procedure TACLDateTimeEdit.Changed;
-begin
-  inherited;
-  CallNotifyEvent(Self, OnSelect);
-end;
-
 function TACLDateTimeEdit.CreateDropDownWindow: TACLPopupWindow;
 begin
   Result := TACLDateTimeEditDropDown.Create(Self);
@@ -190,16 +179,16 @@ end;
 
 function TACLDateTimeEdit.ValueToText(const AValue: Variant): string;
 var
-  AFormatString: string;
+  LStr: string;
 begin
   if AValue > 0 then
   begin
     if Mode = dtmDateAndTime then
-      AFormatString := FormatSettings.ShortDateFormat + ' ' + FormatSettings.LongTimeFormat
+      LStr := FormatSettings.ShortDateFormat + ' ' + FormatSettings.LongTimeFormat
     else
-      AFormatString := FormatSettings.ShortDateFormat;
+      LStr := FormatSettings.ShortDateFormat;
 
-    Result := FormatDateTime(AFormatString, AValue);
+    Result := FormatDateTime(LStr, AValue);
   end
   else
     Result := '';
@@ -214,7 +203,10 @@ begin
 
   CreateControl(TACLCalendar, FCalendar);
   FCalendar.Style := FOwner.StyleCalendar;
-  FCalendar.Value := TDateTime(FOwner.Value);
+  if FOwner.Value > 0 then
+    FCalendar.Value := TDateTime(FOwner.Value)
+  else
+    FCalendar.Value := Now;
 
   CreateControl(TACLTimeEdit, FTimeEdit);
   FTimeEdit.Time := TDateTime(FOwner.Value);

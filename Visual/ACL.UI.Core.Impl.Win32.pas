@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Win32 Adapters and Helpers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -23,15 +23,33 @@ uses
   // System
   Types,
   // VCL
-  Controls;
+  Controls,
+  Forms;
 
 const
   MSGF_COMMCTRL_BEGINDRAG = $4200;
 
-function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
+type
+
+  { TACLStartDragHelper }
+
+  TACLStartDragHelper = class
+  public
+    class function Check(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean; static;
+  end;
+
+  { TACLWSScrollingControl }
+
+  TACLWSScrollingControl = class
+  public
+    class procedure DispatchNonClientMessage(
+      AControl: TWinControl; var AMessage: TMessage); static;
+  end;
+
+procedure SetWindowStayOnTop(AWnd: HWND; AValue: Boolean);
 implementation
 
-function CheckStartDragImpl(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
+class function TACLStartDragHelper.Check(AControl: TWinControl; X, Y, AThreshold: Integer): Boolean;
 var
   LMsg: TMsg;
   LTarget: TRect;
@@ -77,6 +95,43 @@ begin
     else
       WaitMessage;
   until not (IsWindow(LWnd) and (GetCapture = LWnd));
+end;
+
+procedure SetWindowStayOnTop(AWnd: HWND; AValue: Boolean);
+const
+  StyleMap: array[Boolean] of HWND = (HWND_NOTOPMOST, HWND_TOPMOST);
+begin
+  if AWnd = 0 then
+    Exit;
+  if AValue <> (GetWindowLong(AWnd, GWL_EXSTYLE) and WS_EX_TOPMOST <> 0) then
+  begin
+    SetWindowPos(AWnd, StyleMap[AValue], 0, 0, 0, 0,
+      SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE or SWP_NOOWNERZORDER);
+  end;
+end;
+
+{ TACLWSScrollingControl }
+
+class procedure TACLWSScrollingControl.DispatchNonClientMessage(
+  AControl: TWinControl; var AMessage: TMessage);
+var
+  LDC: HDC;
+begin
+  case AMessage.Msg of
+    WM_NCCALCSIZE:
+      TWMNCCalcSize(AMessage).CalcSize_Params.rgrc[0].Inflate(-2, -2);
+    WM_NCPAINT:
+      begin
+        LDC := GetWindowDC(AControl.Handle);
+        if LDC <> 0 then
+        try
+          AMessage.LParam := LDC;
+          AControl.Dispatch(AMessage);
+        finally
+          DeleteDC(LDC);
+        end;
+      end;
+  end;
 end;
 
 end.

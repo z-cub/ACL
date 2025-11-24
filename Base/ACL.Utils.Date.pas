@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Date-Time Utilitites
 //
@@ -41,33 +41,38 @@ type
     class procedure InitializeWeekLayout;
   public
     class constructor Create;
-    class function AddDays(const AValue: TDateTime; ACount: Integer): TDateTime;
-    class function AddMonths(const AValue: TDateTime; ACount: Integer; ADayOfMonth: Byte = 0): TDateTime;
-    class function AddWeeks(const AValue: TDateTime; ACount: Integer): TDateTime;
-    class function AddYears(const AValue: TDateTime; ACount: Integer; ADayOfMonth: Byte = 0): TDateTime;
-    class function GetDayOfMonth(const AValue: TDateTime): Byte;
-    class function GetDayOfWeek(const AValue: TDateTime): Byte;
-    class function GetDayOfWeekName(ADay: Byte; AShort: Boolean): string;
-    class function GetDaysInMonth(const AValue: TDateTime): Byte;
-    class function GetEndOfMonth(const AValue: TDateTime): TDateTime;
-    class function GetEndOfYear(const AValue: TDateTime): TDateTime;
-    class function GetMonthOfYear(const AValue: TDateTime): Byte;
-    class function GetNearestFutureValue(const ANow, ACurrentValue, ADelta: TDateTime): TDateTime;
-    class function GetStartOfMonth(const AValue: TDateTime): TDateTime;
-    class function GetStartOfWeek(const AValue: TDateTime): TDateTime;
-    class function GetStartOfYear(const AValue: TDateTime): TDateTime;
-    class function InRange(const AValue, AMinDate, AMaxDate{Non-inclusive}: TDateTime): Boolean;
-    class function IsWeekend(const AValue: TDateTime): Boolean;
-    class function DateTimeToMilliseconds(const AValue: TDateTime): UInt64;
-    class function DateTimeToSeconds(const AValue: TDateTime): UInt64;
-    class function MillisecondsToDateTime(const AValue: UInt64): TDateTime;
-    class function MinutesToDateTime(const AValue: Integer): TDateTime;
-    class function SecondsToDateTime(const AValue: UInt64): TDateTime;
+    class function AddDays(const AValue: TDateTime; ACount: Integer): TDateTime; static;
+    class function AddMonths(const AValue: TDateTime; ACount: Integer; ADayOfMonth: Byte = 0): TDateTime; static;
+    class function AddWeeks(const AValue: TDateTime; ACount: Integer): TDateTime; static;
+    class function AddYears(const AValue: TDateTime; ACount: Integer; ADayOfMonth: Byte = 0): TDateTime; static;
+    class function GetDayOfMonth(const AValue: TDateTime): Byte; static;
+    class function GetDayOfWeek(const AValue: TDateTime): Byte; static;
+    class function GetDayOfWeekName(ADay: Byte; AShort: Boolean): string; static;
+    class function GetDaysInMonth(const AValue: TDateTime): Byte; static;
+    class function GetEndOfMonth(const AValue: TDateTime): TDateTime; static;
+    class function GetEndOfYear(const AValue: TDateTime): TDateTime; static;
+    class function GetMonthOfYear(const AValue: TDateTime): Byte; static;
+    class function GetNearestFutureValue(const ANow, ACurrentValue, ADelta: TDateTime): TDateTime; static;
+    class function GetStartOfMonth(const AValue: TDateTime): TDateTime; static;
+    class function GetStartOfWeek(const AValue: TDateTime): TDateTime; static;
+    class function GetStartOfYear(const AValue: TDateTime): TDateTime; static;
+    class function InRange(const AValue, AMinDate, AMaxDate{Non-inclusive}: TDateTime): Boolean; static;
+    class function IsWeekend(const AValue: TDateTime): Boolean; static;
+    class function DateTimeToMilliseconds(const AValue: TDateTime): UInt64; static;
+    class function DateTimeToSeconds(const AValue: TDateTime): UInt64; static;
+    class function Max(const A, B: TDateTime): TDateTime; overload; static;
+    class function Min(const A, B: TDateTime): TDateTime; overload; static;
+    class function MillisecondsToDateTime(const AValue: UInt64): TDateTime; static;
+    class function MinutesToDateTime(const AValue: Integer): TDateTime; static;
+    class function SecondsToDateTime(const AValue: UInt64): TDateTime; static;
+    class function Same(const D1, D2: TDateTime): Boolean; static;
+    class function SameDate(const D1, D2: TDateTime): Boolean; static;
+    class function SameTime(const D1, D2: TDateTime): Boolean; static;
     // Conversion
-    class function DayOfWeekToWeekDay(ADayOfWeek: Byte): TWeekDay;
-    class function WeekDayToDayOfWeek(AWeekDay: TWeekDay): Byte;
+    class function DayOfWeekToWeekDay(ADayOfWeek: Byte): TWeekDay; static;
+    class function WeekDayToDayOfWeek(AWeekDay: TWeekDay): Byte; static;
     // just for testing
-    class procedure SetFirstDayInWeek(AValue: TWeekDay);
+    class procedure SetFirstDayInWeek(AValue: TWeekDay); static;
   end;
 
 function LocalDateTimeToUTC(const AValue: TDateTime): TDateTime;
@@ -196,7 +201,7 @@ begin
     Dec(AMonth, MonthsPerYear);
     Inc(AYear);
   end;
-  ADay := Min(ADay, DaysInAMonth(AYear, AMonth));
+  ADay := Math.Min(ADay, DaysInAMonth(AYear, AMonth));
 
   Result := EncodeDate(AYear, AMonth, ADay) + TimeOf(AValue);
 end;
@@ -214,7 +219,7 @@ begin
   if ADayOfMonth <> 0 then
     ADay := ADayOfMonth;
   AYear := AYear + ACount;
-  ADay := Min(ADay, DaysInAMonth(AYear, AMonth));
+  ADay := Math.Min(ADay, DaysInAMonth(AYear, AMonth));
   Result := EncodeDate(AYear, AMonth, ADay) + TimeOf(AValue);
 end;
 
@@ -350,6 +355,22 @@ begin
   Result := DateTimeToMilliseconds(AValue) div MSecsPerSec;
 end;
 
+class function TACLDateUtils.Max(const A, B: TDateTime): TDateTime;
+begin
+  if a > b then
+    Result := a
+  else
+    Result := b;
+end;
+
+class function TACLDateUtils.Min(const A, B: TDateTime): TDateTime;
+begin
+  if a < b then
+    Result := a
+  else
+    Result := b;
+end;
+
 class function TACLDateUtils.MillisecondsToDateTime(const AValue: UInt64): TDateTime;
 var
   ATime: UInt64;
@@ -371,6 +392,21 @@ end;
 class function TACLDateUtils.SecondsToDateTime(const AValue: UInt64): TDateTime;
 begin
   Result := MillisecondsToDateTime(AValue * MSecsPerSec);
+end;
+
+class function TACLDateUtils.Same(const D1, D2: TDateTime): Boolean;
+begin
+  Result := DateTimeToMilliseconds(D1) = DateTimeToMilliseconds(D2);
+end;
+
+class function TACLDateUtils.SameDate(const D1, D2: TDateTime): Boolean;
+begin
+  Result := Trunc(D1) = Trunc(D2);
+end;
+
+class function TACLDateUtils.SameTime(const D1, D2: TDateTime): Boolean;
+begin
+  Result := Frac(Abs(D1 - D2)) < OneMillisecond;
 end;
 
 class function TACLDateUtils.DayOfWeekToWeekDay(ADayOfWeek: Byte): TWeekDay;

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Bevel
 //
@@ -114,17 +114,16 @@ begin
       acDrawFrameEx(ACanvas, R, ColorBorder1.Value, Borders);
     bbs3D:
       acDrawComplexFrame(ACanvas, R, ColorBorder1.Value, ColorBorder2.Value, Borders);
-
     bbsRounded:
       begin
-        if acStartClippedDraw(ACanvas.Handle, R, AClipRgn) then
+        if acStartClippedDraw(ACanvas, R, AClipRgn) then
         try
           R.Inflate(Rect(5, 5, 5, 5), acAllBorders - Borders);
           ACanvas.Pen.Color := ColorBorder1.AsColor;
           ACanvas.Brush.Style := bsClear;
           ACanvas.RoundRect(R.Left, R.Top, R.Right, R.Bottom, 5, 5);
         finally
-          acRestoreClipRegion(ACanvas.Handle, AClipRgn);
+          acEndClippedDraw(ACanvas, AClipRgn);
         end;
       end;
   else;

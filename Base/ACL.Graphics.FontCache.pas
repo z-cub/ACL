@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Font Cache
 //
@@ -38,6 +38,7 @@ uses
   // Vcl
   {Vcl.}Graphics,
   // ACL
+  ACL.Classes,
   ACL.Classes.Collections,
   ACL.Classes.StringList,
   ACL.Graphics,
@@ -81,6 +82,25 @@ type
     class property Default: IEqualityComparer<TACLFontData> read GetDefault;
   end;
 
+  { TACLFontSubstitutions }
+
+  TACLFontSubstitutions = class(TACLStringList)
+  strict private type
+    PItem = ^TItem;
+    TItem = record
+      Char: LongWord;
+      GlyphIndex: LongWord;
+      Next: PItem;
+    end;
+  strict private
+    FChars: PItem;
+  public
+    destructor Destroy; override;
+    function Equals(Obj: TObject): Boolean; override;
+    function Find(AChar: LongWord; out AGlyphIndex: LongWord): Boolean;
+    procedure Push(Char: LongWord; GlyphIndex: Integer);
+  end;
+
   { TACLFontCache }
 
   TACLFontRemapProc = reference to procedure (var AName: TFontName; var AHeight: Integer);
@@ -91,10 +111,6 @@ type
     PCallbackData = ^TCallbackData;
     TCallbackData = record
       CheckCanceled: TACLTaskCancelCallback;
-    end;
-    TACLFontSubstitutions = class
-    private
-      Data: TStringDynArray;
     end;
   {$ENDREGION}
   strict private
@@ -107,12 +123,12 @@ type
 
     class function CreateFont(const AFontData: TACLFontData): TFont;
     class function CreateSubstitutions(const AFontName: string): TACLFontSubstitutions;
+    class procedure DestroyFontSubstitutions;
     //# Loader
     class procedure AsyncFontLoader(ACheckCanceled: TACLTaskCancelCallback);
     class function AsyncFontLoaderEnumProc(var ALogFont: TLogFont;
       ATextMetric: PTextMetric; AFontType: Integer;
       AData: PCallbackData): Integer; stdcall; static;
-    class procedure AsyncFontLoaderFinished;
     class procedure StartLoaderCore;
   protected
     class procedure WaitForLoader(ACancel: Boolean = False);
@@ -123,7 +139,7 @@ type
     class function Get(const AName: string; AStyle: TFontStyles;
       AHeight: Integer; ATargetDPI: Integer; AQuality: TFontQuality): TFont; overload;
     class function Get(const AFontData: TACLFontData): TFont; overload;
-    class function GetSubstitutions(const AName: string): TStringDynArray;
+    class function GetSubstitutions(const AName: string): TACLFontSubstitutions;
     class procedure StartLoader;
     //# Remap
     class procedure RemapFont(var AName: TFontName; var AHeight: Integer);
@@ -474,6 +490,79 @@ begin
   Result := FDefault;
 end;
 
+{ TACLFontSubstitutions }
+
+destructor TACLFontSubstitutions.Destroy;
+var
+  LChar: PItem;
+begin
+  while FChars <> nil do
+  begin
+    LChar := FChars.Next;
+    Dispose(FChars);
+    FChars := LChar;
+  end;
+  inherited;
+end;
+
+function TACLFontSubstitutions.Equals(Obj: TObject): Boolean;
+var
+  I: Integer;
+  LSrc: TACLFontSubstitutions absolute Obj;
+begin
+  if Obj = nil then
+    Exit(False);
+  if Obj = Self then
+    Exit(True);
+  if Obj.ClassType <> ClassType then
+    Exit(False);
+  if Count <> LSrc.Count then
+    Exit(False);
+  for I := 0 to Count - 1 do
+  begin
+    if Strings[I] <> LSrc.Strings[I] then
+      Exit(False);
+  end;
+  Result := True;
+end;
+
+function TACLFontSubstitutions.Find(AChar: LongWord; out AGlyphIndex: LongWord): Boolean;
+var
+  LChar: PItem;
+begin
+  LChar := FChars;
+  while LChar <> nil do
+  begin
+    if LChar^.Char = AChar then
+    begin
+      AGlyphIndex := LChar^.GlyphIndex;
+      Exit(True);
+    end;
+    LChar := LChar.Next;
+  end;
+  Result := False;
+end;
+
+procedure TACLFontSubstitutions.Push(Char: LongWord; GlyphIndex: Integer);
+var
+  LItem: PItem;
+  LScan: PItem;
+begin
+  New(LItem);
+  LItem^.Char := Char;
+  LItem^.GlyphIndex := GlyphIndex;
+  LItem^.Next := nil;
+  if FChars = nil then
+    FChars := LItem
+  else
+  begin
+    LScan := FChars;
+    while LScan^.Next <> nil do
+      LScan := LScan^.Next;
+    LScan^.Next := LItem;
+  end;
+end;
+
 { TACLFontCache }
 
 class constructor TACLFontCache.Create;
@@ -483,13 +572,14 @@ begin
   FFontCache := TACLDictionary<TACLFontData, TFont>.Create(
     [doOwnsValues], 64, TACLFontDataComparer.Create);
   FFontSubstitutions := TACLDictionary<string, TACLFontSubstitutions>.Create(
-    [doOwnsValues], 16, TACLStringComparer.Create);
+    [], 16, TACLStringComparer.Create);
 end;
 
 class destructor TACLFontCache.Destroy;
 begin
   TACLMainThread.Unsubscribe(StartLoaderCore);
   WaitForLoader(True);
+  DestroyFontSubstitutions;
   FreeAndNil(FFontSubstitutions);
   FreeAndNil(FFontCache);
   FreeAndNil(FFonts);
@@ -498,19 +588,23 @@ end;
 
 class procedure TACLFontCache.AsyncFontLoader(ACheckCanceled: TACLTaskCancelCallback);
 var
-  AData: TCallbackData;
-  ADC: HDC;
-  ALogFont: TLogFont;
+  LData: TCallbackData;
+  LDC: HDC;
+  LFont: TLogFont;
 begin
-  ADC := CreateCompatibleDC(0);
   try
-    AData.CheckCanceled := ACheckCanceled;
-    FillChar(ALogFont{%H-}, SizeOf(ALogFont), #0);
-    ALogFont.lfCharset := DEFAULT_CHARSET;
-    EnumFontFamiliesEx(ADC, {$IFDEF FPC}@{$ENDIF}ALogFont,
-       @AsyncFontLoaderEnumProc, {%H-}LPARAM(@AData), 0);
+    LDC := CreateCompatibleDC(0);
+    try
+      LData.CheckCanceled := ACheckCanceled;
+      FillChar(LFont{%H-}, SizeOf(LFont), #0);
+      LFont.lfCharset := DEFAULT_CHARSET;
+      EnumFontFamiliesEx(LDC, {$IFDEF FPC}@{$ENDIF}LFont, @AsyncFontLoaderEnumProc, {%H-}LPARAM(@LData), 0);
+    finally
+      DeleteDC(LDC);
+    end;
   finally
-    DeleteDC(ADC);
+    FLoaderHandle := TObjHandle(-1);
+    LogEntry(acGeneralLogFileName, 'FontCache', 'Loader Finished');
   end;
 end;
 
@@ -522,12 +616,7 @@ begin
     if ALogFont.lfFaceName[0] <> '@' then // vertical;
       FFonts.Include(ALogFont.lfFaceName);
   end;
-  Result := Ord(not AData.CheckCanceled);
-end;
-
-class procedure TACLFontCache.AsyncFontLoaderFinished;
-begin
-  FLoaderHandle := TObjHandle(-1);
+  Result := IfThen(Assigned(AData.CheckCanceled) and AData.CheckCanceled, 0, 1);
 end;
 
 class function TACLFontCache.CreateFont(const AFontData: TACLFontData): TFont;
@@ -556,7 +645,7 @@ class function TACLFontCache.CreateSubstitutions(const AFontName: string): TACLF
   begin
     // TODO: Windows/Linux - use panose distance to compare the fonts
     Result := 0;
-    acExplodeString(ATestName, ' ', LParts);
+    acSplitString(ATestName, ' ', LParts);
     for I := 0 to Length(LParts) - 1 do
     begin
       if acContains(LParts[I], AFontName, True) then
@@ -570,27 +659,36 @@ class function TACLFontCache.CreateSubstitutions(const AFontName: string): TACLF
 
 var
   LFont: string;
-  LFonts: TACLStringList;
 begin
-  LFonts := TACLStringList.Create;
-  try
-    LFonts.EnsureCapacity(FFonts.Count);
-    for LFont in Enumerate do
+  Result := TACLFontSubstitutions.Create;
+  Result.EnsureCapacity(FFonts.Count);
+  for LFont in Enumerate do
+  begin
+    if not SameText(LFont, AFontName) then
+      Result.Add(LFont, GetSimilarity(LFont));
+  end;
+  Result.Sort(
+    function (const Item1, Item2: TACLStringListItem): Integer
     begin
-      if not SameText(LFont, AFontName) then
-        LFonts.Add(LFont, GetSimilarity(LFont));
-    end;
-    LFonts.Sort(
-      function (const Item1, Item2: TACLStringListItem): Integer
-      begin
-        Result := Integer(Item2.FObject) - Integer(Item1.FObject); // backward order
-        if Result = 0 then
-          Result := CompareStr(Item1.FString, Item2.FString); // direct order
-      end, False);
-    Result := TACLFontSubstitutions.Create;
-    Result.Data := LFonts.ToStringArray;
+      Result := Integer(Item2.FObject) - Integer(Item1.FObject); // backward order
+      if Result = 0 then
+        Result := CompareStr(Item1.FString, Item2.FString); // direct order
+    end, False);
+end;
+
+class procedure TACLFontCache.DestroyFontSubstitutions;
+var
+  LSubs: TACLFontSubstitutions;
+  LUnuque: TACLObjectList;
+begin
+  LUnuque := TACLObjectList.Create(True);
+  try
+    LUnuque.Capacity := FFontSubstitutions.Count;
+    for LSubs in FFontSubstitutions.GetValues do
+      LUnuque.AddIfAbsent(LSubs);
+    FFontSubstitutions.Clear;
   finally
-    LFonts.Free;
+    LUnuque.Free;
   end;
 end;
 
@@ -606,6 +704,7 @@ begin
   try
     if not FFontCache.TryGetValue(AFontData, Result) then
     begin
+      LogEntry(acGeneralLogFileName, 'FontCache', 'GetInfo(%s)', [AFontData.ToString]);
       Result := CreateFont(AFontData);
       FFontCache.Add(AFontData, Result);
     end;
@@ -631,16 +730,24 @@ begin
   Result := Get(AData);
 end;
 
-class function TACLFontCache.GetSubstitutions(const AName: string): TStringDynArray;
+class function TACLFontCache.GetSubstitutions(const AName: string): TACLFontSubstitutions;
 var
-  LInfo: TACLFontSubstitutions;
+  LSubs: TACLFontSubstitutions;
 begin
-  if not FFontSubstitutions.TryGetValue(AName, LInfo) then
+  if not FFontSubstitutions.TryGetValue(AName, Result) then
   begin
-    LInfo := TACLFontCache.CreateSubstitutions(AName);
-    FFontSubstitutions.Add(AName, LInfo);
+    Result := TACLFontCache.CreateSubstitutions(AName);
+    // Share the Substitutions
+    for LSubs in FFontSubstitutions.GetValues do
+      if LSubs.Equals(Result) then
+      begin
+        Result.Free;
+        Result := LSubs;
+        Break;
+      end;
+    // Create new
+    FFontSubstitutions.Add(AName, Result);
   end;
-  Result := LInfo.Data;
 end;
 
 class procedure TACLFontCache.RemapFont(var AName: TFontName; var AHeight: Integer);
@@ -658,7 +765,14 @@ end;
 class procedure TACLFontCache.StartLoaderCore;
 begin
   if FLoaderHandle = 0 then
-    FLoaderHandle := TaskDispatcher.Run(AsyncFontLoader, AsyncFontLoaderFinished, tmcmAsync);
+  begin
+  {$IFDEF MSWINDOWS}
+    FLoaderHandle := TaskDispatcher.Run(AsyncFontLoader);
+  {$ELSE}
+    // В Линуксе API потоконезащищенное
+    AsyncFontLoader(nil);
+  {$ENDIF}
+  end;
 end;
 
 class procedure TACLFontCache.WaitForLoader(ACancel: Boolean);

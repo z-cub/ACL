@@ -7,4 +7,14 @@ Library contains number of classes, components and visual controls for Delphi th
 I have published the library because it was used in plugins that no longer supported by me.
 
 
-If anyone will be interested the library I will add more details and create index of all features and abilities of the library. My main versions of Delphi is 11.3 / 12.2. The library may work with earlier versions of Delphi, but I have not tested it.
+If anyone will be interested the library I will add more information and create an index of all features and capabilities of the library.
+
+Target platforms:
++ Delphi: Windows 32/64-bit
++ FPC: Linux  x86_64 via Gtk2
+
+Tested on:
++ Delphi: 12.3 and 13
++ FPC: v3.3.1
+
+The library may also work with other versions of Delphi/FPC.

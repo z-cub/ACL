@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
-//  Purpose:   Shell drop target
+//  Purpose:   Shell Drop Target
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -34,11 +34,13 @@ uses
   // Vcl
   {Vcl.}Controls,
   {Vcl.}Clipbrd,
+  {Vcl.}Forms,
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
   ACL.Classes.StringList,
   ACL.FileFormats.INI,
+  ACL.Threading,
   ACL.UI.Controls.Base,
   ACL.UI.HintWindow,
   ACL.Utils.Clipboard,
@@ -109,6 +111,7 @@ type
   strict private
     FHook: IACLDropTargetHook;
     FOptions: TACLDropTargetOptions;
+    FScrollTimestamp: Cardinal;
     FTarget: TWinControl;
     FTargetIsActive: Boolean;
 
@@ -160,21 +163,6 @@ type
     property OnScroll: TACLDropTargetScrollEvent read FOnScroll write FOnScroll;
   end;
 
-implementation
-
-uses
-{$IFDEF LCLGtk2}
-  glib2,
-  Gdk2,
-  Gtk2,
-  Gtk2Def,
-  Gtk2Int,
-  Gtk2Proc,
-{$ENDIF}
-  {Vcl.}Forms;
-
-type
-
   { TACLDropTargetHook }
 
   TACLDropTargetHook = class(TInterfacedObject, IACLDropTargetHook)
@@ -212,57 +200,6 @@ type
     property Registered: Boolean read FRegistered write SetRegistered;
   end;
 
-{$IFDEF LCLGtk2}
-
-  { TACLDropTargetHookGtk2 }
-
-  // https://www.manpagez.com/html/gdk2/gdk2-2.24.29/gdk2-Drag-and-Drop.php
-  // https://www.manpagez.com/html/gtk2/gtk2-2.24.28/gtk2-Drag-and-Drop.php#gtk-drag-get-data
-  // https://gitlab.gnome.org/GNOME/gtk/-/issues/5518
-  TACLDropTargetHookGtk2 = class(TACLDropTargetHook)
-  strict private
-    FContext: PGdkDragContext;
-    FData: PGtkSelectionData;
-    FWidget: PGtkWidget;
-  protected
-    FRecursion: Integer;
-
-    function GetData(AFormat: TClipboardFormat; out AMedium: TStgMedium): Boolean; override;
-    function HasData(AFormat: TClipboardFormat): Boolean; override;
-    procedure UpdateContext(AWidget: PGtkWidget; AContext: PGdkDragContext; AData: PGtkSelectionData);
-    procedure UpdateMimeTypes; override;
-    procedure UpdateRegistration(AHandle: TWndHandle; ARegister: Boolean); override;
-  end;
-
-{$ENDIF}
-
-{$IFDEF MSWINDOWS}
-
-  { TACLDropTargetHookWin32 }
-
-  TACLDropTargetHookWin32 = class(TACLDropTargetHook, IDropTarget)
-  strict private
-    FDataObject: IDataObject;
-    function GetActionFromEffect(AEffect: Integer): TACLDropAction;
-  protected
-    // IDropTarget
-    function DragEnter(const ADataObj: IDataObject; AKeyState: LongInt;
-      P: TPoint; var AEffect: LongInt): HRESULT; stdcall;
-    function DragLeave: HRESULT; stdcall;
-    function DragOver(AKeyState: LongInt; P: TPoint; var AEffect: LongInt): HRESULT; stdcall;
-    function Drop(const ADataObj: IDataObject; AKeyState: LongInt;
-      P: TPoint; var AEffect: LongInt): HRESULT; stdcall;
-    // IACLDropTargetHook
-    function GetData(AFormat: TClipboardFormat; out AMedium: TStgMedium): Boolean; override;
-    function HasData(AFormat: TClipboardFormat): Boolean; override;
-    // General
-    procedure UpdateRegistration(AHandle: TWndHandle; ARegister: Boolean); override;
-    // Properties
-    property DataObject: IDataObject read FDataObject;
-  end;
-
-{$ENDIF}
-
   { TACLDropTargetHookManager }
 
   TACLDropTargetHookManager = class
@@ -276,419 +213,13 @@ type
     class procedure Unregister(AHook: IACLDropTargetHook; AHandler: IACLDropTarget);
   end;
 
-{ TACLDropTargetHook }
+implementation
 
-constructor TACLDropTargetHook.Create(AControl: TWinControl);
-begin
-  FControl := AControl;
-  FControlWndProc := FControl.WindowProc;
-  FControl.WindowProc := HockedWndProc;
-  FTargets := TACLListOf<IACLDropTarget>.Create;
-  TACLDropTargetHookManager.DoAdd(Self);
-end;
-
-destructor TACLDropTargetHook.Destroy;
-begin
-  Registered := False;
-  TACLDropTargetHookManager.DoRemove(Self);
-  FControl.WindowProc := FControlWndProc;
-  FControl := nil;
-  FreeAndNil(FHintWindow);
-  FreeAndNil(FTargets);
-  inherited Destroy;
-end;
-
-procedure TACLDropTargetHook.DoDragOver(const AScreenPoint: TPoint;
-  AShift: TShiftState; var AAllow: Boolean; var AAction: TACLDropAction);
-var
-  LHint: string;
-begin
-  LHint := '';
-  ActiveTarget := GetTarget(AScreenPoint);
-  if ActiveTarget <> nil then
-    ActiveTarget.DoOver(AShift, AScreenPoint, LHint, AAllow, AAction);
-  if not AAllow or (ActiveTarget = nil) then
-  begin
-    AAllow := False;
-    LHint := '';
-  end;
-  ShowHint(LHint);
-end;
-
-procedure TACLDropTargetHook.HockedWndProc(var AMessage: TMessage);
-begin
-  FControlWndProc(AMessage);
-  case AMessage.Msg of
-    WM_CREATE:
-      Registered := True;
-    WM_DESTROY:
-      Registered := False;
-  end;
-end;
-
-procedure TACLDropTargetHook.HideHint;
-begin
-  FreeAndNil(FHintWindow);
-end;
-
-procedure TACLDropTargetHook.ShowHint(const AHint: string);
-var
-  LPos: TPoint;
-begin
-  if AHint <> '' then
-  begin
-    if FHintWindow = nil then
-      FHintWindow := TACLHintWindow.Create(nil);
-
-    LPos := MouseCursorPos;
-    Inc(LPos.X, MouseCursorSize.cx);
-    Inc(LPos.Y, MouseCursorSize.cy);
-    FHintWindow.ShowFloatHint(AHint, LPos);
-  end
-  else
-    HideHint;
-end;
-
-procedure TACLDropTargetHook.SetActiveTarget(AValue: IACLDropTarget);
-begin
-  if FActiveTarget <> AValue then
-  begin
-    if ActiveTarget <> nil then
-    begin
-      FActiveTarget.DoLeave;
-      FActiveTarget := nil;
-    end;
-    if AValue <> nil then
-    begin
-      FActiveTarget := AValue;
-      FActiveTarget.DoEnter;
-    end;
-  end;
-end;
-
-procedure TACLDropTargetHook.SetRegistered(AValue: Boolean);
-begin
-  if FRegistered <> AValue then
-  begin
-    if (Control <> nil) and Control.HandleAllocated then
-    begin
-      FRegistered := AValue; // first
-      UpdateRegistration(FControl.Handle, AValue);
-    end
-    else
-      FRegistered := False;
-  end;
-end;
-
-function TACLDropTargetHook.GetTarget(const AScreentPoint: TPoint): IACLDropTarget;
-var
-  I: Integer;
-begin
-  for I := FTargets.Count - 1 downto 0 do
-  begin
-    if FTargets[I].IsInTarget(AScreentPoint) then
-      Exit(FTargets[I]);
-  end;
-  Result := nil;
-end;
-
-procedure TACLDropTargetHook.UpdateMimeTypes;
-begin
-  // do nothing
-end;
-
-{$IFDEF LCLGtk2}
-
-{ TACLDropTargetHookGtk2 }
-
-function doGtkGetAction(context: PGdkDragContext): TACLDropAction;
-begin
-  case context^.action of
-    GDK_ACTION_LINK:
-      Result := daLink;
-    GDK_ACTION_MOVE:
-      Result := daMove;
-  else
-    Result := daCopy;
-  end;
-end;
-
-procedure doGtkDragOver(w: PGtkWidget; context: PGdkDragContext;
-  x, y, time: guint; impl: TACLDropTargetHookGtk2); cdecl;
-const
-  Map: array[TACLDropAction] of TGdkDragAction = (
-    GDK_ACTION_COPY, GDK_ACTION_MOVE, GDK_ACTION_LINK
-  );
-var
-  LAllow: Boolean;
-  LAction: TACLDropAction;
-begin
-  Inc(impl.FRecursion);
-  try
-    LAllow := True;
-    LAction := doGtkGetAction(context);
-    impl.UpdateContext(w, context, nil);
-    impl.DoDragOver(MouseCursorPos, KeyboardStateToShiftState, LAllow, LAction);
-    if LAllow then
-      gdk_drag_status(context, Map[LAction], time)
-    else
-      gdk_drag_status(context, 0, time);
-  finally
-    Dec(impl.FRecursion);
-  end;
-end;
-
-procedure doGtkDragLeave(w: PGtkWidget; context: PGdkDragContext;
-  time: guint; impl: TACLDropTargetHookGtk2); cdecl;
-begin
-  impl.ActiveTarget := nil;
-  impl.UpdateContext(nil, nil, nil);
-  impl.HideHint;
-end;
-
-procedure doGtkDragDrop(w: PGtkWidget; context: PGdkDragContext; x, y:gint;
-  data: PGtkSelectionData; info, time: guint; impl: TACLDropTargetHookGtk2); cdecl;
-var
-  LAllow: Boolean;
-  LAction: TACLDropAction;
-  LCursor: TPoint;
-  LState: TShiftState;
-begin
-  impl.UpdateContext(w, context, data);
-  // The "data-received" может придти во время обработки "drag-motion"
-  if impl.FRecursion = 0 then
-  try
-    LAllow := True;
-    LCursor := MouseCursorPos;
-    LAction := doGtkGetAction(context);
-    LState := KeyboardStateToShiftState;
-    impl.DoDragOver(LCursor, LState, LAllow, LAction);
-    impl.HideHint; // before drop, but after over
-    if (impl.ActiveTarget <> nil) and LAllow then
-      impl.ActiveTarget.DoDrop(LState, LCursor, LAction);
-  finally
-    doGtkDragLeave(w, context, time, impl);
-    gtk_drag_finish(context, LAllow, LAction = daMove, time);
-  end;
-end;
-
-function TACLDropTargetHookGtk2.GetData(AFormat: TClipboardFormat; out AMedium: TStgMedium): Boolean;
-begin
-  Result := (FData <> nil) and (FData^.target = AFormat) and (FData^.length >= 0);
-  if Result then
-  begin
-    AMedium.Data := FData^.data;
-    AMedium.Size := FData.length;
-    AMedium.Owned := False;
-  end;
-end;
-
-function TACLDropTargetHookGtk2.HasData(AFormat: TClipboardFormat): Boolean;
-begin
-  // Запрос во время drag-motion не работает...
-  //if (FData = nil) and (FWidget <> nil) and (FContext <> nil) then
-  //  gtk_drag_get_data(FWidget, FContext, AFormat, GDK_CURRENT_TIME);
-  if FRecursion > 0{drag-motion?} then
-    Exit(True); // на дропе разберемся...
-  Result := (FData <> nil) and (FData^.target = AFormat);
-end;
-
-procedure TACLDropTargetHookGtk2.UpdateContext(
-  AWidget: PGtkWidget; AContext: PGdkDragContext; AData: PGtkSelectionData);
-begin
-  FData := AData;
-  FContext := AContext;
-  FWidget := AWidget;
-end;
-
-procedure TACLDropTargetHookGtk2.UpdateMimeTypes;
-begin
-  Registered := False;
-  Registered := True;
-end;
-
-procedure TACLDropTargetHookGtk2.UpdateRegistration(AHandle: TWndHandle; ARegister: Boolean);
-var
-  I: Integer;
-  LFormats: array of TGtkTargetEntry;
-  LMimeTypes: TACLStringList;
-  LWidget: PGtkWidget;
-begin
-  LWidget := PGtkWidget(AHandle);
-  if ARegister then
-  begin
-    LMimeTypes := TACLStringList.Create;
-    try
-      LMimeTypes.Add(acMimeConfig);
-      LMimeTypes.Add(acMimeInternalFileList);
-      LMimeTypes.Add(acMimeLinuxFileList);
-      for I := 0 to FTargets.Count - 1 do
-        LMimeTypes.Append(FTargets.List[I].GetMimeTypes);
-      LMimeTypes.RemoveDuplicates;
-
-      SetLength(LFormats{%H-}, LMimeTypes.Count);
-      for I := 0 to LMimeTypes.Count - 1 do
-      begin
-        LFormats[I].target := PChar(LMimeTypes.Strings[I]);
-        LFormats[I].flags := 0;
-        LFormats[I].info := 0;
-      end;
-
-      gtk_drag_dest_set(LWidget, GTK_DEST_DEFAULT_ALL,
-        @LFormats[0], Length(LFormats), GDK_ACTION_COPY or GDK_ACTION_MOVE);
-      gtk_drag_dest_add_text_targets(LWidget);
-
-      ConnectSignal(PGtkObject(LWidget), 'drag_data_received', @doGtkDragDrop, Self);
-      ConnectSignal(PGtkObject(LWidget), 'drag_motion', @doGtkDragOver, Self);
-      ConnectSignal(PGtkObject(LWidget), 'drag_leave', @doGtkDragLeave, Self);
-    finally
-      LMimeTypes.Free;
-    end;
-  end
-  else
-    gtk_drag_dest_unset(LWidget);
-end;
-
+{$IF DEFINED(MSWINDOWS)}
+  {$I ACL.UI.DropTarget.Win32.inc}
+{$ELSEIF DEFINED(LCLGtk2)}
+  {$I ACL.UI.DropTarget.Gtk2.inc}
 {$ENDIF}
-
-{$IFDEF MSWINDOWS}
-{ TACLDropTargetHookWin32 }
-
-function TACLDropTargetHookWin32.DragEnter(const ADataObj: IDataObject;
-  AKeyState: Integer; P: TPoint; var AEffect: Integer): HRESULT;
-begin
-  FDataObject := ADataObj;
-  Result := S_OK;
-end;
-
-function TACLDropTargetHookWin32.DragLeave: HRESULT;
-begin
-  HideHint;
-  ActiveTarget := nil;
-  FDataObject := nil;
-  Result := S_OK;
-end;
-
-function TACLDropTargetHookWin32.DragOver(AKeyState: Integer; P: TPoint; var AEffect: Integer): HRESULT;
-const
-  Map: array[TACLDropAction] of Integer = (DROPEFFECT_COPY, DROPEFFECT_MOVE, DROPEFFECT_LINK);
-var
-  LAction: TACLDropAction;
-  LAllow: Boolean;
-begin
-  LAllow := AEffect <> DROPEFFECT_NONE;
-  LAction := GetActionFromEffect(AEffect);
-  DoDragOver(P, KeysToShiftState(AKeyState), LAllow, LAction);
-  AEffect := IfThen(LAllow, Map[LAction], DROPEFFECT_NONE);
-  Result := S_OK;
-end;
-
-function TACLDropTargetHookWin32.Drop(const ADataObj: IDataObject;
-  AKeyState: Integer; P: TPoint; var AEffect: Integer): HRESULT;
-begin
-  Result := S_OK;
-  try
-    if (DataObject <> nil) and (AEffect <> DROPEFFECT_NONE) then
-    begin
-      HideHint;
-      if ActiveTarget <> nil then
-        ActiveTarget.DoDrop(KeysToShiftState(AKeyState), P, GetActionFromEffect(AEffect));
-    end;
-  finally
-    DragLeave;
-  end;
-end;
-
-function TACLDropTargetHookWin32.GetActionFromEffect(AEffect: Integer): TACLDropAction;
-begin
-  case LoWord(AEffect) of
-    DROPEFFECT_MOVE:
-      Result := daMove;
-    DROPEFFECT_LINK:
-      Result := daLink;
-  else
-    Result := daCopy;
-  end;
-end;
-
-function TACLDropTargetHookWin32.GetData(AFormat: TClipboardFormat; out AMedium: TStgMedium): Boolean;
-begin
-  ZeroMemory(@AMedium, SizeOf(AMedium));
-  Result := (DataObject <> nil) and
-    Succeeded(DataObject.GetData(MakeFormat(AFormat), AMedium)) and
-    (AMedium.tymed <> TYMED_NULL);
-end;
-
-function TACLDropTargetHookWin32.HasData(AFormat: TClipboardFormat): Boolean;
-begin
-  Result := Succeeded(DataObject.QueryGetData(MakeFormat(AFormat)));
-end;
-
-procedure TACLDropTargetHookWin32.UpdateRegistration(AHandle: TWndHandle; ARegister: Boolean);
-begin
-  if ARegister then
-    RegisterDragDrop(AHandle, Self)
-  else
-    RevokeDragDrop(AHandle);
-end;
-{$ENDIF}
-
-{ TACLDropTargetHookManager }
-
-class function TACLDropTargetHookManager.Register(
-  AControl: TWinControl; AHandler: IACLDropTarget): IACLDropTargetHook;
-var
-  LImpl: TACLDropTargetHook;
-begin
-  if (FHooks = nil) or not FHooks.TryGetValue(AControl, LImpl) then
-  {$IFDEF LCLGtk2}
-    LImpl := TACLDropTargetHookGtk2.Create(AControl);
-  {$ELSE}
-    LImpl := TACLDropTargetHookWin32.Create(AControl);
-  {$ENDIF}
-  LImpl.FTargets.Add(AHandler);
-  LImpl.Registered := True;
-  Result := LImpl;
-end;
-
-class procedure TACLDropTargetHookManager.Unregister(
-  AHook: IACLDropTargetHook; AHandler: IACLDropTarget);
-var
-  LImpl: TACLDropTargetHook;
-begin
-  if AHook <> nil then
-  begin
-    AHook._AddRef;
-    try
-      LImpl := AHook as TACLDropTargetHook;
-      LImpl.FTargets.Remove(AHandler);
-      if LImpl.ActiveTarget = AHandler then
-        LImpl.ActiveTarget := nil;
-//TODO: unsafe for WndProc hooks
-//      if LImpl.FTargets.Count = 0 then
-//        LImpl.Registered := False;
-    finally
-      AHook._Release;
-    end;
-  end;
-end;
-
-class procedure TACLDropTargetHookManager.DoAdd(AHook: TACLDropTargetHook);
-begin
-  if FHooks = nil then
-    FHooks := TDictionary<TWinControl, TACLDropTargetHook>.Create;
-  FHooks.Add(AHook.Control, AHook);
-end;
-
-class procedure TACLDropTargetHookManager.DoRemove(AHook: TACLDropTargetHook);
-begin
-  if FHooks <> nil then
-  begin
-    FHooks.Remove(AHook.Control);
-    if FHooks.Count = 0 then
-      FreeAndNil(FHooks);
-  end;
-end;
 
 { TACLDropTarget }
 
@@ -827,8 +358,15 @@ end;
 
 procedure TACLDropTarget.CheckContentScrolling(const P: TPoint);
 const
-  ScrollIndent = 16;
+  ScrollIndent = 24;
   SpeedMap: array[Boolean] of Integer = (1, 4);
+
+  procedure DoAutoScroll(AFast: Boolean; ADirection: TACLMouseWheelDirection);
+  begin
+    if TACLThread.IsTimeoutEx(FScrollTimestamp, acAutoScrollInterval div SpeedMap[AFast]) then
+      DoScroll(1, ADirection, P);
+  end;
+
 var
   LClient: TRect;
   LIndent: Integer;
@@ -841,9 +379,9 @@ begin
     if not LClient.Contains(P) then
     begin
       if P.Y < LClient.Top then
-        DoScroll(SpeedMap[P.Y < LClient.Top    - LIndent div 2], mwdUp, P)
+        DoAutoScroll(P.Y < LClient.Top    - LIndent div 2, mwdUp)
       else if P.Y > LClient.Bottom then
-        DoScroll(SpeedMap[P.Y > LClient.Bottom + LIndent div 2], mwdDown, P);
+        DoAutoScroll(P.Y > LClient.Bottom + LIndent div 2, mwdDown);
     end;
   end;
 end;
@@ -995,6 +533,180 @@ end;
 procedure TACLDropTargetOptions.SetMimeTypes(AValue: TStrings);
 begin
   FMimeTypes.Assign(AValue);
+end;
+
+{ TACLDropTargetHook }
+
+constructor TACLDropTargetHook.Create(AControl: TWinControl);
+begin
+  FControl := AControl;
+  FControlWndProc := FControl.WindowProc;
+  FControl.WindowProc := HockedWndProc;
+  FTargets := TACLListOf<IACLDropTarget>.Create;
+  TACLDropTargetHookManager.DoAdd(Self);
+end;
+
+destructor TACLDropTargetHook.Destroy;
+begin
+  Registered := False;
+  TACLDropTargetHookManager.DoRemove(Self);
+  FControl.WindowProc := FControlWndProc;
+  FControl := nil;
+  FreeAndNil(FHintWindow);
+  FreeAndNil(FTargets);
+  inherited Destroy;
+end;
+
+procedure TACLDropTargetHook.DoDragOver(const AScreenPoint: TPoint;
+  AShift: TShiftState; var AAllow: Boolean; var AAction: TACLDropAction);
+var
+  LHint: string;
+begin
+  LHint := '';
+  ActiveTarget := GetTarget(AScreenPoint);
+  if ActiveTarget <> nil then
+    ActiveTarget.DoOver(AShift, AScreenPoint, LHint, AAllow, AAction);
+  if not AAllow or (ActiveTarget = nil) then
+  begin
+    AAllow := False;
+    LHint := '';
+  end;
+  ShowHint(LHint);
+end;
+
+procedure TACLDropTargetHook.HockedWndProc(var AMessage: TMessage);
+begin
+  FControlWndProc(AMessage);
+  case AMessage.Msg of
+    WM_CREATE:
+      Registered := True;
+    WM_DESTROY:
+      Registered := False;
+  end;
+end;
+
+procedure TACLDropTargetHook.HideHint;
+begin
+  FreeAndNil(FHintWindow);
+end;
+
+procedure TACLDropTargetHook.ShowHint(const AHint: string);
+var
+  LPos: TPoint;
+begin
+  if AHint <> '' then
+  begin
+    if FHintWindow = nil then
+      FHintWindow := TACLHintWindow.Create(nil);
+
+    LPos := MouseCursorPos;
+    Inc(LPos.X, MouseCursorSize.cx);
+    Inc(LPos.Y, MouseCursorSize.cy);
+    FHintWindow.ShowFloatHint(AHint, LPos);
+  end
+  else
+    HideHint;
+end;
+
+procedure TACLDropTargetHook.SetActiveTarget(AValue: IACLDropTarget);
+begin
+  if FActiveTarget <> AValue then
+  begin
+    if ActiveTarget <> nil then
+    begin
+      FActiveTarget.DoLeave;
+      FActiveTarget := nil;
+    end;
+    if AValue <> nil then
+    begin
+      FActiveTarget := AValue;
+      FActiveTarget.DoEnter;
+    end;
+  end;
+end;
+
+procedure TACLDropTargetHook.SetRegistered(AValue: Boolean);
+begin
+  if FRegistered <> AValue then
+  begin
+    if (Control <> nil) and Control.HandleAllocated then
+    begin
+      FRegistered := AValue; // first
+      UpdateRegistration(FControl.Handle, AValue);
+    end
+    else
+      FRegistered := False;
+  end;
+end;
+
+function TACLDropTargetHook.GetTarget(const AScreentPoint: TPoint): IACLDropTarget;
+var
+  I: Integer;
+begin
+  for I := FTargets.Count - 1 downto 0 do
+  begin
+    if FTargets[I].IsInTarget(AScreentPoint) then
+      Exit(FTargets[I]);
+  end;
+  Result := nil;
+end;
+
+procedure TACLDropTargetHook.UpdateMimeTypes;
+begin
+  // do nothing
+end;
+
+{ TACLDropTargetHookManager }
+
+class function TACLDropTargetHookManager.Register(
+  AControl: TWinControl; AHandler: IACLDropTarget): IACLDropTargetHook;
+var
+  LImpl: TACLDropTargetHook;
+begin
+  if (FHooks = nil) or not FHooks.TryGetValue(AControl, LImpl) then
+    LImpl := TACLDropTargetHookImpl.Create(AControl);
+  LImpl.FTargets.Add(AHandler);
+  LImpl.Registered := True;
+  Result := LImpl;
+end;
+
+class procedure TACLDropTargetHookManager.Unregister(
+  AHook: IACLDropTargetHook; AHandler: IACLDropTarget);
+var
+  LImpl: TACLDropTargetHook;
+begin
+  if AHook <> nil then
+  begin
+    AHook._AddRef;
+    try
+      LImpl := AHook as TACLDropTargetHook;
+      LImpl.FTargets.Remove(AHandler);
+      if LImpl.ActiveTarget = AHandler then
+        LImpl.ActiveTarget := nil;
+//TODO: unsafe for WndProc hooks
+//      if LImpl.FTargets.Count = 0 then
+//        LImpl.Registered := False;
+    finally
+      AHook._Release;
+    end;
+  end;
+end;
+
+class procedure TACLDropTargetHookManager.DoAdd(AHook: TACLDropTargetHook);
+begin
+  if FHooks = nil then
+    FHooks := TDictionary<TWinControl, TACLDropTargetHook>.Create;
+  FHooks.Add(AHook.Control, AHook);
+end;
+
+class procedure TACLDropTargetHookManager.DoRemove(AHook: TACLDropTargetHook);
+begin
+  if FHooks <> nil then
+  begin
+    FHooks.Remove(AHook.Control);
+    if FHooks.Count = 0 then
+      FreeAndNil(FHooks);
+  end;
 end;
 
 end.

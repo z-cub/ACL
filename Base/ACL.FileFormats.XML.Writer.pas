@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Stream-based XML Writer
 //             Based on .NET platform code:
@@ -178,6 +178,7 @@ type
     BufferOverflowSize = 32; //# Allow overflow in order to reduce checks when writing out constant size markup
   strict private
     FEncoding: TEncoding;
+    FEncodingName: string;
     FStream: TStream;
     FState: TState;
 
@@ -266,17 +267,15 @@ type
   protected type
   {$REGION 'Sub-Types'}
     TElementScope = record
+    public
       Prefix: string;
       PrevNSTop: Integer;
     end;
 
     TNamespace = record
-    strict private
-      FNamespace: string;
-      FPrefix: string;
     public
-      property Namespace: string read FNamespace write FNamespace;
-      property Prefix: string read FPrefix write FPrefix;
+      Namespace: string;
+      Prefix: string;
     end;
 
     TAttrName = record
@@ -486,12 +485,13 @@ end;
 
 procedure TACLXMLRawWriter.Write(const ABuffer: TWideCharArray; AIndex, ALength: Integer);
 var
-  ABytes: TBytes;
+  LBytes: TBytes;
 begin
-  ABytes := Encoding.GetBytes(ABuffer, AIndex, ALength);
-  ALength := Length(ABytes);
+  if ALength = 0 then Exit;
+  LBytes := Encoding.GetBytes(ABuffer, AIndex, ALength);
+  ALength := Length(LBytes);
   if ALength > 0 then
-    Stream.WriteBuffer(ABytes[0], ALength);
+    Stream.WriteBuffer(LBytes[0], ALength);
 end;
 
 procedure TACLXMLRawWriter.WriteStartDocument(AStandalone: TACLXMLStandalone);
@@ -584,6 +584,7 @@ constructor TACLXMLRawWriter.CreateEx(AStream: TStream; const ASettings: TACLXML
 begin
   FStream := AStream;
   FEncoding := TEncoding.UTF8;
+  FEncodingName := 'utf-8';
   FBufPos := 1;        //# buffer position starts at 1, because we need to be able to safely step back -1 in case we need to
                        //# close an empty element or in CDATA section detection of double ]; _BUFFER[0] will always be 0
   FBufLen := BufferSize;
@@ -654,10 +655,10 @@ begin
     FIsXmlDeclarationWritten := True;
     RawText('<?xml version="');
     RawText('1.0');
-    if Encoding <> nil then
+    if (FEncoding <> nil) and (FEncodingName <> '') then
     begin
       RawText('" encoding="');
-      RawText(TACLEncodings.WebName(Encoding));
+      RawText(FEncodingName);
     end;
     if AStandalone <> TACLXMLStandalone.Omit then
     begin
@@ -1710,6 +1711,9 @@ begin
   if WriteState <> TACLXMLWriteState.Closed then
     Close;
   FreeAndNil(FWriter);
+  SetLength(FElemScopeStack, 0);
+  SetLength(FAttrStack, 0);
+  SetLength(FNsStack, 0);
   inherited Destroy;
 end;
 
@@ -1927,16 +1931,10 @@ begin
 end;
 
 procedure TACLXMLWellFormedWriter.WriteString(AStr: PWideChar; ALength: Integer);
-var
-  L: Integer;
 begin
   try
     if FIsNamespaceDeclaration and (ALength > 0) then
-    begin
-      L := Length(FCurrentDeclarationNamespace);
-      SetLength(FCurrentDeclarationNamespace, L + ALength);
-      Move(AStr^, FCurrentDeclarationNamespace[L + 1], ALength * SizeOf(WideChar));
-    end;
+      FCurrentDeclarationNamespace := FCurrentDeclarationNamespace + acString(acMakeString(AStr, ALength));
     FWriter.WriteString(AStr, ALength);
   except
     FIsError := True;

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   General Dialogs (Implementation for Windows)
 //
@@ -67,8 +67,7 @@ type
     procedure PrepareConst(var AStruct: TOpenFilenameW);
     procedure PrepareFlags(var AStruct: TOpenFilenameW);
   public
-    constructor Create(AParent: HWND;
-      ADialog: TACLFileDialog; ASaveDialog: Boolean); override;
+    constructor Create(AOwnedWnd: HWND; ADialog: TACLFileDialog; ASaveDialog: Boolean);
     destructor Destroy; override;
     function Execute: Boolean; override;
   end;
@@ -76,10 +75,9 @@ type
   { TACLFileDialogVistaImpl }
 
   TACLFileDialogVistaImpl = class(TACLFileDialogImpl, IFileDialogEvents)
-  strict private
-    FFileDialog: IFileDialog;
   protected
     FExts: UnicodeString;
+    FFileDialog: IFileDialog;
     FFilter: TStringDynArray;
 
     function GetItemName(const AItem: IShellItem): UnicodeString;
@@ -97,47 +95,12 @@ type
     function OnShareViolation(const pfd: IFileDialog;
       const psi: IShellItem; out pResponse: Cardinal): HRESULT; virtual; stdcall;
     function OnTypeChange(const pfd: IFileDialog): HRESULT; virtual; stdcall;
-    //# Properties
-    property FileDialog: IFileDialog read FFileDialog;
   public
-    constructor Create(AParent: HWND;
-      ADialog: TACLFileDialog; ASaveDialog: Boolean); override;
     destructor Destroy; override;
     function Execute: Boolean; override;
+    class function TryCreate(AOwnerWnd: TWndHandle;
+      ADialog: TACLFileDialog; ASaveDialog: Boolean): TACLFileDialogImpl;
   end;
-
-  { TACLExceptionMessageDialog }
-
-//  // Provides per-monitor dpi support for Exception Messages
-//  TACLExceptionMessageDialog = class
-//  protected
-//    class procedure ShowException(E: Exception);
-//  public
-//    class destructor Destroy;
-//    class procedure Register;
-//  end;
-//
-//  { TACLMessageTaskDialog }
-//
-//  // Provides per-monitor dpi support
-//  TACLMessageTaskDialog = class(TTaskDialog)
-//  strict private const
-//    IconMap: array[TMsgDlgType] of TTaskDialogIcon = (
-//      tdiWarning, tdiError, tdiInformation, tdiInformation, tdiNone
-//    );
-//    ModalResults: array[TMsgDlgBtn] of Integer = (
-//      mrYes, mrNo, mrOk, mrCancel, mrAbort, mrRetry, mrIgnore,
-//      mrAll, mrNoToAll, mrYesToAll, -1, mrClose
-//    );
-//  strict private type
-//    TMsgDlgBtns = array of TMsgDlgBtn;
-//  strict private
-//    function FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
-//    function FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
-//    function FlagsToDialogType(AFlags: Integer): TMsgDlgType;
-//  public
-//    constructor Create(const AMessage, ACaption: string; AFlags: Integer); reintroduce;
-//  end;
 
 function LoadDialogIcon(AOwnerWnd: HWND; AType: TMsgDlgType; ASize: Integer): TACLDib;
 implementation
@@ -155,7 +118,6 @@ function LoadDialogIcon(AOwnerWnd: HWND; AType: TMsgDlgType; ASize: Integer): TA
     try
       LIcon.Handle := Icon;
       Result := TACLDib.Create(LIcon.Width, LIcon.Height);
-      Result.Reset;
       Result.Canvas.Draw(0, 0, LIcon);
     finally
       LIcon.Free;
@@ -184,9 +146,9 @@ end;
 { TACLFileDialogOldImpl }
 
 constructor TACLFileDialogOldImpl.Create(
-  AParent: HWND; ADialog: TACLFileDialog; ASaveDialog: Boolean);
+  AOwnedWnd: HWND; ADialog: TACLFileDialog; ASaveDialog: Boolean);
 begin
-  inherited Create(AParent, ADialog, ASaveDialog);
+  inherited Create(AOwnedWnd, ADialog, ASaveDialog);
   FTempInitialPath := TACLFileDialogAccess(ADialog).GetActualInitialDir;
   FTempFilter := AllocFilterStr(ADialog.Filter);
   FTempBufferSize := MAXWORD;
@@ -194,7 +156,7 @@ begin
   ZeroMemory(@FStruct, SizeOf(FStruct));
   FStruct.FlagsEx := 0;
   FStruct.hInstance := HINSTANCE;
-  FStruct.hWndOwner := ParentWnd;
+  FStruct.hWndOwner := OwnerWnd;
   FStruct.lpfnHook := DialogHook;
   FStruct.lpstrFilter := PWideChar(FTempFilter);
   FStruct.lpstrInitialDir := PWideChar(FTempInitialPath);
@@ -362,15 +324,6 @@ end;
 
 { TACLFileDialogVistaImpl }
 
-constructor TACLFileDialogVistaImpl.Create(AParent: HWND; ADialog: TACLFileDialog; ASaveDialog: Boolean);
-begin
-  inherited Create(AParent, ADialog, ASaveDialog);
-  if ASaveDialog then
-    CoCreateInstance(CLSID_FileSaveDialog, nil, CLSCTX_INPROC_SERVER, IFileSaveDialog, FFileDialog)
-  else
-    CoCreateInstance(CLSID_FileOpenDialog, nil, CLSCTX_INPROC_SERVER, IFileOpenDialog, FFileDialog);
-end;
-
 destructor TACLFileDialogVistaImpl.Destroy;
 begin
   FFileDialog := nil;
@@ -384,11 +337,11 @@ var
 begin
   Initialize;
   InitializeFilter;
-  Result := Succeeded(FileDialog.Show(ParentWnd));
+  Result := Succeeded(FFileDialog.Show(OwnerWnd));
   if Result then
   begin
     QuerySeletectedFiles(Dialog.Files);
-    if Succeeded(FileDialog.GetFileTypeIndex(AFilterIndex)) then
+    if Succeeded(FFileDialog.GetFileTypeIndex(AFilterIndex)) then
       Dialog.FilterIndex := AFilterIndex;
   end;
 end;
@@ -441,7 +394,7 @@ var
   AFilterStr: TComdlgFilterSpecArray;
   I: Integer;
 begin
-  acExplodeString(Dialog.Filter, '|', FFilter);
+  acSplitString(Dialog.Filter, '|', FFilter);
   SetLength(AFilterStr, Length(FFilter) div 2);
   if Length(AFilterStr) > 0 then
   begin
@@ -550,117 +503,27 @@ begin
   end;
 end;
 
-//{ TACLExceptionMessageDialog }
-//
-//class procedure TACLExceptionMessageDialog.Register;
-//begin
-//  ApplicationShowException := ShowException;
-//end;
-//
-//class destructor TACLExceptionMessageDialog.Destroy;
-//begin
-//  ApplicationShowException := nil;
-//end;
-//
-//class procedure TACLExceptionMessageDialog.ShowException(E: Exception);
-//var
-//  AMessage: string;
-//  ASubException: Exception;
-//  AWndHandle: TWndHandle;
-//begin
-//  AMessage := E.Message;
-//  while True do
-//  begin
-//    ASubException := E.GetBaseException;
-//    if ASubException <> E then
-//    begin
-//      E := ASubException;
-//      if E.Message <> '' then
-//        AMessage := E.Message;
-//    end
-//    else
-//      Break;
-//  end;
-//  AWndHandle := Application.ActiveFormHandle;
-//  if AWndHandle = 0 then
-//    AWndHandle := Application.MainFormHandle;
-//  acMessageBox(AWndHandle, AMessage, Application.Title, MB_OK or MB_ICONSTOP);
-//end;
-//
-//{ TACLMessageTaskDialog }
-//
-//constructor TACLMessageTaskDialog.Create(const AMessage, ACaption: string; AFlags: Integer);
-//var
-//  AButton: TTaskDialogBaseButtonItem;
-//  AButtons: TMsgDlgBtns;
-//  ADefaultButton: TMsgDlgBtn;
-//  ADialogType: TMsgDlgType;
-//  I: Integer;
-//begin
-//  inherited Create(nil);
-//
-//  CommonButtons := [];
-//  ADialogType := FlagsToDialogType(AFlags);
-//  MainIcon := IconMap[ADialogType];
-//  Caption := IfThenW(ACaption, TACLDialogsStrs.MsgDlgCaptions[ADialogType]);
-//  Text := AMessage;
-//
-//  AButtons := FlagsToButtons(AFlags);
-//  ADefaultButton := FlagsToDefaultButton(AFlags, AButtons);
-//  for I := Low(AButtons) to High(AButtons) do
-//  begin
-//    AButton := Buttons.Add;
-//    AButton.Caption := TACLDialogsStrs.MsgDlgButtons[AButtons[I]];
-//    AButton.Default := AButtons[I] = ADefaultButton;
-//    AButton.ModalResult := ModalResults[AButtons[I]];
-//  end;
-//end;
-//
-//function TACLMessageTaskDialog.FlagsToButtons(AFlags: Integer): TMsgDlgBtns;
-//begin
-//  if AFlags and MB_RETRYCANCEL = MB_RETRYCANCEL then
-//    Result := [mbRetry, mbCancel]
-//  else if AFlags and MB_YESNO = MB_YESNO then
-//    Result := [mbYes, mbNo]
-//  else if AFlags and MB_YESNOCANCEL = MB_YESNOCANCEL then
-//    Result := [mbYes, mbNo, mbCancel]
-//  else if AFlags and MB_ABORTRETRYIGNORE = MB_ABORTRETRYIGNORE then
-//    Result := [mbAbort, mbRetry, mbIgnore]
-//  else if AFlags and MB_OKCANCEL = MB_OKCANCEL then
-//    Result := [mbOK, mbCancel]
-//  else
-//    Result := [mbOK];
-//end;
-//
-//function TACLMessageTaskDialog.FlagsToDefaultButton(AFlags: Integer; AButtons: TMsgDlgBtns): TMsgDlgBtn;
-//const
-//  Masks: array[0..3] of Integer = (MB_DEFBUTTON1, MB_DEFBUTTON2, MB_DEFBUTTON3, MB_DEFBUTTON4);
-//var
-//  I: Integer;
-//begin
-//  for I := Min(High(Masks), High(AButtons)) downto 0 do
-//  begin
-//    if AFlags and Masks[I] <> 0 then
-//      Exit(AButtons[I]);
-//  end;
-//  Result := AButtons[0];
-//end;
-//
-//function TACLMessageTaskDialog.FlagsToDialogType(AFlags: Integer): TMsgDlgType;
-//const
-//  Map: array[TMsgDlgType] of Integer = (MB_ICONWARNING, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, 0);
-//var
-//  AIndex: TMsgDlgType;
-//begin
-//  for AIndex := Low(AIndex) to High(AIndex) do
-//  begin
-//    if AFlags and Map[AIndex] = Map[AIndex] then
-//      Exit(AIndex);
-//  end;
-//  Result := mtCustom;
-//end;
+class function TACLFileDialogVistaImpl.TryCreate(
+  AOwnerWnd: TWndHandle; ADialog: TACLFileDialog; ASaveDialog: Boolean): TACLFileDialogImpl;
+var
+  LIntf: IFileDialog;
+begin
+  LIntf := nil;
+  if acOSCheckVersion(6, 0) then
+  begin
+    if ASaveDialog then
+      CoCreateInstance(CLSID_FileSaveDialog, nil, CLSCTX_INPROC_SERVER, IFileSaveDialog, LIntf)
+    else
+      CoCreateInstance(CLSID_FileOpenDialog, nil, CLSCTX_INPROC_SERVER, IFileOpenDialog, LIntf);
+  end;
 
-//initialization
-//  if acOSCheckVersion(6, 1) then
-//    TACLExceptionMessageDialog.Register;
+  if LIntf <> nil then
+  begin
+    TACLFileDialogVistaImpl(Result) := Create(AOwnerWnd, ADialog, ASaveDialog);
+    TACLFileDialogVistaImpl(Result).FFileDialog := LIntf;
+  end
+  else
+    Result := nil;
+end;
+
 end.

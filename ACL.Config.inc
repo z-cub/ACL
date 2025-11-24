@@ -2,15 +2,19 @@
 {$Q-} { Overflow checking }
 {$Z1} { Minumum enum size = 1}
 
+{$POINTERMATH ON}
+
 {$IFDEF FPC}
   {$mode delphi}
   {$modeswitch functionreferences}
   {$modeswitch anonymousfunctions}
   {$modeswitch advancedrecords}
   {$codepage UTF8}
+  {$asmmode intel}
   {$inline off}
 
   {$H+}
+  {$WARN 5023 off : Unit "$1" not used in $2}
   {$WARN 5024 off} // Parameter "$1" not used
   {$WARN 5026 off}
   {$WARN 6058 off} // Call to subroutine "$1" marked as inline is not inlined
@@ -21,12 +25,6 @@
   {$ENDIF}
 
   {$DEFINE DEBUG}
-{$ENDIF}
-
-{$IFDEF LCLGtk2}
-  {$DEFINE ACL_CAIRO}
-  {$DEFINE ACL_CAIRO_RENDER}
-  {$DEFINE ACL_CAIRO_TEXTOUT}
 {$ENDIF}
 
 {$IF DEFINED(CPUX64) OR DEFINED(CPU64)}
@@ -41,9 +39,9 @@
   {$WARN DUPLICATE_CTOR_DTOR OFF} // We does not support for C++Builder
 {$IFEND}
 
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // IDE Versions
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 {$IFDEF VER350} // 11.0 Alexandria
   {$DEFINE DELPHI110ALEXANDRIA}
@@ -54,13 +52,19 @@
   {$DEFINE DELPHI120}
 {$ENDIF}
 
+{$IFDEF VER370} // 13.0 Florence
+  {$DEFINE DELPHI110ALEXANDRIA}
+  {$DEFINE DELPHI120}
+  {$DEFINE DELPHI130}
+{$ENDIF}
+
 {$IF NOT DEFINED(FPC) AND NOT DEFINED(DELPHI110ALEXANDRIA)}
   {$MESSAGE FATAL 'You need Delphi 11.0 Alexandria for this library, previous Delphi versions has too many bugs with dpi scaling'}
 {$IFEND}
 
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // RTTI
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 {$IF NOT DEFINED(ACL_RTTI_ALL) AND NOT DEFINED(FPC)}
   {$WEAKLINKRTTI ON}
@@ -71,26 +75,23 @@
   {$IFEND}
 {$IFEND}
 
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Options
-// ---------------------------------------------------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 {$IFDEF DEBUG}
-  {.$DEFINE ACL_LOG_CMDLINE}
-  {.$DEFINE ACL_LOG_FONTCACHE}
   {.$DEFINE ACL_LOG_REGISTRY}
-  {.$DEFINE ACL_LOG_SHELL}
+  {$DEFINE ACL_THREADING_DEBUG}
 {$ENDIF}
 
-{$DEFINE ACL_BLURFILTER_USE_SHARED_RESOURCES}
-{$DEFINE ACL_TEXTLAYOUT_SPANS} // support for complex spans
+{$DEFINE ACL_ALPHACOMPOSED_POPUPMENUS}
 {$DEFINE ACL_TEXTLAYOUT_RTL}   // support for right-to-left text direction
+{$IFDEF LCLGtk2}
+  {$DEFINE ACL_CAIRO}
+  {$DEFINE ACL_CAIRO_RENDER}
+  {$DEFINE ACL_CAIRO_TEXTOUT}
+{$ENDIF}
 
-// Options for TStream.WriteVariant()
-{$DEFINE ACL_PACK_VARIANT_ARRAYS}
-{$DEFINE ACL_PACK_VARIANT_INTEGERS}
-
-{.$DEFINE ACL_THREADING_DEBUG}
 {$IFNDEF FPC}
   {$DEFINE ACL_THREADING_USE_MESSAGES}
 {$ENDIF}

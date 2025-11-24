@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Images
 //
@@ -104,6 +104,7 @@ type
     constructor Create(const AFileName: string); overload;
     destructor Destroy; override;
     procedure ApplyColorSchema(const AColorSchema: TACLColorSchema);
+    procedure ApplyTint(const AColor: TACLPixel32);
     procedure Assign(ASource: TPersistent); override;
     procedure AssignTo(ATarget: TPersistent); override;
     procedure Clear;
@@ -320,37 +321,6 @@ type
     class function GetSize(AStream: TStream; out ASize: TSize): Boolean; override;
   end;
 
-  { TACLImageFormatWebP }
-
-  // https://developers.google.com/speed/webp
-  TACLImageFormatWebP = class(TACLImageFormat)
-  strict private type
-    TDecodeFunc = function (const data: PByte; size: Cardinal; width, height: PInteger): PRGBQuad; cdecl;
-    TEncodeFunc = function (const rgba: PByte; width, height, stride: Integer; quality: Single; out output: PByte): Cardinal; cdecl;
-    TFreeFunc = procedure (P: Pointer); cdecl;
-    TGetInfoFunc = function (const data: PByte; size: Cardinal; width, height: PInteger): Integer; cdecl;
-  strict private
-    class var FDecodeFunc: TDecodeFunc;
-    class var FEncodeFunc: TEncodeFunc;
-    class var FFreeFunc: TFreeFunc;
-    class var FGetInfoFunc: TGetInfoFunc;
-    class var FInitialized: Boolean;
-    class procedure Encode(AStream: TStream; AData: PByte; AWidth, AHeight: Integer);
-  protected
-    class function CheckIsAvailable: Boolean; override;
-    class function CheckPreamble(AData: PByte; AMaxSize: Integer): Boolean; override;
-    class function GetMaxPreamble: Integer; override;
-    class procedure Load(AStream: TStream; AImage: TACLImage); override;
-    class procedure Save(AStream: TStream; AImage: TACLImage); override;
-  public
-    class destructor Destroy;
-    class procedure Init(ALibHandle: HMODULE);
-    class function Description: string; override;
-    class function Ext: string; override;
-    class function GetSize(AStream: TStream; out ASize: TSize): Boolean; override;
-    class function MimeType: string; override;
-  end;
-
   { TACLImageTools }
 
   TACLImageTools = class
@@ -521,20 +491,36 @@ end;
 procedure TACLImage.ApplyColorSchema(const AColorSchema: TACLColorSchema);
 {$IFDEF FPC}
 begin
-  if AColorSchema.IsAssigned then
-    TACLColors.ApplyColorSchema(PACLPixel32(Handle.Colors), Handle.ColorCount, AColorSchema);
+  Handle.ApplyColorSchema(AColorSchema);
 {$ELSE}
 var
   LData: TBitmapData;
 begin
   if AColorSchema.IsAssigned then
   begin
-    if BeginLock(LData, ImageLockModeWrite, PixelFormat32bppARGB) then
+    if BeginLock(LData, PixelFormat32bppARGB, ImageLockModeWrite) then
     try
       TACLColors.ApplyColorSchema(LData.Scan0, LData.Width * LData.Height, AColorSchema);
     finally
       EndLock(LData)
     end;
+  end;
+{$ENDIF}
+end;
+
+procedure TACLImage.ApplyTint(const AColor: TACLPixel32);
+{$IFDEF FPC}
+begin
+  Handle.ApplyTint(AColor);
+{$ELSE}
+var
+  LData: TBitmapData;
+begin
+  if BeginLock(LData, PixelFormat32bppARGB, ImageLockModeWrite) then
+  try
+    TACLColors.Tint(LData.Scan0, LData.Width * LData.Height, AColor);
+  finally
+    EndLock(LData)
   end;
 {$ENDIF}
 end;
@@ -659,8 +645,12 @@ begin
   try
     CairoPainter.BeginPaint(ACanvas);
     try
-      CairoPainter.SetImageSmoothing(SmoothStretching);
       CairoPainter.SetPixelOffsetMode(PixelOffsetMode);
+      if SmoothStretching = TACLBoolean.Default then
+        CairoPainter.SetImageSmoothing(TACLBoolean.True) // like in GDI+
+      else
+        CairoPainter.SetImageSmoothing(SmoothStretching);
+
       if AMargins.IsZero then
         CairoPainter.FillSurface(ATarget, ASource, LSource, LAlpha, ATile)
       else
@@ -723,11 +713,11 @@ procedure TACLImage.Draw(ACanvas: TCanvas; const ATarget: TRect; AFitMode: TACLF
 var
   LClipping: TRegionHandle;
 begin
-  if acStartClippedDraw(ACanvas.Handle, ATarget, LClipping) then
+  if acStartClippedDraw(ACanvas, ATarget, LClipping) then
   try
     Draw(ACanvas, acFitRect(ATarget, Width, Height, AFitMode));
   finally
-    acRestoreClipRegion(ACanvas.Handle, LClipping);
+    acEndClippedDraw(ACanvas, LClipping);
   end;
 end;
 
@@ -789,7 +779,8 @@ begin
   Draw(Graphics, R, ClientRect, AAlpha, ATile);
 end;
 
-function TACLImage.BeginLock(var AData: TBitmapData; APixelFormat: Integer; ALockMode: TImageLockMode): Boolean;
+function TACLImage.BeginLock(var AData: TBitmapData;
+  APixelFormat: Integer; ALockMode: TImageLockMode): Boolean;
 begin
   if APixelFormat = PixelFormatUndefined then
     APixelFormat := GetPixelFormat;
@@ -825,13 +816,14 @@ begin
   if (AWidth <> Width) or (AHeight <> Height) or (ACropMargins <> NullRect) then
   begin
     if (AWidth <= 0) or (AHeight <= 0) then
-      raise EInvalidOperation.CreateFmt('The %dx%d is not valid resolution for an image', [AWidth, AHeight]);
+      raise EInvalidArgument.CreateFmt('The %dx%d is not valid resolution for an image', [AWidth, AHeight]);
   {$IFDEF MSWINDOWS}
     LHandle := GpCreateBitmap(AWidth, AHeight);
     if LHandle <> nil then
     begin
       GdipGetImageGraphicsContext(LHandle, LGraphics);
       GdipSetPixelOffsetMode(LGraphics, PixelOffsetModeHalf);
+      GdipSetInterpolationMode(LGraphics, InterpolationModeHighQualityBicubic);
       Draw(LGraphics, Rect(0, 0, AWidth, AHeight), ClientRect.Split(ACropMargins));
       GdipDeleteGraphics(LGraphics);
       SetHandle(LHandle);
@@ -943,7 +935,7 @@ procedure TACLImage.LoadFromFile(const AFileName: string);
 var
   AStream: TACLFileStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     LoadFromStream(AStream)
   finally
@@ -1345,8 +1337,6 @@ begin
   Register(TACLImageFormatJPEG);  // canonical
   Register(TACLImageFormatJPEG2); // alternate extension
   Register(TACLImageFormatJPG);   // alternate mimetype
-
-  Register(TACLImageFormatWebP);
 end;
 
 class destructor TACLImageFormatRepository.Destroy;
@@ -1825,143 +1815,6 @@ begin
     end;
   except
     Result := False;
-  end;
-end;
-
-{ TACLImageFormatWebP }
-
-class procedure TACLImageFormatWebP.Init(ALibHandle: HMODULE);
-begin
-  FInitialized := True;
-  @FGetInfoFunc := acGetProcAddress(ALibHandle, 'WebPGetInfo', FInitialized);
-  @FDecodeFunc := acGetProcAddress(ALibHandle, 'WebPDecodeBGRA', FInitialized);
-  @FEncodeFunc := acGetProcAddress(ALibHandle, 'WebPEncodeBGRA', FInitialized);
-  @FFreeFunc := acGetProcAddress(ALibHandle, 'WebPFree', FInitialized);
-end;
-
-class destructor TACLImageFormatWebP.Destroy;
-begin
-  FInitialized := False;
-  FGetInfoFunc := nil;
-  FEncodeFunc := nil;
-  FDecodeFunc := nil;
-  FFreeFunc := nil;
-end;
-
-class function TACLImageFormatWebP.CheckIsAvailable: Boolean;
-begin
-  if not FInitialized then
-    Init(acLoadLibrary('libwebp' + LibExt));
-  Result := FInitialized;
-end;
-
-class function TACLImageFormatWebP.Description: string;
-begin
-  Result := 'Web Images';
-end;
-
-class function TACLImageFormatWebP.Ext: string;
-begin
-  Result := '.webp';
-end;
-
-class function TACLImageFormatWebP.GetSize(AStream: TStream; out ASize: TSize): Boolean;
-begin
-  if AStream is TCustomMemoryStream then
-  begin
-    Result := FGetInfoFunc(
-      PByte(TCustomMemoryStream(AStream).Memory) + AStream.Position,
-      AStream.Available, @ASize.cx, @ASize.cy) <> 0;
-  end
-  else
-  begin
-    AStream := TMemoryStream.CopyOf(AStream, AStream.Available);
-    try
-      Result := GetSize(AStream, ASize);
-    finally
-      AStream.Free;
-    end;
-  end;
-end;
-
-class function TACLImageFormatWebP.MimeType: string;
-begin
-  Result := 'image/webp';
-end;
-
-class function TACLImageFormatWebP.CheckPreamble(AData: PByte; AMaxSize: Integer): Boolean;
-var
-  AOffset: Integer;
-begin
-  Result := acFindStringInMemoryA('WEBP', AData, Min(AMaxSize, GetMaxPreamble), 0, AOffset);
-end;
-
-class function TACLImageFormatWebP.GetMaxPreamble: Integer;
-begin
-  Result := 16;
-end;
-
-class procedure TACLImageFormatWebP.Load(AStream: TStream; AImage: TACLImage);
-var
-  LPixels: PACLPixel32;
-  LHeight: Integer;
-  LWidth: Integer;
-begin
-  if AStream is TCustomMemoryStream then
-  begin
-    LPixels := PACLPixel32(FDecodeFunc(
-      PByte(TCustomMemoryStream(AStream).Memory) + AStream.Position,
-      AStream.Available, @LWidth, @LHeight));
-    if LPixels <> nil then
-    try
-      AImage.LoadFromBits(LPixels, LWidth, LHeight, afDefined);
-    finally
-      FFreeFunc(LPixels);
-    end;
-  end
-  else
-  begin
-    AStream := TMemoryStream.CopyOf(AStream, AStream.Available);
-    try
-      Load(AStream, AImage);
-    finally
-      AStream.Free;
-    end;
-  end;
-end;
-
-class procedure TACLImageFormatWebP.Save(AStream: TStream; AImage: TACLImage);
-{$IFDEF MSWINDOWS}
-var
-  LData: TBitmapData;
-{$ENDIF}
-begin
-{$IFDEF MSWINDOWS}
-  GdipCheck(GdipBitmapLockBits(AImage.Handle, nil, ImageLockModeRead, PixelFormat32bppARGB, @LData));
-  try
-    Encode(AStream, LData.Scan0, LData.Width, LData.Height);
-  finally
-    GdipCheck(GdipBitmapUnlockBits(AImage.Handle, @LData));
-  end;
-{$ELSE}
-  Encode(AStream, PByte(AImage.Handle.Colors), AImage.Width, AImage.Height);
-{$ENDIF}
-end;
-
-class procedure TACLImageFormatWebP.Encode(
-  AStream: TStream; AData: PByte; AWidth, AHeight: Integer);
-var
-  LEncodedData: PByte;
-  LEncodedSize: Cardinal;
-begin
-  LEncodedSize := FEncodeFunc(AData, AWidth, AHeight, AWidth * 4, 100, LEncodedData);
-  try
-    if LEncodedSize = 0 then
-      raise EACLImageFormatError.Create('WebP failed to encode the image');
-    AStream.WriteBuffer(LEncodedData^, LEncodedSize);
-  finally
-    if LEncodedData <> nil then
-      FFreeFunc(LEncodedData);
   end;
 end;
 

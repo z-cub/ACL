@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Debug Logger
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -23,388 +23,261 @@ uses
 {$IFDEF MSWINDOWS}
   Winapi.Windows,
 {$ENDIF}
-  // System
   {System.}Classes,
   {System.}SysUtils,
   // ACL
   ACL.Threading,
-  ACL.Utils.Common,
-  ACL.Utils.FileSystem,
-  ACL.Utils.Strings;
+  ACL.Utils.Common;
 
 type
-
-  { TACLLog }
-
-  TACLLog = class
-  public type
-    TEntryType = (Debug, Error);
-  strict private
-    FLock: TACLCriticalSection;
-  protected
-    FEncoding: TEncoding;
-
-    procedure WriteCore(const Buffer; Count: Integer); virtual; abstract;
-    procedure WriteThreadId;
-    procedure WriteTimestamp;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    // high-level
-    procedure Add(const ATag: string; const E: Exception); overload;
-    procedure Add(const ATag, AFormatLine: string; const AArgs: array of const;
-      AType: TEntryType = TEntryType.Debug); overload;
-    procedure Add(const ATag, AText: string;
-      AType: TEntryType = TEntryType.Debug); overload;
-    // low-level
-    procedure Write(const ABuffer: TBytes); overload;
-    procedure Write(const ABuffer; ACount: Integer); overload;
-    procedure Write(const AText: string); overload;
-    procedure WriteHeader(const S: string);
-    procedure WriteLine; overload;
-    procedure WriteSeparator;
-    // Lock
-    property Encoding: TEncoding read FEncoding;
-    property Lock: TACLCriticalSection read FLock;
-  end;
-
-  { TACLLogStream }
-
-  TACLLogStream = class(TACLLog)
-  strict private
-    FStream: TStream;
-    FStreamOwnership: TStreamOwnership;
-  protected
-    procedure WriteCore(const Buffer; Count: Integer); override;
-    //# Properties
-    property Stream: TStream read FStream;
-  public
-    constructor Create(AStream: TStream; AOwnership: TStreamOwnership = soOwned);
-    destructor Destroy; override;
-    function IsEmpty: Boolean;
-    function ToString: string; override;
-  end;
+  TLogEntryType = (Debug, Error);
 
   { TACLLogFile }
 
-  TACLLogFile = class(TACLLogStream)
+  TACLLogFile = class
   strict private
-    FFileName: string;
+    FHandle: THandle;
+    FLock: TACLCriticalSection;
   public
-    constructor Create(const AFileName: string; AAppendIfExists: Boolean = True);
-    //# Properties
-    property FileName: string read FFileName;
+    procedure Write(const AText: string);
+    procedure WriteHeader(const S: string);
+    procedure WriteLine; overload;
+    procedure WriteLine(const ATag, AText: string; AType: TLogEntryType); overload;
+    procedure WriteSeparator;
+    procedure WriteThreadId;
+    procedure WriteTimestamp;
+  public
+    constructor Create(const AFileName: string; ALock: TACLCriticalSection = nil);
+    destructor Destroy; override;
+    class function Open(const AFileName: string;
+      out AInstance: TACLLogFile; ALock: TACLCriticalSection = nil): Boolean;
   end;
 
-  { TACLMemoryLog }
+var
+  acGeneralLogFileName: string = '';
 
-  TACLMemoryLog = class(TACLLogStream)
-  public
-    constructor Create;
-    procedure SaveToFile(const AFileName: string);
-  end;
+procedure LogEntry(const AFileName: string;
+  const ATag, AFormatLine: string; const AArguments: array of const;
+  const AType: TLogEntryType = TLogEntryType.Debug); overload;
+procedure LogEntry(const AFileName: string;
+  const ATag, AText: string;
+  const AType: TLogEntryType = TLogEntryType.Debug); overload;
 
-// Custom log
-procedure AddToLog(const AFileName: string; const ATag: string; const AException: Exception); overload;
-procedure AddToLog(const AFileName: string; const ATag, AFormatLine: string; const AArguments: array of const); overload;
-procedure AddToLog(const AFileName: string; const ATag, AText: string); overload;
+procedure LogError(const AFileName: string;
+  const ATag, AExceptionClass, AExceptionMessage, AStackTrace: string;
+  const APrefix: string = ''; const ALocation: string = '');
+procedure LogEntry(const AFileName: string;
+  const ATag: string; const AException: Exception;
+  const APrefix: string = ''; const ALocation: string = ''); overload;
 
-// Debug Log
-procedure AddToDebugLog(const ATag: string; const AException: Exception); overload;
-procedure AddToDebugLog(const ATag, AFormatLine: string; const AArguments: array of const); overload;
-procedure AddToDebugLog(const ATag, AText: string); overload;
-function GetDebugLogFileName: string;
+procedure LogEntryDump(const AFileName: string; const ADump: string); overload;
+procedure LogInit(const AFileName: string; AMaxCapacity: Integer = 0);
 implementation
 
-{$IFDEF MSWINDOWS}
 uses
-  ACL.Utils.Shell;
-{$ENDIF}
+  ACL.Utils.FileSystem,
+  ACL.Utils.Strings;
 
 var
-  FGeneralLog: TACLCriticalSection;
-  FGeneralLogFileName: string;
+  FLogSync: TACLCriticalSection;
 
-procedure AddToLog(const AFileName: string; const AProc: TProc<TACLLog>); overload;
+procedure LogError(const AFileName: string;
+  const ATag, AExceptionClass, AExceptionMessage, AStackTrace: string;
+  const APrefix: string = ''; const ALocation: string = '');
 var
-  ALog: TACLLog;
+  LLog: TACLLogFile;
+  LMsg: string;
+begin
+  if TACLLogFile.Open(AFileName, LLog, FLogSync) then
+  try
+    LMsg := Format('[%s] %s', [AExceptionClass, AExceptionMessage]);
+    if APrefix <> '' then
+      LMsg := APrefix + ': ' + LMsg;
+    if ALocation <> '' then
+      LMsg := LMsg + ' at ' + ALocation;
+    LLog.WriteLine(ATag, LMsg, TLogEntryType.Error);
+    if AStackTrace <> '' then
+    begin
+      LLog.WriteSeparator;
+      LLog.Write(AStackTrace);
+      LLog.WriteLine;
+      LLog.WriteSeparator;
+    end;
+  finally
+    LLog.Free;
+  end;
+end;
+
+procedure LogEntry(const AFileName: string; const ATag: string;
+  const AException: Exception; const APrefix, ALocation: string);
 begin
   if AFileName <> '' then
+    LogError(AFileName, ATag,
+      AException.ClassName, AException.ToString,
+      {$IFDEF FPC}''{$ELSE}AException.StackTrace{$ENDIF},
+      APrefix, ALocation);
+end;
+
+procedure LogEntry(const AFileName: string;
+  const ATag, AFormatLine: string; const AArguments: array of const;
+  const AType: TLogEntryType = TLogEntryType.Debug); overload;
+var
+  LLog: TACLLogFile;
+begin
   try
-    FGeneralLog.Enter;
+    if TACLLogFile.Open(AFileName, LLog, FLogSync) then
     try
-      ALog := TACLLogFile.Create(AFileName, True);
-      try
-        AProc(ALog);
-      finally
-        ALog.Free;
-      end;
+      LLog.WriteLine(ATag, Format(AFormatLine, AArguments), AType);
     finally
-      FGeneralLog.Leave;
+      LLog.Free;
     end;
   except
     // do nothing
   end;
 end;
 
-procedure AddToLog(const AFileName: string; const ATag: string; const AException: Exception); overload;
-begin
-  AddToLog(AFileName,
-    procedure (ALog: TACLLog)
-    begin
-      ALog.Add(ATag, AException);
-    end);
-end;
-
-procedure AddToLog(const AFileName: string; const ATag, AText: string);
-begin
-  AddToLog(AFileName,
-    procedure (ALog: TACLLog)
-    begin
-      ALog.Add(ATag, AText);
-    end);
-end;
-
-procedure AddToLog(const AFileName: string; const ATag, AFormatLine: string; const AArguments: array of const);
-begin
-  AddToLog(AFileName, ATag, Format(AFormatLine, AArguments));
-end;
-
-procedure AddToDebugLog(const ATag: string; const AException: Exception); overload;
-begin
-  AddToLog(GetDebugLogFileName, ATag, AException);
-end;
-
-procedure AddToDebugLog(const ATag, AText: string); overload;
-begin
-  AddToLog(GetDebugLogFileName, ATag, AText);
-end;
-
-procedure AddToDebugLog(const ATag, AFormatLine: string; const AArguments: array of const); overload;
-begin
-  AddToLog(GetDebugLogFileName, ATag, AFormatLine, AArguments);
-end;
-
-function GetDebugLogFileName: string;
-begin
-  if FGeneralLogFileName = '' then
-  begin
-    FGeneralLog.Enter;
-    try
-      if FGeneralLogFileName = '' then
-        FGeneralLogFileName :=
-          {$IFDEF MSWINDOWS}ShellPathMyDocuments{$ELSE}GetUserDir{$ENDIF} +
-          acExtractFileNameWithoutExt(acSelfExeName) + '.debug.log';
-    finally
-      FGeneralLog.Leave;
-    end;
-  end;
-  Result := FGeneralLogFileName;
-end;
-
-{ TACLLog }
-
-constructor TACLLog.Create;
-begin
-  FLock := TACLCriticalSection.Create;
-  FEncoding := TEncoding.UTF8;
-end;
-
-destructor TACLLog.Destroy;
-begin
-  FreeAndNil(FLock);
-  inherited;
-end;
-
-procedure TACLLog.Add(const ATag: string; const E: Exception);
-begin
-  Lock.Enter;
-  try
-    Add(ATag, Format('Error: %s - %s', [E.ClassName, E.ToString]), TEntryType.Error);
-  {$IFNDEF FPC}
-    var LStackTrace := E.StackTrace;
-    if LStackTrace <> '' then
-    begin
-      WriteSeparator;
-      Write(LStackTrace);
-      WriteLine;
-      WriteSeparator;
-    end;
-  {$ENDIF}
-  finally
-    Lock.Leave;
-  end;
-end;
-
-procedure TACLLog.Add(const ATag, AText: string; AType: TEntryType = TEntryType.Debug);
-const
-  TypeMap: array[TEntryType] of string = ('D/', 'E/');
-begin
-  Lock.Enter;
-  try
-    WriteThreadId;
-    WriteTimestamp;
-    Write(TypeMap[AType]);
-    Write(ATag);
-    Write(':');
-    Write(#9);
-    Write(AText);
-    WriteLine;
-  finally
-    Lock.Leave;
-  end;
-end;
-
-procedure TACLLog.Add(const ATag, AFormatLine: string; const AArgs: array of const; AType: TEntryType);
-begin
-  Add(ATag, Format(AFormatLine, AArgs), AType);
-end;
-
-procedure TACLLog.Write(const ABuffer; ACount: Integer);
-begin
-  Lock.Enter;
-  try
-    WriteCore(ABuffer, ACount);
-  finally
-    Lock.Leave;
-  end;
-end;
-
-procedure TACLLog.Write(const ABuffer: TBytes);
+procedure LogEntry(const AFileName: string;
+  const ATag, AText: string;
+  const AType: TLogEntryType = TLogEntryType.Debug); overload;
 var
-  ACount: Integer;
+  LLog: TACLLogFile;
 begin
-  ACount := Length(ABuffer);
-  if ACount > 0 then
-    Write(ABuffer[0], ACount);
-end;
-
-procedure TACLLog.Write(const AText: string);
-begin
-  Write(Encoding.GetBytes(acUString(AText)));
-end;
-
-procedure TACLLog.WriteHeader(const S: string);
-begin
-  Lock.Enter;
+  if TACLLogFile.Open(AFileName, LLog, FLogSync) then
   try
-    WriteSeparator;
-    Write(S);
-    WriteLine;
-    WriteSeparator;
+    LLog.WriteLine(ATag, AText, AType);
   finally
-    Lock.Leave;
+    LLog.Free;
   end;
 end;
 
-procedure TACLLog.WriteLine;
+procedure LogEntryDump(const AFileName: string; const ADump: string); overload;
+var
+  LLog: TACLLogFile;
 begin
-  Write(acCRLF);
-end;
-
-procedure TACLLog.WriteSeparator;
-begin
-  Lock.Enter;
+  if TACLLogFile.Open(AFileName, LLog, FLogSync) then
   try
-    Write('--------------------------------------------------------------------------'#13#10);
+    LLog.WriteSeparator;
+    LLog.Write(ADump);
+    LLog.WriteLine;
+    LLog.WriteSeparator;
   finally
-    Lock.Leave;
+    LLog.Free;
   end;
 end;
 
-procedure TACLLog.WriteThreadId;
+procedure LogInit(const AFileName: string; AMaxCapacity: Integer);
 begin
-  Lock.Enter;
-  try
-    if GetCurrentThreadId = MainThreadID then
-      Write('Main')
-    else
-      Write('thread-' + Format('%4d', [GetCurrentThreadId]));
-
-    Write(#9);
-  finally
-    Lock.Leave;
-  end;
-end;
-
-procedure TACLLog.WriteTimestamp;
-begin
-  Lock.Enter;
-  try
-    Write(FormatDateTime('yyyy.MM.dd hh:mm:ss.zzz', Now));
-    Write(#9);
-  finally
-    Lock.Leave;
-  end;
-end;
-
-{ TACLLogStream }
-
-constructor TACLLogStream.Create(AStream: TStream; AOwnership: TStreamOwnership = soOwned);
-begin
-  inherited Create;
-  FStreamOwnership := AOwnership;
-  FStream := AStream;
-end;
-
-destructor TACLLogStream.Destroy;
-begin
-  if FStreamOwnership = soOwned then
-    FreeAndNil(FStream);
-  inherited Destroy;
-end;
-
-function TACLLogStream.IsEmpty: Boolean;
-begin
-  Result := Stream.Size = 0;
-end;
-
-function TACLLogStream.ToString: string;
-begin
-  Lock.Enter;
-  try
-    Stream.Seek(0, soBeginning);
-    Result := acLoadString(Stream, Encoding);
-    Stream.Seek(0, soEnd);
-  finally
-    Lock.Leave;
-  end;
-end;
-
-procedure TACLLogStream.WriteCore(const Buffer; Count: Integer);
-begin
-  Stream.Write(Buffer, Count);
+  acGeneralLogFileName := AFileName;
+  if (AMaxCapacity > 0) and (acFileSize(acGeneralLogFileName) > AMaxCapacity) then
+    acDeleteFile(acGeneralLogFileName);
 end;
 
 { TACLLogFile }
 
-constructor TACLLogFile.Create(const AFileName: string; AAppendIfExists: Boolean);
+constructor TACLLogFile.Create(const AFileName: string; ALock: TACLCriticalSection = nil);
+begin
+  FLock := ALock;
+  if FLock <> nil then
+    FLock.Enter;
+  FHandle := acFileOpen(AFileName, fmOpenReadWriteExclusive, TACLFileStream.DefaultRights, True);
+  if FHandle = THandle(INVALID_HANDLE_VALUE) then
+    FHandle := 0;
+  if FHandle <> 0 then
+    FileSeek(FHandle, 0, soFromEnd);
+end;
+
+destructor TACLLogFile.Destroy;
+begin
+  if FHandle <> 0 then
+    FileClose(FHandle);
+  if FLock <> nil then
+    FLock.Leave;
+  inherited;
+end;
+
+class function TACLLogFile.Open(const AFileName: string;
+  out AInstance: TACLLogFile; ALock: TACLCriticalSection): Boolean;
+begin
+  Result := AFileName <> '';
+  if Result then
+    AInstance := TACLLogFile.Create(AFileName, ALock);
+end;
+
+procedure TACLLogFile.Write(const AText: string);
+var
+{$IFDEF UNICODE}
+  LBytes: TBytes;
+{$ENDIF}
+  LCount: Integer;
+begin
+{$IF DEFINED(FPC) AND DEFINED(LINUX)}
+  System.Write(AText);
+{$ENDIF}
+  if FHandle = 0 then Exit;
+{$IFDEF UNICODE}
+  LBytes := TEncoding.UTF8.GetBytes(AText);
+  LCount := Length(LBytes);
+  if LCount > 0 then
+    FileWrite(FHandle, LBytes[0], LCount);
+{$ELSE}
+  LCount := Length(AText);
+  if LCount > 0 then
+    FileWrite(FHandle, PAnsiChar(AText)^, LCount);
+{$ENDIF}
+end;
+
+procedure TACLLogFile.WriteHeader(const S: string);
+begin
+  WriteSeparator;
+  Write(S);
+  WriteLine;
+  WriteSeparator;
+end;
+
+procedure TACLLogFile.WriteLine(const ATag, AText: string; AType: TLogEntryType);
 const
-  ModeMap: array[Boolean] of Word = (fmCreate, fmOpenReadWrite);
+  TypeMap: array[TLogEntryType] of string = ('D/', 'E/');
 begin
-  FFileName := AFileName;
-  inherited Create(TACLFileStream.Create(FileName, ModeMap[AAppendIfExists and FileExists(AFileName)]));
-  if AAppendIfExists then
-    Stream.Position := Stream.Size;
-  if IsEmpty then
-    Write(Encoding.GetPreamble);
+  WriteThreadId;
+  WriteTimestamp;
+  Write(TypeMap[AType]);
+  Write(ATag);
+  Write(':');
+  Write(#9);
+  Write(AText);
+  WriteLine;
 end;
 
-{ TACLMemoryLog }
-
-constructor TACLMemoryLog.Create;
+procedure TACLLogFile.WriteLine;
 begin
-  inherited Create(TMemoryStream.Create);
+  Write(sLineBreak);
 end;
 
-procedure TACLMemoryLog.SaveToFile(const AFileName: string);
+procedure TACLLogFile.WriteSeparator;
 begin
-  TMemoryStream(Stream).SaveToFile(AFileName);
+  Write('--------------------------------------------------------------------------');
+  WriteLine;
+end;
+
+procedure TACLLogFile.WriteThreadId;
+begin
+  if GetCurrentThreadId = MainThreadID then
+    Write('Main')
+  else
+    Write('thread-' + Format('%4d', [GetCurrentThreadId]));
+
+  Write(#9);
+end;
+
+procedure TACLLogFile.WriteTimestamp;
+begin
+  Write(FormatDateTime('yyyy.MM.dd hh:mm:ss.zzz', Now));
+  Write(#9);
 end;
 
 initialization
-  FGeneralLog := TACLCriticalSection.Create;
+  FLogSync := TACLCriticalSection.Create;
 
 finalization
-  FreeAndNil(FGeneralLog);
+  FreeAndNil(FLogSync);
 end.

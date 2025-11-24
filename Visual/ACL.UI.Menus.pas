@@ -1,9 +1,9 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
-//  Purpose:   menus
+//  Purpose:   Menus
 //
 //  Author:    Artem Izmaylov
 //             © 2006-2025
@@ -19,6 +19,7 @@ interface
 
 uses
 {$IFDEF FPC}
+  Cairo,
   LCLIntf,
   LCLProc,
   LCLType,
@@ -55,21 +56,25 @@ uses
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
-  ACL.Timers,
   ACL.Geometry,
   ACL.Geometry.Utils,
   ACL.Graphics,
-  ACL.Graphics.TextLayout,
   ACL.Graphics.Ex,
+{$IFDEF LCLGtk2}
+  ACL.Graphics.Ex.Cairo,
+{$ENDIF}
   ACL.Graphics.SkinImage,
+  ACL.Graphics.TextLayout,
   ACL.Math,
   ACL.MUI,
   ACL.ObjectLinks,
   ACL.Threading,
+  ACL.Timers,
   ACL.UI.Animation,
   ACL.UI.Application,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.ScrollBar,
+{$I ACL.UI.Core.Impl.inc},
   ACL.UI.Forms,
   ACL.UI.Forms.Base,
   ACL.UI.ImageList,
@@ -223,7 +228,6 @@ type
     procedure DrawBackground(ACanvas: TCanvas; const R: TRect; ASelected: Boolean); virtual;
     procedure DrawItemImage(ACanvas: TCanvas;
       ARect: TRect; AItem: TMenuItem; ASelected: Boolean); virtual;
-    procedure DrawText(ACanvas: TCanvas; ARect: TRect; const AText: string); virtual;
     function MeasureWidth(ACanvas: TCanvas; const S: string;
       AShortCut: TShortCut = scNone; ADefault: Boolean = False): Integer; virtual;
     property ItemHeight: Integer read GetItemHeight;
@@ -280,30 +284,40 @@ type
 
   TACLStylePopupMenu = class(TACLStyleMenu)
   strict private
-    function GetItemGutterWidth: Integer; inline;
-    function GetSeparatorHeight: Integer; inline;
+    FAllowTextFormatting: Boolean;
   protected
     function CalculateItemHeight: Integer; override;
-    procedure DoSplitRect(const R: TRect; AGutterWidth: Integer; out AGutterRect, AContentRect: TRect);
+    procedure DoAssign(Source: TPersistent); override;
+    procedure DoReset; override;
+    procedure DoSplitRect(const R: TRect;
+      AGutterWidth: Integer; out AGutterRect, AContentRect: TRect);
+    procedure DrawShadow(ACanvas: TCanvas;
+      ARect, AExtends: TRect; var ACache: TACLDib);
     procedure InitializeResources; override;
+    function GetItemGutterWidth: Integer; inline;
+    function GetSeparatorHeight: Integer; inline;
+    function UseAlphaComposing: Boolean; virtual;
   public
+    procedure DrawArrow(ACanvas: TCanvas; ARect: TRect; AArrow: TACLArrowKind);
     procedure DrawBackground(ACanvas: TCanvas; const R: TRect; ASelected: Boolean); override;
-    procedure DrawBorder(ACanvas: TCanvas; const R: TRect); virtual;
-    procedure DrawCheckMark(ACanvas: TCanvas; const R: TRect;
-      AChecked, AIsRadioItem, ASelected: Boolean);
-    procedure DrawItem(ACanvas: TCanvas; R: TRect; const S: string;
+    procedure DrawBorder(ACanvas: TCanvas; ARect: TRect);
+    procedure DrawCheckMark(ACanvas: TCanvas;
+      ARect: TRect; AChecked, AIsRadioItem, ASelected, AEnabled: Boolean);
+    procedure DrawItem(ACanvas: TCanvas; ARect: TRect; const AText: string;
       AShortCut: TShortCut; ASelected, AIsDefault, AEnabled, AHasSubItems: Boolean); virtual;
     procedure DrawItemImage(ACanvas: TCanvas; ARect: TRect;
       AItem: TMenuItem; ASelected: Boolean); override;
     procedure DrawScrollButton(ACanvas: TCanvas;
-      const R: TRect; AUp, AEnabled: Boolean); virtual;
-    procedure DrawSeparator(ACanvas: TCanvas; const R: TRect); virtual;
+      const ARect: TRect; AUp, AEnabled: Boolean); virtual;
+    procedure DrawSeparator(ACanvas: TCanvas; const ABounds: TRect); virtual;
     function MeasureWidth(ACanvas: TCanvas; const S: string;
       AShortCut: TShortCut = scNone; ADefault: Boolean = False): Integer; override;
 
     property ItemGutterWidth: Integer read GetItemGutterWidth;
     property SeparatorHeight: Integer read GetSeparatorHeight;
   published
+    property AllowTextFormatting: Boolean read
+      FAllowTextFormatting write FAllowTextFormatting default False;
     property Borders: TACLResourceMargins index 0 read GetMargins write SetMargins stored IsMarginsStored;
     property ColorBorder1: TACLResourceColor index 2 read GetColor write SetColor stored IsColorStored;
     property ColorBorder2: TACLResourceColor index 3 read GetColor write SetColor stored IsColorStored;
@@ -333,25 +347,11 @@ type
       read FScrollMode write FScrollMode default smAuto;
   end;
 
-  { TACLPopupMenuStyle }
-
-  TACLPopupMenuStyle = class(TACLStylePopupMenu)
-  strict private
-    FAllowTextFormatting: Boolean;
-  protected
-    procedure DoAssign(Source: TPersistent); override;
-    procedure DoReset; override;
-  public
-    procedure DrawText(ACanvas: TCanvas; ARect: TRect; const AText: string); override;
-  published
-    property AllowTextFormatting: Boolean read
-      FAllowTextFormatting write FAllowTextFormatting default False;
-  end;
-
   { TACLPopupMenu }
 
   TACLPopupMenuClass = class of TACLPopupMenu;
   TACLPopupMenu = class(TPopupMenu,
+    IACLColorSchema,
     IACLCurrentDPI,
     IACLMenuShowHandler,
     IACLObjectLinksSupport,
@@ -362,11 +362,11 @@ type
     FHint: string;
     FOptions: TACLPopupMenuOptions;
     FPopupWindow: TObject;
-    FStyle: TACLPopupMenuStyle;
+    FStyle: TACLStylePopupMenu;
 
     function GetIsShown: Boolean;
     procedure SetOptions(AValue: TACLPopupMenuOptions);
-    procedure SetStyle(AValue: TACLPopupMenuStyle);
+    procedure SetStyle(AValue: TACLStylePopupMenu);
     // IACLCurrentDPI
     function GetCurrentDpi: Integer;
     // IACLMenuShowHandler
@@ -374,7 +374,7 @@ type
   protected
     function CalculateTargetDpi: Integer; virtual;
     function CreateOptions: TACLPopupMenuOptions; virtual;
-    function CreateStyle: TACLPopupMenuStyle; virtual;
+    function CreateStyle: TACLStylePopupMenu; virtual;
     procedure DoInitialize; virtual;
     procedure DoDpiChanged; virtual;
     procedure DoSelect(Item: TMenuItem); virtual;
@@ -387,6 +387,8 @@ type
     procedure ScaleForDpi(ATargetDpi: Integer);
     procedure Popup(const P: TPoint); reintroduce; overload;
     procedure Popup(X, Y: Integer); overload; override;
+    // IACLColorSchema
+    procedure ApplyColorSchema(const ASchema: TACLColorSchema);
     // IACLPopup
     procedure PopupUnderControl(const ControlRect: TRect);
 
@@ -396,7 +398,7 @@ type
     property AutoScale: Boolean read FAutoScale write FAutoScale default True;
     property Hint: string read FHint write FHint;
     property Options: TACLPopupMenuOptions read FOptions write SetOptions;
-    property Style: TACLPopupMenuStyle read FStyle write SetStyle;
+    property Style: TACLStylePopupMenu read FStyle write SetStyle;
   end;
 
 {$ENDREGION}
@@ -481,7 +483,7 @@ type
 
   { TACLMenuPopupLooper }
 
-  TACLMenuPopupLooper = class
+  TACLMenuPopupLooper = class(TACLComponent)
   strict private
     FDelayTimer: TACLTimer;
     FDelayWnd: TACLMenuPopupWindow;
@@ -499,6 +501,7 @@ type
     function DoShowPopup(AWnd: TACLMenuPopupWindow): Boolean;
     function GetMenuHint(AItem: TMenuItem): string;
     function IsInStack(const AInfo: TACLMenuWindow.TItemInfo): Boolean;
+    procedure SetDelayWnd(AWnd: TACLMenuPopupWindow);
     procedure UpdateSelection(AWnd: TACLMenuPopupWindow);
   strict protected
     procedure DoCloseMenu(AWnd: TACLMenuPopupWindow = nil);
@@ -507,10 +510,11 @@ type
   protected
     procedure CloseMenu(AWnd: TACLMenuPopupWindow = nil);
     procedure CloseMenuOnSelect(AItem: TMenuItem);
+    procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
     function PopupWindowAtCursor: TACLMenuPopupWindow;
     function WndProc(AWnd: TACLMenuPopupWindow; var AMsg: TMessage): Boolean; virtual;
   public
-    constructor Create(AOwner: TACLMenuPopupWindow); virtual;
+    constructor Create(AOwner: TACLMenuPopupWindow); reintroduce; virtual;
     destructor Destroy; override;
     procedure Run; virtual; abstract;
     //# Properties
@@ -520,25 +524,28 @@ type
 
   { TACLMenuPopupWindow }
 
+  TACLMenuPopupWindowClass = class of TACLMenuPopupWindow;
   TACLMenuPopupWindow = class(TACLMenuWindow, IACLScrollBar)
+  public const
+    ShadowSize = 4;
   strict private
     FControlRect: TRect;
     FLooper: TACLMenuPopupLooper;
     FMainMenu: TACLMenuWindow;
+    FMousePressed: set of TMouseButton;
     FParent: TACLMenuPopupWindow;
-    FSource: TACLPopupMenu;
-    FSourceItem: TACLMenuWindow.TItemInfo;
-    // Scrollers
     FScrollBar: TACLScrollBarSubClass;
     FScrollBarStyle: TACLStyleScrollBox;
     FScrollButtonDown: TRect;
     FScrollButtonRestArea: TRect;
     FScrollButtonUp: TRect;
     FScrollTimer: TACLTimer;
+    FSource: TACLPopupMenu;
+    FSourceItem: TACLMenuWindow.TItemInfo;
 
     function AllowFading: Boolean;
     function CanCloseMenuOnItemClick(AItem: TMenuItem): Boolean;
-    function GetStyle: TACLPopupMenuStyle;
+    function GetStyle: TACLStylePopupMenu;
     function GetTargetMenuWnd(out AWnd: TACLMenuWindow; var X, Y: Integer): Boolean;
     //# Scrollers
     procedure CheckScrollTimer(const P: TPoint);
@@ -550,6 +557,9 @@ type
     class procedure WSRegisterClass; override;
   {$ENDIF}
   protected
+    FShadow: TRect;
+    FShadowCache: TACLDib;
+
     function CalculateAutoSize: TSize; override;
     procedure CalculateBounds;
     procedure CalculateLayout; override;
@@ -563,11 +573,12 @@ type
     function GetCurrentDpi: Integer; override;
     procedure Resize; override;
 
-    //# Popup
-    procedure Paint; override;
-    procedure PaintScroller;
+    //# Paint
+    procedure Paint; override; final;
+    procedure PaintCore(ACanvas: TCanvas);
+    procedure PaintScroller(ACanvas: TCanvas);
 
-    // Navigation
+    //# Navigation
     procedure KeyDown(var Key: Word; Shift: TShiftState); override;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure MouseLeave; override;
@@ -575,9 +586,13 @@ type
     procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     procedure SelectItemOnMouseMove(AItemIndex: Integer); override;
 
-    // # Messages
+    //# Messages
     procedure CMMenuClicked(var Message: TMessage); message CM_MENUCLICKED;
+    procedure CMShowWindow(var Message: TMessage); message CM_SHOWINGCHANGED;
     procedure WndProc(var Message: TMessage); override;
+
+    //# Properties
+    property Shadow: TRect read FShadow;
   public
     constructor Create(AMainMenu: TACLMenuWindow; ASource: TACLPopupMenu;
       AItem: TACLMenuWindow.TItemInfo); reintroduce; overload;
@@ -585,7 +600,8 @@ type
       AItem: TACLMenuWindow.TItemInfo); reintroduce; overload;
     constructor Create(ASource: TACLPopupMenu); reintroduce; overload;
     destructor Destroy; override;
-    procedure InvalidateRect(const R: TRect);
+    procedure Invalidate; override;
+    procedure InvalidateRect(const R: TRect); virtual;
     procedure Popup(const AControlRect: TRect);
     //# Properties
     property Looper: TACLMenuPopupLooper read FLooper;
@@ -593,7 +609,27 @@ type
     property MainMenu: TACLMenuWindow read FMainMenu;
     property Source: TACLPopupMenu read FSource;
     property SourceItem: TACLMenuWindow.TItemInfo read FSourceItem;
-    property Style: TACLPopupMenuStyle read GetStyle;
+    property Style: TACLStylePopupMenu read GetStyle;
+  end;
+
+  { TACLMenuPopupLayeredWindow }
+
+  // Вынесено в отдельный класс из-за CS_DROPSHADOW
+  TACLMenuPopupLayeredWindow = class(TACLMenuPopupWindow
+  {$IFDEF LCLGtk2}
+    , IACLLayeredPaint
+  {$ENDIF})
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+  {$IFDEF LCLGtk2}
+    procedure PaintTo(ACairo: Pcairo_t);
+  {$ENDIF}
+    procedure Resize; override;
+    // Messages
+    procedure CMShowWindow(var Message: TMessage); message CM_SHOWINGCHANGED;
+    procedure WMPaint(var Message: TMessage); message WM_PAINT;
+  public
+    procedure InvalidateRect(const R: TRect); override;
   end;
 
 {$ENDREGION}
@@ -602,7 +638,10 @@ type
 
   { TACLMainMenu }
 
-  TACLMainMenu = class(TACLMenuWindow, IACLLocalizableComponent)
+  TACLMainMenu = class(TACLMenuWindow,
+    IACLColorSchema,
+    IACLLocalizableComponent,
+    IACLResourceChangeListener)
   strict private
     FMenu: TACLPopupMenu;
     FPopupOnSelect: Boolean;
@@ -635,6 +674,9 @@ type
     procedure Paint; override;
     procedure PaintItem(AItem: TACLMenuWindow.TItemInfo; ASelected: Boolean);
 
+    // IACLResourceChangeListener
+    procedure ResourceChanged(Sender: TObject; Resource: TACLResource = nil);
+
     //# Messages
     procedure CMExit(var Message: TMessage); message CM_EXIT;
     procedure CMMenuClicked(var Message: TMessage); message CM_MENUCLICKED;
@@ -649,6 +691,8 @@ type
     procedure AdjustSize; override;
     procedure CheckShortCut(var Msg: TWMKey; var Handled: Boolean);
     procedure Rebuild;
+    // IACLColorSchema
+    procedure ApplyColorSchema(const ASchema: TACLColorSchema);
     // IACLLocalizableComponent
     procedure Localize(const ASection, AName: string);
   published
@@ -713,8 +757,7 @@ function acMenuEscapeHotkeys(const ACaption: string): string;
 implementation
 
 uses
-{$IFDEF LCLGtk2}
-  ACL.UI.Core.Impl.Gtk2,
+{$IF DEFINED(LCLGtk2)}
   Gdk2,
 {$ENDIF}
 {$IFDEF FPC}
@@ -745,7 +788,7 @@ type
 
   TACLMenuPopupLooperImpl = class(TACLMenuPopupLooper)
   strict protected
-    procedure DoEvent(AEvent: PGdkEvent; var AHandled: Boolean);
+    procedure DoEvent(AType: TGdkEventType; AEvent: PGdkEvent; var AHandled: Boolean);
     procedure DoIdle; override;
   protected
     function WndProc(AWnd: TACLMenuPopupWindow; var AMsg: TMessage): Boolean; override;
@@ -857,13 +900,13 @@ end;
 
 function TMenuItemHelper.HasVisibleSubItems: Boolean;
 var
-  AItem: TMenuItem;
+  LItem: TMenuItem;
   I: Integer;
 begin
   for I := 0 to Count - 1 do
   begin
-    AItem := Items[I];
-    if not AItem.IsLine and AItem.Visible then
+    LItem := Items[I];
+    if not LItem.IsLine and LItem.Visible then
       Exit(True);
   end;
   Result := False;
@@ -871,11 +914,17 @@ end;
 
 procedure TMenuItemHelper.InitiateActions;
 var
+  LItem: TMenuItem;
   I: Integer;
 begin
-  InitiateAction;
+  if Action <> nil then
+    InitiateAction;
   for I := 0 to Count - 1 do
-    Items[I].InitiateAction;
+  begin
+    LItem := Items[I];
+    if LItem.Action <> nil then
+      LItem.InitiateAction;
+  end;
 end;
 
 function TMenuItemHelper.IsCheckable: Boolean;
@@ -912,14 +961,14 @@ end;
 
 function TMenuItemHelper.GetMenu: TMenu;
 var
-  AItem: TMenuItem;
+  LItem: TMenuItem;
 begin
-  AItem := Self;
-  while AItem.Parent <> nil do
-    AItem := AItem.Parent;
+  LItem := Self;
+  while LItem.Parent <> nil do
+    LItem := LItem.Parent;
 
-  if AItem.Owner is TMenu then
-    Result := TMenu(AItem.Owner)
+  if LItem.Owner is TMenu then
+    Result := TMenu(LItem.Owner)
   else
     Result := nil;
 end;
@@ -1219,7 +1268,7 @@ var
   LImages: TCustomImageList;
   LIntf: IACLGlyph;
 begin
-  if acStartClippedDraw(ACanvas.Handle, ARect, LClipRegion) then
+  if acStartClippedDraw(ACanvas, ARect, LClipRegion) then
   try
     // DPI aware Glyph
     if Supports(AItem, IACLGlyph, LIntf) and not LIntf.GetGlyph.Empty then
@@ -1256,13 +1305,8 @@ begin
       end;
     end;
   finally
-    acRestoreClipRegion(ACanvas.Handle, LClipRegion);
+    acEndClippedDraw(ACanvas, LClipRegion);
   end;
-end;
-
-procedure TACLStyleMenu.DrawText(ACanvas: TCanvas; ARect: TRect; const AText: string);
-begin
-  acSysDrawText(ACanvas, ARect, AText, DT_SINGLELINE or DT_VCENTER);
 end;
 
 function TACLStyleMenu.GetItemHeight: Integer;
@@ -1309,6 +1353,14 @@ end;
 
 {$REGION ' PopupMenu '}
 
+function GetPopupWindowClass(AStyle: TACLStylePopupMenu): TACLMenuPopupWindowClass;
+begin
+  if AStyle.UseAlphaComposing then
+    Result := TACLMenuPopupLayeredWindow
+  else
+    Result := TACLMenuPopupWindow;
+end;
+
 { TACLStylePopupMenu }
 
 function TACLStylePopupMenu.CalculateItemHeight: Integer;
@@ -1321,56 +1373,71 @@ begin
   end;
 end;
 
-procedure TACLStylePopupMenu.DrawCheckMark(
-  ACanvas: TCanvas; const R: TRect; AChecked, AIsRadioItem, ASelected: Boolean);
-
-  function GetStateRect(const R: TRect; ATexture: TACLResourceTexture): TRect;
-  begin
-    Result := R;
-    Result.Width := ItemGutterWidth;
-    Result.Center(ATexture.FrameSize);
-  end;
-
+procedure TACLStylePopupMenu.DrawCheckMark(ACanvas: TCanvas;
+  ARect: TRect; AChecked, AIsRadioItem, ASelected, AEnabled: Boolean);
 const
   Indexes: array[Boolean, Boolean] of Integer = ((6, 2), (8, 4));
   NameMap: array[Boolean] of string = ('Buttons.Textures.CheckBox', 'Buttons.Textures.RadioBox');
 var
-  AClipRegion: TRegionHandle;
-  AImageIndex: Integer;
-  APrevTargetDPI: Integer;
-  ATexture: TACLResourceTexture;
+  LClipping: TRegionHandle;
+  LImageIndex: Integer;
+  LTexture: TACLResourceTexture;
+  LTextureDPI: Integer;
 begin
-  if acStartClippedDraw(ACanvas.Handle, R, AClipRegion) then
+  ARect.Width := ItemGutterWidth;
+  if acStartClippedDraw(ACanvas, ARect, LClipping) then
   try
-    // for backward compatibility with skins for AIMP3.
-    if TextureGutter.FrameCount = 2 then
+    if TextureGutter.FrameCount > 2 then
     begin
-      ATexture := TACLResourceTexture(GetResource(NameMap[AIsRadioItem], TACLResourceTexture));
-      if ATexture <> nil then
-      begin
-        ATexture.BeginUpdate;
-        try
-          APrevTargetDPI := ATexture.TargetDPI;
-          try
-            ATexture.TargetDPI := TargetDPI;
-            ATexture.Draw(ACanvas, GetStateRect(R, ATexture), Ord(AChecked) * 5 + Ord(ASelected));
-          finally
-            ATexture.TargetDPI := APrevTargetDPI;
-          end;
-        finally
-          ATexture.CancelUpdate;
-        end;
-      end;
+      LImageIndex := Indexes[AIsRadioItem, AChecked] + Ord(ASelected);
+      if LImageIndex < TextureGutter.FrameCount then
+        TextureGutter.Draw(ACanvas, ARect.CenterTo(TextureGutter.FrameSize), LImageIndex);
     end
     else
-    begin
-      AImageIndex := Indexes[AIsRadioItem, AChecked] + Ord(ASelected);
-      if AImageIndex < TextureGutter.FrameCount then
-        TextureGutter.Draw(ACanvas, GetStateRect(R, TextureGutter), AImageIndex);
+    begin // for backward compatibility with old skins.
+      LTexture := TACLResourceTexture(GetResource(NameMap[AIsRadioItem], TACLResourceTexture));
+      if LTexture <> nil then
+      begin
+        LTexture.BeginUpdate;
+        try
+          LTextureDPI := LTexture.TargetDPI;
+          try
+            LTexture.TargetDPI := TargetDPI;
+            ARect.Content(TextureGutter.ContentOffsets);
+            ARect.Center(LTexture.FrameSize);
+
+            if not AEnabled then
+              LImageIndex := 3 // disabled
+            else if ASelected then
+              LImageIndex := 1 // hover
+            else
+              LImageIndex := 4;// active
+
+            LTexture.Draw(ACanvas, ARect, Ord(AChecked) * 5 + LImageIndex);
+          finally
+            LTexture.TargetDPI := LTextureDPI;
+          end;
+        finally
+          LTexture.CancelUpdate;
+        end;
+      end;
     end;
   finally
-    acRestoreClipRegion(ACanvas.Handle, AClipRegion);
+    acEndClippedDraw(ACanvas, LClipping);
   end;
+end;
+
+procedure TACLStylePopupMenu.DoAssign(Source: TPersistent);
+begin
+  inherited DoAssign(Source);
+  if Source is TACLStylePopupMenu then
+    AllowTextFormatting := TACLStylePopupMenu(Source).AllowTextFormatting;
+end;
+
+procedure TACLStylePopupMenu.DoReset;
+begin
+  inherited DoReset;
+  AllowTextFormatting := False;
 end;
 
 procedure TACLStylePopupMenu.DoSplitRect(const R: TRect;
@@ -1382,65 +1449,154 @@ begin
   AContentRect.Left := AGutterRect.Right;
 end;
 
+procedure TACLStylePopupMenu.DrawArrow(
+  ACanvas: TCanvas; ARect: TRect; AArrow: TACLArrowKind);
+var
+  LColor: TColor;
+begin
+  LColor := acGetActualColor(ACanvas.Font);
+  if UseAlphaComposing then
+    acDrawArrow(ACanvas, ARect, TAlphaColor.FromColor(LColor), AArrow, TargetDPI)
+  else
+    acDrawArrow(ACanvas, ARect, LColor, AArrow, TargetDPI);
+end;
+
 procedure TACLStylePopupMenu.DrawBackground(
   ACanvas: TCanvas; const R: TRect; ASelected: Boolean);
 var
-  AContentRect: TRect;
-  AGutterRect: TRect;
+  LGutter: TRect;
+  LUnused: TRect;
 begin
   inherited;
-  DoSplitRect(R, ItemGutterWidth, AGutterRect, AContentRect);
-  TextureGutter.Draw(ACanvas, AGutterRect, Ord(ASelected));
+  DoSplitRect(R, ItemGutterWidth, LGutter, LUnused);
+  TextureGutter.Draw(ACanvas, LGutter, Ord(ASelected));
 end;
 
-procedure TACLStylePopupMenu.DrawBorder(ACanvas: TCanvas; const R: TRect);
+procedure TACLStylePopupMenu.DrawBorder(ACanvas: TCanvas; ARect: TRect);
 var
+  LPath: TACL2DRenderPath;
   LRadius: Integer;
 begin
-  ACanvas.Pen.Color := ColorBorder1.AsColor;
-  if ColorBorder2.IsEmpty then
-    ACanvas.Brush.Color := ColorBorder1.AsColor
+  LRadius := CornerRadius.Value;
+  if UseAlphaComposing then
+  begin
+    ExPainter.BeginPaint(ACanvas);
+    try
+      ExPainter.SetGeometrySmoothing(TACLBoolean.True);
+      LPath := ExPainter.CreatePath;
+      try
+      {$IFDEF MSWINDOWS}
+        Dec(ARect.Bottom);
+        Dec(ARect.Right);
+      {$ENDIF}
+        LPath.AddRoundRect(ARect, LRadius, LRadius);
+        if ColorBorder2.IsEmpty then
+          ExPainter.FillPath(LPath, ColorBorder1.Value)
+        else
+        begin
+          ExPainter.FillPath(LPath, ColorBorder2.Value);
+          ExPainter.DrawPath(LPath, ColorBorder1.Value);
+        end;
+      finally
+        LPath.Free;
+      end;
+    finally
+      ExPainter.EndPaint;
+    end;
+  end
   else
-    ACanvas.Brush.Color := ColorBorder2.AsColor;
+  begin
+    ACanvas.Pen.Color := ColorBorder1.AsColor;
+    if ColorBorder2.IsEmpty then
+      ACanvas.Brush.Color := ColorBorder1.AsColor
+    else
+      ACanvas.Brush.Color := ColorBorder2.AsColor;
 
-  LRadius := 2 * CornerRadius.Value;
-  if LRadius > 0 then
-    ACanvas.RoundRect(R, LRadius, LRadius)
+    if LRadius > 0 then
+      ACanvas.RoundRect(ARect, LRadius * 2, LRadius * 2)
+    else
+      ACanvas.Rectangle(ARect);
+  end;
+end;
+
+procedure TACLStylePopupMenu.DrawItem(
+  ACanvas: TCanvas; ARect: TRect; const AText: string;
+  AShortCut: TShortCut; ASelected, AIsDefault, AEnabled, AHasSubItems: Boolean);
+const
+  DT_BASE = DT_VCENTER or DT_SINGLELINE or DT_NOCLIP;
+var
+  LAdvFlags: Integer;
+begin
+  AssignFontParams(ACanvas, ASelected, AIsDefault, AEnabled);
+
+  if AHasSubItems then
+  begin
+    DrawArrow(ACanvas, ARect.Split(srRight, ARect.Height), makRight);
+    Dec(ARect.Right, ARect.Height);
+  end;
+
+  LAdvFlags :=
+    IfThen(UseAlphaComposing, ADT_ALPHABLEND) or
+    IfThen(AllowTextFormatting, ADT_FORMATTING);
+
+  Inc(ARect.Left, ItemGutterWidth);
+  ARect.Inflate(-GetTextIdent, 0);
+  acAdvDrawText(ACanvas, AText, ARect, DT_HIDEPREFIX or DT_BASE, LAdvFlags);
+
+  if AShortCut <> scNone then
+  begin
+    acAdvDrawText(ACanvas, TACLShortCut.ToText(AShortCut),
+      ARect, DT_NOPREFIX or DT_BASE or DT_RIGHT, LAdvFlags);
+  end;
+end;
+
+procedure TACLStylePopupMenu.DrawItemImage(
+  ACanvas: TCanvas; ARect: TRect; AItem: TMenuItem; ASelected: Boolean);
+begin
+  if AItem.IsCheckable then
+    DrawCheckMark(ACanvas, ARect, AItem.Checked, AItem.RadioItem, ASelected, AItem.Enabled)
   else
-    ACanvas.Rectangle(R);
+  begin
+    ARect.Content(TextureGutter.ContentOffsets);
+    inherited;
+  end;
 end;
 
 procedure TACLStylePopupMenu.DrawScrollButton(
-  ACanvas: TCanvas; const R: TRect; AUp, AEnabled: Boolean);
+  ACanvas: TCanvas; const ARect: TRect; AUp, AEnabled: Boolean);
 const
   ScrollButtonMap: array[Boolean] of TACLArrowKind = (makBottom, makTop);
 begin
   AssignFontParams(ACanvas, False, False, AEnabled);
-  acDrawArrow(ACanvas, R, acGetActualColor(ACanvas.Font), ScrollButtonMap[AUp], TargetDPI);
+  DrawArrow(ACanvas, ARect, ScrollButtonMap[AUp]);
 end;
 
-procedure TACLStylePopupMenu.DrawSeparator(ACanvas: TCanvas; const R: TRect);
+procedure TACLStylePopupMenu.DrawSeparator(ACanvas: TCanvas; const ABounds: TRect);
 var
   LDib: TACLDib;
   LDstC, LDstG: TRect;
   LSrcC, LSrcG: TRect;
 begin
-  if R.IsEmpty then
+  if ABounds.IsEmpty then
     Exit;
   if TextureSeparator.ImageDpi <> acDefaultDpi then
   begin
     LDib := TACLDib.Create(
-      TextureGutter.Image.Width + TextureSeparator.Image.Width,
+      TextureSeparator.Image.Width + TextureGutter.Image.Width,
       TextureSeparator.Image.Height);
     try
       if not LDib.Empty then
       begin
-        acFillRect(LDib.Canvas, LDib.ClientRect, ColorItem.AsColor);
+        acFillRect(LDib.Canvas, LDib.ClientRect, ColorItem.Value);
         TextureSeparator.Draw(LDib.Canvas, LDib.ClientRect);
         DoSplitRect(LDib.ClientRect, TextureGutter.Image.Width, LSrcG, LSrcC);
-        DoSplitRect(R, ItemGutterWidth, LDstG, LDstC);
-        LDib.DrawBlend(ACanvas, LDstG, LSrcG, MaxByte);
+        DoSplitRect(ABounds, ItemGutterWidth, LDstG, LDstC);
         LDib.DrawBlend(ACanvas, LDstC, LSrcC, MaxByte);
+        LDib.DrawBlend(ACanvas, LDstG, LSrcG, MaxByte);
+        if LSrcG.Width > 3 then // Don't stretch right border
+          LDib.DrawBlend(ACanvas,
+            LDstG.Split(srRight, 3),
+            LSrcG.Split(srRight, 3), MaxByte);
       end;
     finally
       LDib.Free;
@@ -1448,32 +1604,26 @@ begin
   end
   else
   begin
-    acFillRect(ACanvas, R, ColorItem.AsColor);
-    TextureSeparator.Draw(ACanvas, R, 0);
+    acFillRect(ACanvas, ABounds, ColorItem.Value);
+    TextureSeparator.Draw(ACanvas, ABounds, 0);
   end;
 end;
 
-procedure TACLStylePopupMenu.DrawItem(ACanvas: TCanvas; R: TRect; const S: string;
-  AShortCut: TShortCut; ASelected, AIsDefault, AEnabled, AHasSubItems: Boolean);
+procedure TACLStylePopupMenu.DrawShadow(
+  ACanvas: TCanvas; ARect, AExtends: TRect; var ACache: TACLDib);
 begin
-  Inc(R.Left, ItemGutterWidth);
-  R.Inflate(-GetTextIdent, 0);
-  AssignFontParams(ACanvas, ASelected, AIsDefault, AEnabled);
-  DrawText(ACanvas, R, S);
-  if AHasSubItems then
-    acDrawArrow(ACanvas, R.Split(srRight, R.Height), acGetActualColor(ACanvas.Font), makRight, TargetDPI)
-  else
-    if AShortCut <> scNone then
-      acTextDraw(ACanvas, TACLShortCut.ToText(AShortCut), R, taRightJustify, taVerticalCenter);
-end;
-
-procedure TACLStylePopupMenu.DrawItemImage(
-  ACanvas: TCanvas; ARect: TRect; AItem: TMenuItem; ASelected: Boolean);
-begin
-  if AItem.IsCheckable then
-    DrawCheckMark(ACanvas, ARect, AItem.Checked, AItem.RadioItem, ASelected)
-  else
-    inherited;
+  if AExtends = NullRect then
+    Exit;
+  if (ACache = nil) or (ACache.Size <> ARect.Size) then
+  begin
+    FreeAndNil(ACache);
+    ACache := TACLDib.Create(ARect);
+    acFillRect(ACache.Canvas,
+      ARect.InflateTo(-TACLMenuPopupWindow.ShadowSize),
+      TAlphaColor.Black, CornerRadius.Value);
+    ACache.Blur(TACLMenuPopupWindow.ShadowSize);
+  end;
+  ACache.DrawCopy(ACanvas, ARect.TopLeft);
 end;
 
 procedure TACLStylePopupMenu.InitializeResources;
@@ -1481,8 +1631,8 @@ begin
   inherited;
   Borders.InitailizeDefaults('Popup.Margins.Borders', acBorderOffsets);
   CornerRadius.InitailizeDefaults('Popup.Margins.CornerRadius', 0);
-  ColorBorder1.InitailizeDefaults('Popup.Colors.Border1');
-  ColorBorder2.InitailizeDefaults('Popup.Colors.Border2');
+  ColorBorder1.InitailizeDefaults('Popup.Colors.Border1', True);
+  ColorBorder2.InitailizeDefaults('Popup.Colors.Border2', True);
   TextureGutter.InitailizeDefaults('Popup.Textures.Gutter');
   TextureSeparator.InitailizeDefaults('Popup.Textures.Separator');
   TextureScrollBar.InitailizeDefaults('Popup.Textures.ScrollBar');
@@ -1511,6 +1661,19 @@ begin
   Result := TextureSeparator.FrameHeight;
 end;
 
+function TACLStylePopupMenu.UseAlphaComposing: Boolean;
+begin
+{$IFDEF ACL_ALPHACOMPOSED_POPUPMENUS}
+  if CornerRadius.Value > 0 then
+    Exit(True);
+  if ColorBorder2.IsEmpty then
+    Exit(ColorBorder1.HasAlpha);
+  Result := ColorBorder2.HasAlpha;
+{$ELSE}
+  Result := False;
+{$ENDIF}
+end;
+
 { TACLPopupMenuOptions }
 
 procedure TACLPopupMenuOptions.AfterConstruction;
@@ -1523,29 +1686,6 @@ procedure TACLPopupMenuOptions.Assign(Source: TPersistent);
 begin
   if Source is TACLPopupMenuOptions then
     CloseMenuOnItemCheck := TACLPopupMenuOptions(Source).CloseMenuOnItemCheck;
-end;
-
-{ TACLPopupMenuStyle }
-
-procedure TACLPopupMenuStyle.DoAssign(Source: TPersistent);
-begin
-  inherited DoAssign(Source);
-  if Source is TACLPopupMenuStyle then
-    AllowTextFormatting := TACLPopupMenuStyle(Source).AllowTextFormatting;
-end;
-
-procedure TACLPopupMenuStyle.DrawText(ACanvas: TCanvas; ARect: TRect; const AText: string);
-begin
-  if AllowTextFormatting then
-    acDrawFormattedText(ACanvas, StripHotkey(AText), ARect, taLeftJustify, taVerticalCenter, False)
-  else
-    inherited;
-end;
-
-procedure TACLPopupMenuStyle.DoReset;
-begin
-  inherited DoReset;
-  AllowTextFormatting := False;
 end;
 
 { TACLPopupMenu }
@@ -1563,6 +1703,11 @@ begin
   FreeAndNil(FOptions);
   FreeAndNil(FStyle);
   inherited Destroy;
+end;
+
+procedure TACLPopupMenu.ApplyColorSchema(const ASchema: TACLColorSchema);
+begin
+  Style.ApplyColorSchema(ASchema);
 end;
 
 procedure TACLPopupMenu.BeforeDestruction;
@@ -1615,9 +1760,9 @@ begin
   Result := TACLPopupMenuOptions.Create;
 end;
 
-function TACLPopupMenu.CreateStyle: TACLPopupMenuStyle;
+function TACLPopupMenu.CreateStyle: TACLStylePopupMenu;
 begin
-  Result := TACLPopupMenuStyle.Create(Self);
+  Result := TACLStylePopupMenu.Create(Self);
 end;
 
 procedure TACLPopupMenu.DoInitialize;
@@ -1645,7 +1790,7 @@ procedure TACLPopupMenu.DoShow(const ControlRect: TRect);
 begin
   if not IsShown then
   try
-    FPopupWindow := TACLMenuPopupWindow.Create(Self);
+    FPopupWindow := GetPopupWindowClass(Style).Create(Self);
     try
       TACLMenuPopupWindow(FPopupWindow).Init(Items);
       if TACLMenuPopupWindow(FPopupWindow).Items.Count > 0 then
@@ -1674,7 +1819,7 @@ begin
   FOptions.Assign(AValue);
 end;
 
-procedure TACLPopupMenu.SetStyle(AValue: TACLPopupMenuStyle);
+procedure TACLPopupMenu.SetStyle(AValue: TACLStylePopupMenu);
 begin
   FStyle.Assign(AValue);
 end;
@@ -2006,12 +2151,12 @@ constructor TACLMenuPopupWindow.Create(ASource: TACLPopupMenu);
 var
   LParentWnd: HWND;
 begin
+  FSource := ASource;
   inherited Create(ASource);
   // Если у контрола нет флага csCaptureMouse - gtkMotionNotify не сгенерирует
   // событие, даже если capture была выставлена контролу вручную
   ControlStyle := []{$IFDEF FPC} + [csCaptureMouse]{$ENDIF};
   FScrollTimer := TACLTimer.CreateEx(ScrollTimer, 125);
-  FSource := ASource;
   Visible := False;
 
   if Screen.FocusedForm <> nil then
@@ -2051,6 +2196,7 @@ begin
   FreeAndNil(FScrollTimer);
   FreeAndNil(FScrollBar); // before
   FreeAndNil(FScrollBarStyle);
+  FreeAndNil(FShadowCache);
   inherited;
 end;
 
@@ -2078,6 +2224,8 @@ begin
   begin
     Inc(Result.cx, FPadding.MarginsWidth);
     Inc(Result.cy, FPadding.MarginsHeight);
+    Inc(Result.cx, FShadow.MarginsWidth);
+    Inc(Result.cy, FShadow.MarginsHeight);
   end;
 {$IFDEF FPC}
   if Result.IsEmpty then
@@ -2112,6 +2260,7 @@ var
 begin
   LRect := ClientRect;
   LRect.Content(FPadding);
+  LRect.Content(FShadow);
   CalculateScrollers(LRect);
   for I := 0 to TopIndex - 1 do
     Items.List[I].Rect := NullRect;
@@ -2142,50 +2291,48 @@ end;
 
 procedure TACLMenuPopupWindow.CalculateMetrics;
 begin
-  FPadding := dpiApply(Style.Borders.Value, GetCurrentDpi);
+  FPadding := Style.Borders.Value;
   inherited;
 end;
 
 function TACLMenuPopupWindow.CalculatePopupBounds(
   ASize: TSize; AChild: TACLMenuPopupWindow): TRect;
-const
-  ShadowOffset = 4;
 var
-  AParentRect: TRect;
-  AWorkArea: TRect;
+  LParentRect: TRect;
+  LWorkArea: TRect;
 begin
-  AWorkArea := MonitorGetDesktopClientArea(ClientOrigin);
+  LWorkArea := MonitorGetDesktopClientArea(ClientOrigin);
   if AChild <> nil then
   begin
-    AParentRect := AChild.SourceItem.Rect + ClientOrigin;
-    AParentRect.Offset(0, -FPadding.Top);
-    Result.Left := AParentRect.Right;
-    Result.Top := AParentRect.Top;
-    if Result.Left + ASize.Width > AWorkArea.Right then
-      Result.Left := AParentRect.Left - ASize.Width;
-    if Result.Top + ASize.Height > AWorkArea.Bottom then
-      Result.Top := AParentRect.Bottom - ASize.Height;
+    LParentRect := AChild.SourceItem.Rect + ClientOrigin;
+    LParentRect.Offset(-FShadow.Left, -(FPadding.Top + FShadow.Top));
+    Result.Left := LParentRect.Right;
+    Result.Top := LParentRect.Top;
+    if Result.Left + ASize.Width > LWorkArea.Right then
+      Result.Left := LParentRect.Left - ASize.Width;
+    if Result.Top + ASize.Height > LWorkArea.Bottom then
+      Result.Top := LParentRect.Bottom - ASize.Height;
   end
   else
   begin
     Result := BoundsRect;
-    if Result.Left + ASize.Width > AWorkArea.Right then
-      Result.Left := AWorkArea.Right - ASize.Width;
-    if Result.Top + ASize.Height > AWorkArea.Bottom then
+    if Result.Left + ASize.Width > LWorkArea.Right then
+      Result.Left := LWorkArea.Right - ASize.Width;
+    if Result.Top + ASize.Height > LWorkArea.Bottom then
     begin
       if FControlRect.IsEmpty then
-        Result.Top := AWorkArea.Bottom - ASize.Height
-      else if ((FControlRect.Top - AWorkArea.Top) > ASize.Height) then
-        Result.Top := FControlRect.Top - ASize.Height - ShadowOffset
-      else if ((FControlRect.Top - AWorkArea.Top) > (AWorkArea.Bottom - Result.Top)) or (Result.Top < FControlRect.Top) then
+        Result.Top := LWorkArea.Bottom - ASize.Height
+      else if ((FControlRect.Top - LWorkArea.Top) > ASize.Height) then
+        Result.Top := FControlRect.Top - ASize.Height - ShadowSize
+      else if ((FControlRect.Top - LWorkArea.Top) > (LWorkArea.Bottom - Result.Top)) or (Result.Top < FControlRect.Top) then
       begin
-        Result.Top := AWorkArea.Top;
-        ASize.cy := FControlRect.Top - AWorkArea.Top - ShadowOffset;
+        Result.Top := LWorkArea.Top;
+        ASize.cy := FControlRect.Top - LWorkArea.Top - ShadowSize;
       end;
     end;
   end;
-  Result.Top := Max(AWorkArea.Top, Result.Top);
-  Result.Bottom := Min(Result.Top + ASize.Height, AWorkArea.Bottom);
+  Result.Top := Max(LWorkArea.Top, Result.Top);
+  Result.Bottom := Min(Result.Top + ASize.Height, LWorkArea.Bottom);
   Result.Right := Result.Left + ASize.Width;
 end;
 
@@ -2225,9 +2372,10 @@ begin
         finally
           FScrollBarStyle.EndUpdate;
         end;
-        FScrollBar := TACLScrollBarSubClass.Create(Self, FScrollBarStyle, sbVertical);
+        FScrollBar := TACLScrollBarSubClass.Create(Self,
+          FScrollBarStyle, TACLScrollBarViewInfoItem, sbVertical);
       end;
-      FScrollBar.Calculate(R.Split(srRight, FScrollBarStyle.GetScrollBarSize(sbVertical)));
+      FScrollBar.Calculate(R.Split(srRight, Style.TextureScrollBar.FrameHeight));
       FScrollBar.SetScrollParams(0, Items.Count - 1, TopIndex, FVisibleItemCount);
       R.Right := FScrollBar.Bounds.Left;
     end;
@@ -2278,15 +2426,22 @@ begin
   end;
 end;
 
+procedure TACLMenuPopupWindow.CMShowWindow(var Message: TMessage);
+begin
+{$IFDEF MSWINDOWS}
+  if Showing then
+    ShowWindow(Handle, SW_SHOWNOACTIVATE)
+  else
+{$ENDIF}
+    inherited;
+end;
+
 procedure TACLMenuPopupWindow.CreateParams(var Params: TCreateParams);
-var
-  LDropShadow: LongBool;
 begin
   inherited;
   Params.Style := WS_POPUP;
   Params.ExStyle := Params.ExStyle or WS_EX_TOPMOST;
-  if SystemParametersInfo(SPI_GETDROPSHADOW, 0, @LDropShadow, 0) and LDropShadow then
-    Params.WindowClass.Style := Params.WindowClass.Style or CS_DROPSHADOW;
+  Params.WindowClass.Style := Params.WindowClass.Style or CS_DROPSHADOW;
 end;
 
 procedure TACLMenuPopupWindow.CreateWnd;
@@ -2306,11 +2461,7 @@ end;
 {$IFDEF FPC}
 class procedure TACLMenuPopupWindow.WSRegisterClass;
 begin
-{$IFDEF LCLGtk2}
-  RegisterWSComponent(Self, TACLGtk2PopupControl);
-{$ELSE}
-  inherited;
-{$ENDIF}
+  RegisterWSComponent(TACLMenuPopupWindow, TACLWSPopupControl);
 end;
 {$ENDIF}
 
@@ -2334,7 +2485,7 @@ begin
   end;
 end;
 
-function TACLMenuPopupWindow.GetStyle: TACLPopupMenuStyle;
+function TACLMenuPopupWindow.GetStyle: TACLStylePopupMenu;
 begin
   Result := Source.Style;
 end;
@@ -2342,6 +2493,11 @@ end;
 function TACLMenuPopupWindow.HasScrollers: Boolean;
 begin
   Result := FScrollBar <> nil;
+end;
+
+procedure TACLMenuPopupWindow.Invalidate;
+begin
+  InvalidateRect(ClientRect);
 end;
 
 procedure TACLMenuPopupWindow.InvalidateRect(const R: TRect);
@@ -2385,8 +2541,9 @@ procedure TACLMenuPopupWindow.MouseDown(Button: TMouseButton; Shift: TShiftState
 var
   LWnd: TACLMenuWindow;
 begin
+  Include(FMousePressed, Button);
   if FScrollBar <> nil then
-    FScrollBar.MouseDown(Button, Shift, X, Y);
+    FScrollBar.MouseDown(Button, Shift, Point(X, Y));
   if (FScrollBar = nil) or (FScrollBar.PressedPart = sbpNone) then
   begin
     if GetTargetMenuWnd(LWnd, X, Y) then
@@ -2408,7 +2565,7 @@ var
   LWnd: TACLMenuWindow;
 begin
   if FScrollBar <> nil then
-    FScrollBar.MouseMove(X, Y);
+    FScrollBar.MouseMove(Shift, Point(X, Y));
   if (FScrollBar = nil) or (FScrollBar.PressedPart = sbpNone) then
   begin
     if GetTargetMenuWnd(LWnd, X, Y) then
@@ -2425,77 +2582,95 @@ procedure TACLMenuPopupWindow.MouseUp(Button: TMouseButton; Shift: TShiftState; 
 var
   LWnd: TACLMenuWindow;
 begin
+  if not (Button in FMousePressed) then
+    Exit;
+
+  Exclude(FMousePressed, Button);
   if (FScrollBar <> nil) and (FScrollBar.PressedPart <> sbpNone) then
-    FScrollBar.MouseUp(Button, X, Y)
+    FScrollBar.MouseUp(Button, Shift, Point(X, Y))
   else
     if GetTargetMenuWnd(LWnd, X, Y) then
       LWnd.MouseUp(Button, Shift, X, Y)
     else
-      if not ClientRect.Contains(Point(X, Y)) then
-        Looper.CloseMenu
+      if ClientRect.Contains(Point(X, Y)) then
+        inherited
       else
-        inherited;
+        Looper.CloseMenu;
 end;
 
 procedure TACLMenuPopupWindow.Paint;
-var
-  LItem: TItemInfo;
-  LRect: TRect;
-  I: Integer;
 begin
-  LRect := ClientRect;
-  Style.DrawBorder(Canvas, LRect);
-  LRect.Content(FPadding);
-  acIntersectClipRegion(Canvas.Handle, LRect);
-  for I := TopIndex to TopIndex + FVisibleItemCount - 1 do
-  begin
-    LItem := Items.List[I];
-    if LItem.Item.IsLine then
-      Style.DrawSeparator(Canvas, LItem.Rect)
-    else
-    begin
-      Style.DrawBackground(Canvas, LItem.Rect, I = SelectedItemIndex);
-      Style.DrawItem(Canvas, LItem.Rect,
-        LItem.Item.Caption, LItem.Item.ShortCut, I = SelectedItemIndex,
-        LItem.Item.Default, LItem.Item.Enabled, HasSubItems(LItem.Item));
-      Style.DrawItemImage(Canvas,
-        LItem.Rect.Split(srLeft, Style.ItemGutterWidth),
-        LItem.Item, I = SelectedItemIndex);
-    end;
-  end;
-  PaintScroller;
+  if not (csDestroying in ComponentState) then
+    PaintCore(Canvas);
 end;
 
-procedure TACLMenuPopupWindow.PaintScroller;
+procedure TACLMenuPopupWindow.PaintCore(ACanvas: TCanvas);
+var
+  I: Integer;
+  LClipping: TRegionHandle;
+  LItem: TItemInfo;
+  LRect: TRect;
+begin
+  LRect := ClientRect;
+  Style.DrawShadow(ACanvas, LRect, FShadow, FShadowCache);
+  LRect.Content(FShadow);
+  Style.DrawBorder(ACanvas, LRect);
+  LRect.Content(FPadding);
+  if acStartClippedDraw(ACanvas, LRect, LClipping) then
+  try
+    for I := TopIndex to TopIndex + FVisibleItemCount - 1 do
+    begin
+      LItem := Items.List[I];
+      if LItem.Item.IsLine then
+        Style.DrawSeparator(ACanvas, LItem.Rect)
+      else
+      begin
+        Style.DrawBackground(ACanvas, LItem.Rect, I = SelectedItemIndex);
+        Style.DrawItem(ACanvas, LItem.Rect,
+          LItem.Item.Caption, LItem.Item.ShortCut, I = SelectedItemIndex,
+          LItem.Item.Default, LItem.Item.Enabled, HasSubItems(LItem.Item));
+        Style.DrawItemImage(ACanvas,
+          LItem.Rect.Split(srLeft, Style.ItemGutterWidth),
+          LItem.Item, I = SelectedItemIndex);
+      end;
+    end;
+    PaintScroller(ACanvas);
+  finally
+    acEndClippedDraw(ACanvas, LClipping);
+  end;
+end;
+
+procedure TACLMenuPopupWindow.PaintScroller(ACanvas: TCanvas);
 begin
   if FScrollBar <> nil then
   begin
-    Style.DrawBackground(Canvas, FScrollBar.Bounds, False);
-    FScrollBar.Draw(Canvas);
+    Style.DrawBackground(ACanvas, FScrollBar.Bounds, False);
+    FScrollBar.Draw(ACanvas);
   end;
   if not FScrollButtonRestArea.IsEmpty then
-    Style.DrawBackground(Canvas, FScrollButtonRestArea, False);
+    Style.DrawBackground(ACanvas, FScrollButtonRestArea, False);
   if not FScrollButtonDown.IsEmpty then
   begin
-    Style.DrawBackground(Canvas, FScrollButtonDown, False);
-    Style.DrawScrollButton(Canvas, FScrollButtonDown, True, TopIndex > 0);
+    Style.DrawBackground(ACanvas, FScrollButtonDown, False);
+    Style.DrawScrollButton(ACanvas, FScrollButtonDown, True, TopIndex > 0);
   end;
   if not FScrollButtonUp.IsEmpty then
   begin
-    Style.DrawBackground(Canvas, FScrollButtonUp, False);
-    Style.DrawScrollButton(Canvas, FScrollButtonUp, False, TopIndex + FVisibleItemCount < Items.Count);
+    Style.DrawBackground(ACanvas, FScrollButtonUp, False);
+    Style.DrawScrollButton(ACanvas, FScrollButtonUp,
+      False, TopIndex + FVisibleItemCount < Items.Count);
   end;
 end;
 
 procedure TACLMenuPopupWindow.Popup(const AControlRect: TRect);
 begin
+  HandleNeeded;
   if AControlRect <> NullRect then
     FControlRect := MonitorAlignPopupWindow(AControlRect);
   SetBounds(FControlRect.Left, FControlRect.Bottom, 0, 0);
   CalculateBounds;
   EnsureItemVisible(DefaultIndex);
   Visible := True;
-  ShowWindow(Handle, SW_SHOWNOACTIVATE);
 
   if Looper = nil then
   begin
@@ -2511,22 +2686,16 @@ end;
 procedure TACLMenuPopupWindow.Resize;
 var
   LBitmap: TACLDib;
-  LRadius: Integer;
   LRegion: TRegionHandle;
 begin
-  inherited;
-
   LRegion := 0;
-  LRadius := 2 * Style.CornerRadius.Value;
-  if (LRadius > 0) and (Width > 0) and (Height > 0) then
+  if (Style.CornerRadius.Value > 0) and (Width > 0) and (Height > 0) then
   begin
-    LBitmap := TACLDib.Create(BoundsRect);
+    LBitmap := TACLDib.Create(ClientRect);
     try
       LBitmap.Canvas.Brush.Color := clFuchsia;
       LBitmap.Canvas.FillRect(LBitmap.ClientRect);
-      LBitmap.Canvas.Pen.Color := clWhite;
-      LBitmap.Canvas.Brush.Color := clWhite;
-      LBitmap.Canvas.RoundRect(LBitmap.ClientRect, LRadius, LRadius);
+      Style.DrawBorder(LBitmap.Canvas, LBitmap.ClientRect);
       LRegion := acRegionFromBitmap(LBitmap);
     finally
       LBitmap.Free;
@@ -2558,13 +2727,82 @@ procedure TACLMenuPopupWindow.WndProc(var Message: TMessage);
 begin
 {$IFDEF MSWINDOWS}
   if Message.Msg = WM_MOUSEACTIVATE then
-  begin
-    Message.Result := MA_NOACTIVATE;
-    Exit;
-  end;
+    Message.Result := MA_NOACTIVATE
+  else
 {$ENDIF}
+
   if (Looper = nil) or not Looper.WndProc(Self, Message) then
     inherited;
+end;
+
+{ TACLMenuPopupLayeredWindow }
+
+procedure TACLMenuPopupLayeredWindow.CMShowWindow(var Message: TMessage);
+begin
+  inherited;
+  if Showing then
+    Invalidate;
+end;
+
+procedure TACLMenuPopupLayeredWindow.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.WindowClass.Style := Params.WindowClass.Style and not CS_DROPSHADOW;
+  Params.ExStyle := Params.ExStyle or WS_EX_LAYERED;
+  FShadow := Rect(0, 0, 4, 4);
+end;
+
+procedure TACLMenuPopupLayeredWindow.InvalidateRect(const R: TRect);
+begin
+{$IFDEF MSWINDOWS}
+  if HandleAllocated then
+    Perform(WM_PAINT, 0, 0);
+{$ELSE}
+  inherited;
+{$ENDIF}
+end;
+
+{$IFDEF LCLGtk2}
+procedure TACLMenuPopupLayeredWindow.PaintTo(ACairo: Pcairo_t);
+var
+  LDib: TACLDib;
+begin
+  if (Width > 0) and (Height > 0) then
+  begin
+    LDib := TACLDib.Create(Width, Height);
+    try
+      PaintCore(LDib.Canvas);
+      LDib.DrawCopy(ACairo, ClientRect);
+    finally
+      LDib.Free;
+    end;
+  end;
+end;
+{$ENDIF}
+
+procedure TACLMenuPopupLayeredWindow.Resize;
+begin
+  Invalidate;
+end;
+
+procedure TACLMenuPopupLayeredWindow.WMPaint(var Message: TMessage);
+{$IFDEF MSWINDOWS}
+var
+  LDib: TACLDib;
+begin
+  if (Width > 0) and (Height > 0) then
+  begin
+    LDib := TACLDib.Create(Width, Height);
+    try
+      PaintCore(LDib.Canvas);
+      acUpdateLayeredWindow(Handle, LDib.Handle, BoundsRect);
+    finally
+      LDib.Free;
+    end;
+  end;
+{$ELSE}
+begin
+{$ENDIF}
 end;
 
 { TACLMenuPopupLooper }
@@ -2579,6 +2817,7 @@ constructor TACLMenuPopupLooper.Create(AOwner: TACLMenuPopupWindow);
   end;
 
 begin
+  inherited Create(nil);
   FWnd := AOwner;
   Inc(acMenuLoopCount);
   FDelayTimer := TACLTimer.CreateEx(DoShowPopupDelayed, GetMenuDelayTime);
@@ -2660,7 +2899,7 @@ begin
     if LWnd <> nil then
       LWnd.MouseCapture := True;
   {$IFDEF FPC}
-    TGtk2App.SetInputRedirection(LWnd);
+    TGtkApp.SetInputRedirection(LWnd);
   {$ENDIF}
   finally
     FInGrabbing := False;
@@ -2684,8 +2923,7 @@ var
   LWnd: TACLMenuPopupWindow;
 begin
   // Всегда и первым!
-  FDelayTimer.Enabled := False;
-  FDelayWnd := nil;
+  SetDelayWnd(nil);
 
   // До того, как начнем схлопывать меню из стэка
   if AWnd.HasSelection and IsInStack(AWnd.SelectedItemInfo) then
@@ -2700,7 +2938,7 @@ begin
   if (LItem <> nil) and (LItem.Item <> nil) and AWnd.HasSubItems(LItem.Item) then
   begin
     LItem.Item.Click;
-    LWnd := TACLMenuPopupWindow.Create(AWnd, LItem);
+    LWnd := GetPopupWindowClass(Wnd.Style).Create(AWnd, LItem);
     if LWnd.Items.Count > 0 then
     begin
       FPopups.Push(LWnd);
@@ -2716,12 +2954,15 @@ end;
 procedure TACLMenuPopupLooper.DoShowPopupDelayed(Sender: TObject);
 begin
   FDelayTimer.Enabled := False;
-  if (FDelayWnd <> nil) and FDelayWnd.HasSelection and
-     (FDelayWndIndex = FDelayWnd.SelectedItemIndex) and
-     (FDelayWnd.IsMouseAtControl)
-  then
-    DoShowPopup(FDelayWnd);
-  FDelayWnd := nil;
+  try
+    if (FDelayWnd <> nil) and FDelayWnd.HasSelection and
+       (FDelayWndIndex = FDelayWnd.SelectedItemIndex) and
+       (FDelayWnd.IsMouseAtControl)
+    then
+      DoShowPopup(FDelayWnd);
+  finally
+    SetDelayWnd(nil);
+  end;
 end;
 
 function TACLMenuPopupLooper.GetMenuHint(AItem: TMenuItem): string;
@@ -2750,6 +2991,14 @@ begin
   Result := False;
 end;
 
+procedure TACLMenuPopupLooper.Notification(
+  AComponent: TComponent; AOperation: TOperation);
+begin
+  inherited;
+  if (AComponent = FDelayWnd) and (AOperation = opRemove) then
+    SetDelayWnd(nil);
+end;
+
 function TACLMenuPopupLooper.PopupWindowAtCursor: TACLMenuPopupWindow;
 var
   LWnd: TACLMenuPopupWindow;
@@ -2762,6 +3011,23 @@ begin
     LWnd := LWnd.Parent;
   end;
   Result := nil;
+end;
+
+procedure TACLMenuPopupLooper.SetDelayWnd(AWnd: TACLMenuPopupWindow);
+begin
+  FDelayTimer.Enabled := False;
+  if FDelayWnd <> nil then
+  begin
+    FDelayWnd.RemoveFreeNotification(Self);
+    FDelayWnd := nil;
+  end;
+  if AWnd <> nil then
+  begin
+    FDelayWnd := AWnd;
+    FDelayWnd.FreeNotification(Self);
+    FDelayWndIndex := AWnd.SelectedItemIndex;
+    FDelayTimer.Enabled := True;
+  end;
 end;
 
 function TACLMenuPopupLooper.WndProc(AWnd: TACLMenuPopupWindow; var AMsg: TMessage): Boolean;
@@ -2777,10 +3043,7 @@ begin
     CM_MENUSELECTED:
       begin
         UpdateSelection(AWnd); // first
-        FDelayTimer.Enabled := False;
-        FDelayWnd := AWnd;
-        FDelayWndIndex := AWnd.SelectedItemIndex;
-        FDelayTimer.Enabled := True;
+        SetDelayWnd(AWnd);
       end;
 
     WM_CAPTURECHANGED:
@@ -2834,6 +3097,11 @@ begin
   end;
 end;
 
+procedure TACLMainMenu.ApplyColorSchema(const ASchema: TACLColorSchema);
+begin
+  Style.ApplyColorSchema(ASchema);
+end;
+
 function TACLMainMenu.CalculateAutoSize: TSize;
 begin
   Result := TSize.Create(1, Style.ItemHeight);
@@ -2864,11 +3132,11 @@ var
   LWorkArea: TRect;
 begin
   if AChild <> nil then
-    Result.TopLeft := Point(AChild.SourceItem.Rect.Left, Height)
+    Result.TopLeft := Point(AChild.SourceItem.Rect.Left, Height) - AChild.Shadow.TopLeft
   else
     Result.TopLeft := Point(0, Height);
 
-  LWorkArea := MonitorGetWorkArea(ClientOrigin);
+  LWorkArea := MonitorGet(ClientOrigin).WorkareaRect;
   Result.TopLeft := ClientToScreen(Result.TopLeft);
   Result.Bottom := Min(Result.Top + ASize.Height, LWorkArea.Bottom);
   Result.Width := ASize.Width;
@@ -2951,7 +3219,7 @@ begin
   if FPopupOnSelect or HasSubItems(LSelected.Item) then
   begin
     LSelected.Item.Click;
-    FPopupWnd := TACLMenuPopupWindow.Create(Self, Menu, LSelected);
+    FPopupWnd := GetPopupWindowClass(Menu.Style).Create(Self, Menu, LSelected);
     try
       FPopupWnd.Popup(NullRect);
       LUpdateSelection := FPopupWnd.SourceItem = SelectedItemInfo;
@@ -3050,7 +3318,7 @@ begin
       LRect.Left := LImageRect.Right + dpiApply(acTextIndent, FCurrentPPI);
     end;
     Style.AssignFontParams(Canvas, ASelected, AItem.Item.Default, AItem.Item.Enabled);
-    Style.DrawText(Canvas, LRect, AItem.Item.Caption);
+    acSysDrawText(Canvas, LRect, AItem.Item.Caption, DT_SINGLELINE or DT_VCENTER);
   end
   else
     Style.DrawItemImage(Canvas, LRect, AItem.Item, ASelected);
@@ -3069,6 +3337,11 @@ begin
   end;
   CalculateLayout;
   AdjustSize;
+  Invalidate;
+end;
+
+procedure TACLMainMenu.ResourceChanged(Sender: TObject; Resource: TACLResource);
+begin
   Invalidate;
 end;
 
@@ -3127,24 +3400,23 @@ end;
 {$IFNDEF FPC}
 procedure TACLMainMenu.WMSysCommand(var Message: TWMSysCommand);
 begin
-  if (GetParentForm(Self) = Screen.FocusedForm) and
-     (Application.ModalLevel = 0) and Enabled and Showing then
+  if (TWMSysCommand(Message).CmdType and $FFF0 = SC_KEYMENU) and
+     (TWMSysCommand(Message).Key <> VK_SPACE) and
+     (TWMSysCommand(Message).Key <> Word('-')) and
+     (GetCapture = 0) then
   begin
-    if (TWMSysCommand(Message).CmdType and $FFF0 = SC_KEYMENU) and
-       (TWMSysCommand(Message).Key <> VK_SPACE) and
-       (TWMSysCommand(Message).Key <> Word('-')) and
-       (GetCapture = 0) then
+    if (GetParentForm(Self) = Screen.FocusedForm) and
+       (Application.ModalLevel = 0) and Enabled and Showing then
     begin
       if TWMSysCommand(Message).Key <> 0 then
         KeyChar(TWMSysCommand(Message).Key)
       else
         SelectItem(0, ccatKeyboard);
-
-      Message.Result := 1;
-      Exit;
     end;
-  end;
-  inherited;
+    Message.Result := 1;
+  end
+  else
+    inherited;
 end;
 {$ENDIF}
 
@@ -3230,7 +3502,7 @@ begin
     begin
       case Msg.message of
         CM_RELEASE, WM_CLOSE, WM_QUIT:
-          DoCloseMenu;
+          CloseMenu;
         WM_KEYFIRST..WM_KEYLAST:
           begin
             Popups.Peek.Dispatch(Msg.Message);
@@ -3247,18 +3519,19 @@ end;
 
 {$ELSE IFDEF(LCLGtk2)}
 
-procedure TACLMenuPopupLooperImpl.DoEvent(AEvent: PGdkEvent; var AHandled: Boolean);
+procedure TACLMenuPopupLooperImpl.DoEvent(
+  AType: TGdkEventType; AEvent: PGdkEvent; var AHandled: Boolean);
 begin
   // AI, ref.to:
   // https://api.gtkd.org/gdk.c.types.GdkEventType.html
   // https://docs.gtk.org/gdk3/struct.EventButton.html
-  case AEvent._type of
+  case AType of
     GDK_DELETE, GDK_DESTROY:
-      DoCloseMenu;
+      CloseMenu;
     GDK_BUTTON_PRESS:
       if PopupWindowAtCursor = nil then
       begin
-        DoCloseMenu;
+        CloseMenu;
         AHandled := True;
       end;
   end;
@@ -3272,20 +3545,20 @@ end;
 
 procedure TACLMenuPopupLooperImpl.Run;
 begin
-  TGtk2App.BeginPopup(Wnd, DoEvent);
+  TGtkApp.BeginPopup(Wnd, DoEvent);
   try
     repeat
       try
-        TGtk2App.ProcessMessages;
+        TGtkApp.ProcessMessages;
       except
         Application.HandleException(Self);
       end;
-      if TGtk2App.IsPopupAborted then
+      if TGtkApp.IsPopupAborted then
         Break;
       DoIdle;
     until not IsInLoop;
   finally
-    TGtk2App.EndPopup;
+    TGtkApp.EndPopup(Wnd);
   end;
 end;
 
@@ -3412,8 +3685,8 @@ begin
   if AShortCut and scShift <> 0 then
     Result :=  sKeyModifiersPrefix[kmShift] + Result;
 end;
-
 {$ENDREGION}
+
 initialization
   RegisterClasses([TACLMenuItem, TACLMenuItemLink, TACLMenuListItem]);
 end.

@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Wrappers for Gnome IO Library
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -18,14 +18,10 @@ unit ACL.Utils.FileSystem.GIO;
 interface
 
 uses
-  Contnrs,
-  glib2,
-  gtk2,
-  gtk2Def;
+  Contnrs, glib2;
 
 const
   libGio2 = 'libgio-2.0.so.0';
-  libGtk2 = gtklib;
 
 type
   PGIcon = Pointer;

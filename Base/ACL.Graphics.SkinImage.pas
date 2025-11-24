@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Skinned Image
 //
@@ -15,6 +15,11 @@ unit ACL.Graphics.SkinImage;
 
 {$I ACL.Config.inc}
 {$MINENUMSIZE 1}
+
+{$IFNDEF FPC}
+  {$DEFINE ACL_SKINIMAGE_CACHE_HBITMAP}
+{$ENDIF}
+{.$DEFINE ACL_SKINIMAGE_COLLECT_STATS}
 
 interface
 
@@ -43,6 +48,7 @@ uses
   {Vcl.}Graphics,
   // ACL
   ACL.Classes,
+  ACL.Classes.ByteBuffer,
   ACL.Classes.Collections,
   ACL.Hashes,
   ACL.Geometry,
@@ -76,7 +82,7 @@ type
     Part2TileStart: Integer;
     Part2TileWidth: Integer;
 
-    class function FormRect(const R: TRect): TACLSkinImageTiledAreas; static;
+    class function FromRect(const R: TRect): TACLSkinImageTiledAreas; static;
     function Compare(const P: TACLSkinImageTiledAreas): Boolean;
     function IsEmpty: Boolean;
     function ToRect: TRect;
@@ -93,7 +99,6 @@ type
 
   TACLSkinImageFrameState = type DWORD;
   TACLSkinImageFrameStateArray = array of TACLSkinImageFrameState;
-
   TACLSkinImageFrameStateHelper = record helper for TACLSkinImageFrameState
   public const
     TRANSPARENT = 0;
@@ -105,25 +110,21 @@ type
     function IsTransparent: Boolean; inline;
   end;
 
-  { TACLSkinImageBitsStorage }
+  { TACLSkinFrameDormantData }
 
-  TACLSkinImageBitsStorage = class
+  TACLSkinFrameDormantData = class
   public
     Data: Pointer;
     DataSize: Cardinal;
-    HasAlpha: TACLBoolean;
-    State: TACLSkinImageBitsState;
 
-    constructor Create; overload;
-    constructor Create(ABits: PACLPixel32Array; ACount: Integer;
-      AHasAlpha: TACLBoolean; AState: TACLSkinImageBitsState); overload;
+    constructor CopyOf(ASource: TACLSkinFrameDormantData);
+    constructor Create(ABits: PACLPixel32;
+      ACount: Integer; APreferBufferSize: Cardinal); overload;
     constructor Create(AStream: TStream); overload;
     destructor Destroy; override;
-    function Clone: TACLSkinImageBitsStorage;
     function Equals(Obj: TObject): Boolean; override;
     function GetHashCode: TObjHashCode; override;
-    procedure Restore(ABits: PACLPixel32Array; ACount: Integer;
-      out AHasAlpha: TACLBoolean; out AState: TACLSkinImageBitsState);
+    procedure Restore(ABits: PACLPixel32; ACount: Integer);
     procedure SaveToStream(AStream: TStream);
   end;
 
@@ -131,7 +132,9 @@ type
 
   TACLSkinImage = class(TACLUnknownPersistent, IACLColorSchema)
   strict private const
-  {$REGION 'Private consts'}
+  {$REGION ' Private consts '}
+    CompressionThreshold = 256; // 16x16
+
     CHUNK_BITS      = $73746962; // bits
     CHUNK_BITZ      = $7A746962; // bitz - compressed bits
     CHUNK_DRAW      = $77617264; // draw
@@ -143,31 +146,33 @@ type
 
     FLAGS_DRAW_ALLOWCOLORATION = $1;
     FLAGS_DRAW_SIZING_BY_MARGINS   = $2;
-    FLAGS_DRAW_SIZING_BY_TiledAreas = $4;
+    FLAGS_DRAW_SIZING_BY_TILEDAREAS = $4;
   {$ENDREGION}
   public const
     HitTestThreshold = 128;
   strict private
-  {$IFDEF MSWINDOWS}
+  {$IFDEF ACL_SKINIMAGE_CACHE_HBITMAP}
     FHandle: HBITMAP;
   {$ENDIF}
   private
-    FFramesInfoContent: TACLSkinImageFrameStateArray;
+    FFrameInfoContent: TACLSkinImageFrameStateArray;
   strict private
     FAllowColoration: Boolean;
     FBitCount: Integer;
-    FBits: PACLPixel32Array;
+    FBits: PACLPixel32;
     FBitsState: TACLSkinImageBitsState;
     FContentOffsets: TRect;
-    FDormantData: TACLSkinImageBitsStorage;
-    FFramesCount: Integer;
-    FFramesInfo: TACLSkinImageFrameStateArray;
-    FFramesInfoIsValid: Boolean;
+    FDormantData: TACLSkinFrameDormantData;
+    FDormantPreferSize: Cardinal;
+    FFrameCount: Integer;
+    FFrameInfo: TACLSkinImageFrameStateArray;
+    FFrameInfoIsValid: Boolean;
     FHasAlpha: TACLBoolean;
     FHeight: Integer;
     FHitTestMask: TACLSkinImageHitTestMode;
     FHitTestMaskFrameIndex: Integer;
     FLayout: TACLSkinImageLayout;
+    FLoading: Boolean;
     FMargins: TRect;
     FSizingMode: TACLSkinImageSizingMode;
     FStretchMode: TACLStretchMode;
@@ -176,6 +181,8 @@ type
     FUpdateCount: Integer;
     FWidth: Integer;
 
+    procedure CheckUnpacked;
+    function CompressData: TACLSkinFrameDormantData;
     function GetActualSizingMode: TACLSkinImageSizingMode; inline;
     function GetClientRect: TRect; inline;
     function GetEmpty: Boolean; inline;
@@ -212,11 +219,12 @@ type
   protected
     FChangeListeners: TACLListOf<TNotifyEvent>;
 
+    procedure BitsNeeded(AState: TACLSkinImageBitsState);
     procedure Changed;
     procedure CheckFrameIndex(var AIndex: Integer); inline;
     procedure CheckFramesInfo;
-    procedure CheckUnpacked;
     procedure ClearData; virtual;
+    procedure UnpackFrame(ATarget: PACLPixel32; AFrame, ATargetStride: Integer);
 
     procedure DoAssign(AObject: TObject); virtual;
     procedure DoAssignParams(ASkinImage: TACLSkinImage); virtual;
@@ -231,9 +239,9 @@ type
     procedure WriteChunks(AStream: TStream; var AChunkCount: Integer); virtual;
 
     property BitCount: Integer read FBitCount;
-    property Bits: PACLPixel32Array read FBits;
+    property Bits: PACLPixel32 read FBits;
     property BitsState: TACLSkinImageBitsState read FBitsState;
-  {$IFDEF MSWINDOWS}
+  {$IFDEF ACL_SKINIMAGE_CACHE_HBITMAP}
     property Handle: HBITMAP read FHandle;
   {$ENDIF}
   public
@@ -243,11 +251,11 @@ type
     procedure Assign(AObject: TObject); reintroduce;
     procedure AssignParams(ASkinImage: TACLSkinImage);
     procedure Clear;
-    procedure CheckBitsState(ARequiredState: TACLSkinImageBitsState);
     procedure Dormant; virtual;
     function Equals(Obj: TObject): Boolean; override;
     function GetHashCode: TObjHashCode; override;
     function HasFrame(AIndex: Integer): Boolean; inline;
+    procedure SwapLayout;
     // Lock
     procedure BeginUpdate;
     procedure CancelUpdate;
@@ -264,16 +272,15 @@ type
       AFrameIndex: Integer = 0; AAlpha: Byte = MaxByte); overload;
     procedure Draw(ACanvas: TCanvas; const R: TRect;
       AFrameIndex: Integer; AEnabled: Boolean; AAlpha: Byte = MaxByte); overload;
-    // Pixels
-    // Returns nil if point is out of bounds
-    function GetPixel(X, Y: Integer): PACLPixel32;
     // HitTest
     function HitTest(const ABounds: TRect; X, Y: Integer): Boolean;
-    function HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Integer): Boolean;
+    function HitTestEx(const ABounds: TRect; X, Y, AMaskFrameIndex: Integer;
+      AMaskSensivity: Integer = HitTestThreshold; APixel: PACLPixel32 = nil): Boolean;
     // Listeners
     procedure ListenerAdd(AEvent: TNotifyEvent);
     procedure ListenerRemove(AEvent: TNotifyEvent);
     // I/O
+    procedure CompileToStream(AStream: TStream);
     procedure LoadFromBitmap(ABitmap: TACLDib); overload;
     procedure LoadFromBitmap(ABitmap: TBitmap); overload;
     procedure LoadFromBits(ABits: PACLPixel32; AWidth, AHeight: Integer);
@@ -284,6 +291,7 @@ type
     procedure SaveToBitmap(ABitmap: TBitmap); overload;
     procedure SaveToFile(const AFileName: string); overload;
     procedure SaveToFile(const AFileName: string; AFormat: TACLImageFormatClass); overload;
+    procedure SaveToImage(AImage: TACLImage);
     procedure SaveToStream(AStream: TStream); overload; virtual;
     procedure SaveToStream(AStream: TStream; AFormat: TACLImageFormatClass); overload;
     //# Sizes
@@ -294,7 +302,7 @@ type
     property Height: Integer read FHeight;
     property Width: Integer read FWidth;
     //# Frames
-    property FrameCount: Integer read FFramesCount write SetFrameCount;
+    property FrameCount: Integer read FFrameCount write SetFrameCount;
     property FrameInfo[Index: Integer]: TACLSkinImageFrameState read GetFrameInfo;
     property FrameRect[Index: Integer]: TRect read GetFrameRect;
     property FrameSize: TSize read GetFrameSize write SetFrameSize;
@@ -338,7 +346,7 @@ const
 
 var
   FSkinImageCompressionLevel: TCompressionlevel = clFastest;
-{$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+{$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
   FSkinImageCount: Integer = 0;
   FSkinImageDormantCount: Integer = 0;
   FSkinImageMemoryCompressed: Integer = 0;
@@ -364,45 +372,50 @@ uses
 type
   PByteRef = {$IFDEF FPC}pBytef{$ELSE}PByte{$ENDIF};
 
-  { TACLSkinImageAnalyzer }
+  { TAnalyzer }
 
-  TACLSkinImageAnalyzer = class
+  TAnalyzer = class
   strict private const
     INVALID_VALUE = $010203;
   strict private
-    class procedure AnalyzeCore(Q: PACLPixel32;
-      Count: Integer; var AAlpha: DWORD; var AColor: DWORD); inline;
+    class procedure RunCore(AColors: PACLPixel32;
+      ACount: Integer; var AAlpha, AColor: DWORD); inline;
     class function AnalyzeResultToState(
-      var AAlpha: DWORD; var AColor: DWORD): TACLSkinImageFrameState; inline;
+      var AAlpha: DWORD; var AColor: DWORD): TACLSkinImageFrameState;
   public
-    class function Analyze(Q: PACLPixel32; ACount: Integer): TACLSkinImageFrameState;
-    class function AnalyzeFrame(Q: PACLPixel32Array;
-      const AFrameRect: TRect; AImageWidth: Integer): TACLSkinImageFrameState;
+    class function Run(Q: PACLPixel32;
+      ACount: Integer): TACLSkinImageFrameState; overload;
+    class function Run(Q: PACLPixel32;
+      APart: TRect; AImageWidth: Integer): TACLSkinImageFrameState; overload;
     class procedure RecoveryAlpha(Q: PACLPixel32;
-      ACount: Integer; var AHasSemiTransparentPixels: Boolean);
+      ACount: Integer; var AHasSemitransparecy: Boolean);
   end;
 
-  { TACLSkinImageRenderer }
+  { TRenderer }
 
-  TACLSkinImageRenderer = class
+  TRenderer = class
   strict private type
     TFillPart = procedure (const ATarget: TRect; AColor: TAlphaColor) of object;
-    TDrawPart = procedure (const ATarget, ASource: TRect; ATile: Boolean) of object;
+    TDrawPart = procedure (const ATarget, ASource: TRect) of object;
   strict private
     class var FLock: TACLCriticalSection;
     class var FFrame: Integer;
+    class var FFrameRect: TRect;
     class var FImage: TACLSkinImage;
   strict private
   {$IFDEF MSWINDOWS}
     class var FDstCanvas: TCanvas;
     class var FFunc: TBlendFunction;
     class var FMemDC: HDC;
-    class var FOldBmp: HBITMAP;
+    class var FMemBmp: HBITMAP;
+    class var FMemBmpBits: Pointer;
+    class var FMemBmpInfo: TBitmapInfo;
+    class var FPrevBmp: HBITMAP;
 
     class procedure doAlphaBlend(const R, SrcR: TRect); inline;
     class procedure doAlphaBlendTile(const R, SrcR: TRect);
-    class procedure doWinDraw(const ATarget, ASource: TRect; ATile: Boolean);
-    class procedure doWinDrawOpaque(const ATarget, ASource: TRect; ATile: Boolean);
+    class procedure doWinDraw(const ATarget, ASource: TRect);
+    class procedure doWinDrawOpaque(const ATarget, ASource: TRect);
     class procedure doWinFill(const ATarget: TRect; AColor: TAlphaColor);
     class procedure doWinFinish;
   {$ENDIF}
@@ -410,9 +423,12 @@ type
   {$IFDEF ACL_CAIRO}
     class var FAlpha: Double;
     class var FCairo: TACLCairoRender;
+    class var FCairoBits: Pointer;
+    class var FCairoBitsSize: Integer;
     class var FSourceSurface: Pcairo_surface_t;
 
-    class procedure doCairoDraw(const ATarget, ASource: TRect; ATile: Boolean);
+    class procedure doCairoInit;
+    class procedure doCairoDraw(const ATarget, ASource: TRect);
     class procedure doCairoFill(const ATarget: TRect; AColor: TAlphaColor);
     class procedure doCairoFinish;
   {$ENDIF}
@@ -521,17 +537,6 @@ begin
     CalculateVerticalMode;
 end;
 
-function acBitsAlloc(ACount: Integer): PACLPixel32Array; inline;
-begin
-  Result := AllocMem(ACount * SizeOf(TACLPixel32));
-end;
-
-procedure acBitsCopy(ASrc, ADst: PACLPixel32Array; ACount: Integer);
-begin
-  if (ASrc <> nil) and (ADst <> nil) and (ACount > 0) then
-    FastMove(ASrc^, ADst^, ACount * SizeOf(TACLPixel32));
-end;
-
 { EZLibError }
 
 constructor EZLibError.Create(ACode: Integer);
@@ -562,7 +567,7 @@ begin
     (P.Part2TileWidth = Part2TileWidth);
 end;
 
-class function TACLSkinImageTiledAreas.FormRect(const R: TRect): TACLSkinImageTiledAreas;
+class function TACLSkinImageTiledAreas.FromRect(const R: TRect): TACLSkinImageTiledAreas;
 begin
   Result.Part1TileStart := R.Left;
   Result.Part1TileWidth := R.Top;
@@ -597,15 +602,17 @@ begin
   Result := (Self = TRANSPARENT);
 end;
 
-{ TACLSkinImageBitsStorage }
+{ TACLSkinFrameDormantData }
 
-constructor TACLSkinImageBitsStorage.Create;
+constructor TACLSkinFrameDormantData.CopyOf(ASource: TACLSkinFrameDormantData);
 begin
-  // do nothing
+  DataSize := ASource.DataSize;
+  Data := AllocMem(DataSize);
+  FastMove(ASource.Data^, Data^, DataSize);
 end;
 
-constructor TACLSkinImageBitsStorage.Create(ABits: PACLPixel32Array;
-  ACount: Integer; AHasAlpha: TACLBoolean; AState: TACLSkinImageBitsState);
+constructor TACLSkinFrameDormantData.Create(
+  ABits: PACLPixel32; ACount: Integer; APreferBufferSize: Cardinal);
 const
   Delta = 256;
   Levels: array[TCompressionLevel] of ShortInt = (
@@ -618,9 +625,14 @@ var
 begin
   // Our own ZCompress implementation, because standard version works with Integer, not Cardinal.
   AInSize := ACount * SizeOf(TACLPixel32);
-  AOutSize := 12{ZLib Header} + AInSize div 2;
-  if AInSize < 100 then
-    Inc(AOutSize, AInSize div 3);
+  if APreferBufferSize > 0 then
+    AOutSize := APreferBufferSize
+  else
+  begin
+    AOutSize := 12{ZLib Header} + AInSize div 2;
+    if AInSize < 100 then
+      Inc(AOutSize, AInSize div 3);
+  end;
 
   GetMem(Data, AOutSize);
   try
@@ -651,42 +663,29 @@ begin
     FreeMemAndNil(Data);
     raise;
   end;
-
-  HasAlpha := AHasAlpha;
-  State := AState;
 end;
 
-constructor TACLSkinImageBitsStorage.Create(AStream: TStream);
+constructor TACLSkinFrameDormantData.Create(AStream: TStream);
 begin
   AStream.ReadBuffer(DataSize, SizeOf(Cardinal));
   GetMem(Data, DataSize);
   AStream.ReadBuffer(Data^, DataSize);
 end;
 
-destructor TACLSkinImageBitsStorage.Destroy;
+destructor TACLSkinFrameDormantData.Destroy;
 begin
   FreeMem(Data);
   inherited;
 end;
 
-function TACLSkinImageBitsStorage.Clone: TACLSkinImageBitsStorage;
-begin
-  Result := TACLSkinImageBitsStorage.Create;
-  Result.DataSize := DataSize;
-  Result.HasAlpha := HasAlpha;
-  Result.State := State;
-  GetMem(Result.Data, DataSize);
-  FastMove(Data^, Result.Data^, DataSize);
-end;
-
-function TACLSkinImageBitsStorage.Equals(Obj: TObject): Boolean;
+function TACLSkinFrameDormantData.Equals(Obj: TObject): Boolean;
 begin
   Result := (Obj <> nil) and (Obj.ClassType = ClassType) and
-    (DataSize = TACLSkinImageBitsStorage(Obj).DataSize) and
-    (CompareMem(Data, TACLSkinImageBitsStorage(Obj).Data, DataSize));
+    (DataSize = TACLSkinFrameDormantData(Obj).DataSize) and
+    (CompareMem(Data, TACLSkinFrameDormantData(Obj).Data, DataSize));
 end;
 
-function TACLSkinImageBitsStorage.GetHashCode: TObjHashCode;
+function TACLSkinFrameDormantData.GetHashCode: TObjHashCode;
 var
   AHashValue: Cardinal;
 begin
@@ -694,13 +693,12 @@ begin
   Result := TObjHashCode(AHashValue);
 end;
 
-procedure TACLSkinImageBitsStorage.Restore(ABits: PACLPixel32Array;
-  ACount: Integer; out AHasAlpha: TACLBoolean; out AState: TACLSkinImageBitsState);
+procedure TACLSkinFrameDormantData.Restore(ABits: PACLPixel32; ACount: Integer);
 var
   ASize: Cardinal;
   ZStream: TZStreamRec;
 begin
-  ASize := ACount * SizeOf(TRGBQuad);
+  ASize := ACount * SizeOf(TACLPixel32);
   FillChar(ZStream{%H-}, SizeOf(TZStreamRec), 0);
   ZStream.next_in := Data;
   ZStream.avail_in := DataSize;
@@ -713,12 +711,9 @@ begin
 
   if ZStream.total_out <> ASize then
     raise EACLSkinImageException.Create(sErrorIncorrectDormantData);
-
-  AHasAlpha := HasAlpha;
-  AState := State;
 end;
 
-procedure TACLSkinImageBitsStorage.SaveToStream(AStream: TStream);
+procedure TACLSkinFrameDormantData.SaveToStream(AStream: TStream);
 begin
   AStream.WriteBuffer(DataSize, SizeOf(Cardinal));
   AStream.WriteBuffer(Data^, DataSize);
@@ -731,9 +726,9 @@ begin
   inherited Create;
   FAllowColoration := True;
   FChangeListeners := TACLListOf<TNotifyEvent>.Create;
-  FFramesCount := 1;
-{$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
-  InterlockedIncremet(FSkinImageCount);
+  FFrameCount := 1;
+{$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
+  InterlockedIncrement(FSkinImageCount);
 {$ENDIF}
 end;
 
@@ -746,7 +741,7 @@ end;
 destructor TACLSkinImage.Destroy;
 begin
   ClearData;
-{$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+{$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
   InterlockedDecrement(FSkinImageCount);
 {$ENDIF}
   FreeAndNil(FChangeListeners);
@@ -817,31 +812,28 @@ begin
     Exit(False);
   if (FrameCount <> TACLSkinImage(Obj).FrameCount) then
     Exit(False);
-  if Assigned(Bits) <> Assigned(TACLSkinImage(Obj).Bits) then
-    Exit(False);
-  if (BitCount <> TACLSkinImage(Obj).BitCount) then
-    Exit(False);
   if FDormantData <> nil then
     Exit(FDormantData.Equals(TACLSkinImage(Obj).FDormantData));
-  if Bits <> nil then
-    Exit(CompareMem(Bits, TACLSkinImage(Obj).Bits, SizeOf(TRGBQuad) * BitCount));
+  if (Bits <> nil) and (TACLSkinImage(Obj).Bits <> nil) then
+    Exit(CompareMem(Bits, TACLSkinImage(Obj).Bits, SizeOf(TACLPixel32) * BitCount));
   Result := False;
 end;
 
 function TACLSkinImage.GetHashCode: TObjHashCode;
-var
-  AHashValue: Cardinal;
+//var
+//  AHashValue: Cardinal;
 begin
-  if FDormantData <> nil then
-    Result := FDormantData.GetHashCode
-  else
-    if Bits <> nil then
-    begin
-      AHashValue := TACLHashCRC32.Calculate(PByte(Bits), BitCount);
-      Result := Integer(AHashValue);
-    end
-    else
-      Result := 0;
+  raise ENotSupportedException.Create('TACLSkinImage.GetHashCode');
+//  if FDormantData <> nil then
+//    Result := FDormantData.GetHashCode
+//  else
+//    if Bits <> nil then
+//    begin
+//      AHashValue := TACLHashCRC32.Calculate(PByte(Bits), BitCount);
+//      Result := TObjHashCode(AHashValue);
+//    end
+//    else
+//      Result := 0;
 end;
 
 function TACLSkinImage.HasFrame(AIndex: Integer): Boolean;
@@ -852,6 +844,24 @@ end;
 procedure TACLSkinImage.BeginUpdate;
 begin
   Inc(FUpdateCount);
+end;
+
+procedure TACLSkinImage.BitsNeeded(AState: TACLSkinImageBitsState);
+begin
+  CheckUnpacked;
+  if AState <> FBitsState then
+  begin
+    if HasAlpha then
+    begin
+      case AState of
+        ibsPremultiplied:
+          TACLColors.Premultiply(Bits, BitCount);
+        ibsUnpremultiplied:
+          TACLColors.Unpremultiply(Bits, BitCount);
+      end;
+    end;
+    FBitsState := AState;
+  end;
 end;
 
 procedure TACLSkinImage.CancelUpdate;
@@ -867,20 +877,22 @@ end;
 
 procedure TACLSkinImage.ApplyColorSchema(const AValue: TACLColorSchema);
 begin
-  if AllowColoration and AValue.IsAssigned then
+  if not Empty and AllowColoration and AValue.IsAssigned then
   begin
-    CheckUnpacked;
-    TACLColors.ApplyColorSchema(PACLPixel32(Bits), BitCount, AValue);
+    BitsNeeded(ibsUnpremultiplied);
+    TACLColors.ApplyColorSchema(Bits, BitCount, AValue);
     Changed;
   end;
 end;
 
 procedure TACLSkinImage.ApplyTint(const AColor: TACLPixel32);
 begin
-  CheckUnpacked;
-  CheckBitsState(ibsUnpremultiplied);
-  TACLColors.Tint(@Bits^[0], BitCount, AColor);
-  Changed;
+  if not Empty then
+  begin
+    BitsNeeded(ibsUnpremultiplied);
+    TACLColors.Tint(Bits, BitCount, AColor);
+    Changed;
+  end;
 end;
 
 {$IFDEF ACL_CAIRO}
@@ -889,10 +901,9 @@ procedure TACLSkinImage.Draw(ACairo: Pcairo_t;
 var
   LState: TACLSkinImageFrameState;
 begin
-  if not Empty then
+  if not (Empty or ARect.IsEmpty) then
   begin
-    CheckUnpacked;
-    CheckBitsState(ibsPremultiplied);
+    BitsNeeded(ibsPremultiplied);
     CheckFrameIndex(AFrameIndex);
     LState := FrameInfo[AFrameIndex];
 
@@ -911,11 +922,11 @@ begin
       Exit;
     end;
 
-    TACLSkinImageRenderer.Start(Self, ACairo, AFrameIndex, AAlpha);
+    TRenderer.Start(Self, ACairo, AFrameIndex, AAlpha);
     try
-      TACLSkinImageRenderer.Draw(ARect);
+      TRenderer.Draw(ARect);
     finally
-      TACLSkinImageRenderer.Finish();
+      TRenderer.Finish();
     end;
   end;
 end;
@@ -927,8 +938,7 @@ var
 begin
   if not Empty and acRectVisible(ACanvas, ARect) then
   begin
-    CheckUnpacked;
-    CheckBitsState(ibsPremultiplied);
+    BitsNeeded(ibsPremultiplied);
     CheckFrameIndex(AFrameIndex);
     LState := FrameInfo[AFrameIndex];
 
@@ -945,11 +955,11 @@ begin
       Exit;
     end;
 
-    TACLSkinImageRenderer.Start(Self, ACanvas, AFrameIndex, AAlpha);
+    TRenderer.Start(Self, ACanvas, AFrameIndex, AAlpha);
     try
-      TACLSkinImageRenderer.Draw(ARect);
+      TRenderer.Draw(ARect);
     finally
-      TACLSkinImageRenderer.Finish();
+      TRenderer.Finish();
     end;
   end;
 end;
@@ -965,7 +975,6 @@ begin
   begin
     ALayer := TACLDib.Create(R);
     try
-      ALayer.Reset;
       Draw(ALayer.Canvas, ALayer.ClientRect, AFrameIndex);
       ALayer.MakeDisabled;
       ALayer.DrawBlend(ACanvas, R, AAlpha);
@@ -978,12 +987,13 @@ end;
 function TACLSkinImage.HitTest(const ABounds: TRect; X, Y: Integer): Boolean;
 begin
   if HitTestMask = ihtmMask then
-    Result := HitTestCore(ABounds, HitTestMaskFrameIndex, X, Y)
+    Result := HitTestEx(ABounds, X, Y, HitTestMaskFrameIndex)
   else
     Result := HitTestMask = ihtmOpaque;
 end;
 
-function TACLSkinImage.HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Integer): Boolean;
+function TACLSkinImage.HitTestEx(const ABounds: TRect; X, Y: Integer;
+  AMaskFrameIndex, AMaskSensivity: Integer; APixel: PACLPixel32): Boolean;
 
   procedure ConvertPointRelativeRects(var P: TPoint; const DR, SR: TRect);
   begin
@@ -999,7 +1009,7 @@ function TACLSkinImage.HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Inte
     acCalculateTiledAreas(FR, TiledAreas, FR.Width, FR.Height, TiledAreasMode, S);
     acCalculateTiledAreas(DR, TiledAreas, FR.Width, FR.Height, TiledAreasMode, D);
     for APart := Low(TACLSkinImageTiledAreasPart) to High(TACLSkinImageTiledAreasPart) do
-      if PtInRect(D[APart], P) then
+      if D[APart].Contains(P) then
       begin
         ConvertPointRelativeRects(P, D[APart], S[APart]);
         Break;
@@ -1014,58 +1024,49 @@ function TACLSkinImage.HitTestCore(const ABounds: TRect; AFrameIndex, X, Y: Inte
     acCalcPartBounds(DZ, Margins, DR, FR, StretchMode);
     acCalcPartBounds(SZ, Margins, FR, FR, StretchMode);
     for APart := Low(APart) to High(APart) do
-      if PtInRect(DZ[APart], P) then
+      if DZ[APart].Contains(P) then
       begin
         ConvertPointRelativeRects(P, DZ[APart], SZ[APart]);
         Break;
       end;
   end;
 
-  function ConvertPointToLocalCoords(var P: TPoint; const DR, FR: TRect): Boolean;
+  function ConvertPointToLocalCoords(var P: TPoint; const AFrameRect: TRect): Boolean;
   begin
-    Result := False;
-    if not DR.IsEmpty then
-    begin
-      case ActualSizingMode of
-        ismMargins:
-          ConvertPointForMarginsMode(P, DR, FR);
-        ismTiledAreas:
-          ConvertPointForTiledAreasMode(P, DR, FR);
-      else
-        ConvertPointRelativeRects(P, DR, FR);
-      end;
-      Result := PtInRect(FR, P);
+    if {ABounds.IsEmpty or }not ABounds.Contains(P) then
+      Exit(False);
+    case ActualSizingMode of
+      ismMargins:
+        ConvertPointForMarginsMode(P, ABounds, AFrameRect);
+      ismTiledAreas:
+        ConvertPointForTiledAreasMode(P, ABounds, AFrameRect);
+    else
+      ConvertPointRelativeRects(P, ABounds, AFrameRect);
     end;
+    Result := AFrameRect.Contains(P);
   end;
 
 var
-  LPixel: PACLPixel32;
+  LPixel: TACLPixel32;
   LPoint: TPoint;
 begin
   if Empty then
+  begin
+    if APixel <> nil then
+      LongWord(APixel^) := 0;
     Exit(True);
+  end;
 
   Result := False;
   LPoint := Point(X, Y);
-  if ConvertPointToLocalCoords(LPoint, ABounds, FrameRect[AFrameIndex]) then
-  begin
-    LPixel := GetPixel(LPoint.X, LPoint.Y);
-    Result := (LPixel <> nil) and (LPixel^.A >= HitTestThreshold);
-  end;
-end;
-
-function TACLSkinImage.GetPixel(X, Y: Integer): PACLPixel32;
-var
-  LOffset: Integer;
-begin
-  LOffset := X + Y * Width;
-  if InRange(LOffset, 0, BitCount - 1) then
+  if ConvertPointToLocalCoords(LPoint, FrameRect[AMaskFrameIndex]) then
   begin
     CheckUnpacked;
-    Result := @Bits^[LOffset];
-  end
-  else
-    Result := nil;
+    LPixel := Bits[LPoint.X + LPoint.Y * Width];
+    Result := LPixel.A >= AMaskSensivity;
+    if Result and (APixel <> nil) then
+      APixel^ := LPixel;
+  end;
 end;
 
 procedure TACLSkinImage.ListenerAdd(AEvent: TNotifyEvent);
@@ -1087,7 +1088,7 @@ end;
 
 procedure TACLSkinImage.LoadFromBitmap(ABitmap: TACLDib);
 begin
-  LoadFromBits(PACLPixel32(ABitmap.Colors), ABitmap.Width, ABitmap.Height);
+  LoadFromBits(ABitmap.Colors, ABitmap.Width, ABitmap.Height);
 end;
 
 procedure TACLSkinImage.LoadFromBitmap(ABitmap: TBitmap);
@@ -1101,6 +1102,7 @@ begin
     if (ABitmap.PixelFormat > pfDevice) and (ABitmap.PixelFormat < pf32bit) then
       LDib.MakeTransparent(TACLColors.MaskPixel);
     LoadFromBitmap(LDib);
+    FBitsState := ibsPremultiplied; // ref.to: TACLBaseDib.Assign(TRawImage)
   finally
     LDib.Free;
   end;
@@ -1113,7 +1115,7 @@ begin
   acInitBitmap32Info(AInfo, Width, Height);
   GetDIBits(MeasureCanvas.Handle, ABitmap.Handle, 0, Height, Bits, AInfo, DIB_RGB_COLORS);
   if (ABitmap.PixelFormat > pfDevice) and (ABitmap.PixelFormat < pf32bit) then
-    TACLColors.MakeTransparent(PACLPixel32(Bits), BitCount, TACLColors.MaskPixel);
+    TACLColors.MakeTransparent(Bits, BitCount, TACLColors.MaskPixel);
   if ABitmap.AlphaFormat = afPremultiplied then
     FBitsState := ibsPremultiplied;
   Changed;
@@ -1124,7 +1126,7 @@ procedure TACLSkinImage.LoadFromFile(const AFileName: string);
 var
   LStream: TACLFileStream;
 begin
-  LStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  LStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     LoadFromStream(LStream);
   finally
@@ -1180,6 +1182,7 @@ var
   ABitmap: TBitmap;
   AHeader: TACLSkinImageHeader;
 begin
+  FLoading := True;
   BeginUpdate;
   try
     Clear;
@@ -1204,6 +1207,7 @@ begin
     end;
   finally
     EndUpdate;
+    FLoading := False;
   end;
 end;
 
@@ -1212,8 +1216,7 @@ begin
   ABitmap.Resize(Width, Height);
   if not Empty then
   begin
-    CheckUnpacked;
-    CheckBitsState(ibsUnpremultiplied);
+    BitsNeeded(ibsUnpremultiplied);
     FastMove(Bits^, ABitmap.Colors^, BitCount * SizeOf(TACLPixel32));
   end;
 end;
@@ -1228,15 +1231,14 @@ begin
   ABitmap.SetSize(Width, Height);
   if not Empty then
   begin
-    CheckUnpacked;
-    CheckBitsState(ibsUnpremultiplied);
+    BitsNeeded(ibsUnpremultiplied);
   {$IFDEF FPC}
     if HasAlpha then
       ABitmap.PixelFormat := pf32bit
     else
       ABitmap.PixelFormat := pf24bit;
 
-    acSetBitmapBits(ABitmap, PACLPixel32(Bits), BitCount);
+    acSetBitmapBits(ABitmap, Bits, BitCount);
   {$ELSE}
     LDC := GetDC(0);
     try
@@ -1265,53 +1267,65 @@ begin
   end;
 end;
 
+procedure TACLSkinImage.SaveToImage(AImage: TACLImage);
+var
+  LAlphaFormat: TAlphaFormat;
+begin
+  if Empty then
+    AImage.Clear
+  else
+  begin
+    CheckUnpacked;
+    if not HasAlpha then
+      LAlphaFormat := afIgnored
+    else if BitsState = ibsPremultiplied then
+      LAlphaFormat := afPremultiplied
+    else
+      LAlphaFormat := afDefined;
+
+    AImage.LoadFromBits(Bits, Self.Width, Self.Height, LAlphaFormat);
+  end;
+end;
+
 procedure TACLSkinImage.SaveToStream(AStream: TStream; AFormat: TACLImageFormatClass);
 var
-  AAlphaFormat: TAlphaFormat;
-  ABitmap: TBitmap;
+  LBitmap: TBitmap;
+  LImage: TACLImage;
 begin
   if Empty then
     Exit;
 
   if AFormat = TACLImageFormatBMP then
   begin
-    ABitmap := TBitmap.Create;
+    LBitmap := TBitmap.Create;
     try
-      SaveToBitmap(ABitmap);
-      ABitmap.SaveToStream(AStream);
+      SaveToBitmap(LBitmap);
+      LBitmap.SaveToStream(AStream);
     finally
-      ABitmap.Free;
+      LBitmap.Free;
     end;
   end
   else
   begin
-    CheckUnpacked;
-    if not HasAlpha then
-      AAlphaFormat := afIgnored
-    else if BitsState = ibsPremultiplied then
-      AAlphaFormat := afPremultiplied
-    else
-      AAlphaFormat := afDefined;
-
-    with TACLImage.Create do
+    LImage := TACLImage.Create;
     try
-      LoadFromBits(@Bits^[0], Self.Width, Self.Height, AAlphaFormat);
-      SaveToStream(AStream, AFormat);
+      SaveToImage(LImage);
+      LImage.SaveToStream(AStream, AFormat);
     finally
-      Free;
+      LImage.Free;
     end;
   end;
 end;
 
 procedure TACLSkinImage.SaveToFile(const AFileName: string);
 var
-  AStream: TStream;
+  LStream: TStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmCreate);
+  LStream := TACLFileStream.Create(AFileName, fmCreate);
   try
-    SaveToStream(AStream);
+    SaveToStream(LStream);
   finally
-    AStream.Free;
+    LStream.Free;
   end;
 end;
 
@@ -1322,9 +1336,6 @@ var
   APosition1: Int64;
   APosition2: Int64;
 begin
-  HasAlpha;
-  CheckFramesInfo;
-
   AChunkCount := 0;
   AHeader.ID := 'ACLIMG32';
   AHeader.Version := 1;
@@ -1342,7 +1353,11 @@ procedure TACLSkinImage.Changed;
 var
   I: Integer;
 begin
-  FFramesInfoIsValid := False;
+  if not FLoading then
+  begin
+    FFrameInfoIsValid := False;
+    FHasAlpha := TACLBoolean.Default;
+  end;
   if FUpdateCount = 0 then
   begin
     for I := 0 to FChangeListeners.Count - 1 do
@@ -1350,31 +1365,13 @@ begin
   end;
 end;
 
-procedure TACLSkinImage.CheckBitsState(ARequiredState: TACLSkinImageBitsState);
-begin
-  if ARequiredState <> FBitsState then
-  begin
-    CheckUnpacked;
-    if HasAlpha then
-    begin
-      case ARequiredState of
-        ibsPremultiplied:
-          TACLColors.Premultiply(PACLPixel32(Bits), BitCount);
-        ibsUnpremultiplied:
-          TACLColors.Unpremultiply(PACLPixel32(Bits), BitCount);
-      end;
-    end;
-    FBitsState := ARequiredState;
-  end;
-end;
-
 procedure TACLSkinImage.Dormant;
 begin
-  if not Empty and (Bits <> nil) then
+  if (Bits <> nil) and (BitCount >= CompressionThreshold) then
   begin
     FreeAndNil(FDormantData);
-    FDormantData := TACLSkinImageBitsStorage.Create(Bits, BitCount, FHasAlpha, FBitsState);
-  {$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+    FDormantData := CompressData;
+  {$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
     Inc(FSkinImageMemoryCompressed, FDormantData.DataSize);
     Inc(FSkinImageMemoryUsageInDormant, BitCount * SizeOf(TACLPixel32));
     Inc(FSkinImageDormantCount);
@@ -1391,55 +1388,63 @@ end;
 
 procedure TACLSkinImage.CheckFramesInfo;
 var
-  AState: TACLSkinImageFrameState;
+  LState: TACLSkinImageFrameState;
   I: Integer;
 begin
-  if not FFramesInfoIsValid then
+  if not FFrameInfoIsValid then
   begin
-    CheckUnpacked;
-    CheckBitsState(ibsPremultiplied);
-
-    if Length(FFramesInfo) <> FrameCount then
+    if Length(FFrameInfo) <> FrameCount then
     begin
-      SetLength(FFramesInfo, FrameCount);
-      SetLength(FFramesInfoContent, FrameCount);
+      SetLength(FFrameInfo, FrameCount);
+      SetLength(FFrameInfoContent, FrameCount);
     end;
 
+    BitsNeeded(ibsPremultiplied);
     for I := 0 to FrameCount - 1 do
-      FFramesInfo[I] := TACLSkinImageAnalyzer.AnalyzeFrame(FBits, FrameRect[I], Width);
+      FFrameInfo[I] := TAnalyzer.Run(FBits, FrameRect[I], Width);
 
     if ActualSizingMode = ismMargins then
     begin
       for I := 0 to FrameCount - 1 do
       begin
-        AState := FFramesInfo[I];
-        if AState.IsColor or AState.IsTransparent then
-          FFramesInfoContent[I] := AState
+        LState := FFrameInfo[I];
+        if LState.IsColor or LState.IsTransparent then
+          FFrameInfoContent[I] := LState
         else
-          FFramesInfoContent[I] := TACLSkinImageAnalyzer.AnalyzeFrame(FBits, FrameRect[I].Split(Margins), Width);
+          FFrameInfoContent[I] := TAnalyzer.Run(FBits, FrameRect[I].Split(Margins), Width);
       end;
     end
     else
     begin
       for I := 0 to FrameCount - 1 do
-        FFramesInfoContent[I] := FFramesInfo[I];
+        FFrameInfoContent[I] := FFrameInfo[I];
     end;
 
-    FFramesInfoIsValid := True;
+    FFrameInfoIsValid := True;
   end;
 end;
 
 procedure TACLSkinImage.CheckUnpacked;
 var
-  LData: TACLSkinImageBitsStorage;
+  LData: TACLSkinFrameDormantData;
+  LPrevAlpha: TACLBoolean;
+  LPrevFramesAreValid: Boolean;
+  LPrevState: TACLSkinImageBitsState;
 begin
   if (FBits = nil) and (FDormantData <> nil) then
   begin
     LData := FDormantData;
     try
+      LPrevAlpha := FHasAlpha;
+      LPrevState := FBitsState;
+      LPrevFramesAreValid := FFrameInfoIsValid;
+      FDormantPreferSize := LData.DataSize;
       FDormantData := nil;
       DoCreateBits(Width, Height);
-      LData.Restore(Bits, BitCount, FHasAlpha, FBitsState);
+      LData.Restore(Bits, BitCount);
+      FFrameInfoIsValid := LPrevFramesAreValid;
+      FBitsState := LPrevState;
+      FHasAlpha := LPrevAlpha;
     finally
       FreeAndNil(LData);
     end;
@@ -1448,7 +1453,7 @@ end;
 
 procedure TACLSkinImage.ClearData;
 begin
-{$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+{$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
   if FDormantData <> nil then
   begin
     Dec(FSkinImageMemoryUsageInDormant, BitCount * SizeOf(TACLPixel32));
@@ -1461,12 +1466,70 @@ begin
   DoSetSize(0, 0);
   FHasAlpha := TACLBoolean.Default;
   FBitsState := ibsUnpremultiplied;
-  FFramesInfoIsValid := False;
+  FFrameInfoIsValid := False;
+end;
+
+procedure TACLSkinImage.CompileToStream(AStream: TStream);
+var
+  LCompression: TCompressionLevel;
+  LOriginal: TACLTemporaryFileStream;
+begin
+  BeginUpdate;
+  try
+    // Сохраняем оригинальное состояние во временный файл
+    LOriginal := TACLTemporaryFileStream.Create('acl');
+    try
+      SaveToStream(LOriginal);
+      try
+        // 1. Ensure bits premultiplied
+        // 2. Ensure bits unpacked (to repack with higher compression level)
+        BitsNeeded(ibsPremultiplied);
+
+        // Кадры с вертикальной раскладкой рисуются быстрее, чем с горизонтальной
+        if Layout = ilHorizontal then
+          SwapLayout;
+
+        CheckFramesInfo;
+        // Чем больше текстура и степень сжатия, тем больше мы будем ждать.
+        // Посему варьируем степень сжатия в зависимости от размера текстуры,
+        // дабы уложиться во вменяемое время
+        if BitCount > 300000000 {300 млн, ~300000x1000 px} then
+          LCompression := TCompressionLevel.clFastest
+        else if BitCount > 50000000 {50 млн, ~50000x1000 px} then
+          LCompression := TCompressionLevel.clDefault
+        else if BitCount < CompressionThreshold then
+          LCompression := TCompressionLevel.clNone
+        else
+          LCompression := TCompressionLevel.clMax;
+
+        TACLMath.Exchange<TCompressionLevel>(FSkinImageCompressionLevel, LCompression);
+        try
+          SaveToStream(AStream);
+        finally
+          TACLMath.Exchange<TCompressionLevel>(FSkinImageCompressionLevel, LCompression);
+        end;
+      finally
+        // Восстанавливаем оригинальное состояние
+        LOriginal.Position := 0;
+        LoadFromStream(LOriginal);
+      end;
+    finally
+      LOriginal.Free;
+    end;
+  finally
+    CancelUpdate;
+  end;
+end;
+
+function TACLSkinImage.CompressData: TACLSkinFrameDormantData;
+begin
+  Result := TACLSkinFrameDormantData.Create(Bits, BitCount, FDormantPreferSize);
+  FDormantPreferSize := Result.DataSize;
 end;
 
 procedure TACLSkinImage.DoAssign(AObject: TObject);
 var
-  ASkinImage: TACLSkinImage;
+  LSource: TACLSkinImage;
 begin
   if AObject is TBitmap then
     LoadFromBitmap(TBitmap(AObject))
@@ -1474,12 +1537,12 @@ begin
     if AObject is TACLSkinImage then
     begin
       ClearData;
-      ASkinImage := TACLSkinImage(AObject);
-      if ASkinImage.FDormantData <> nil then
+      LSource := TACLSkinImage(AObject);
+      if LSource.FDormantData <> nil then
       begin
-        DoSetSize(ASkinImage.Width, ASkinImage.Height);
-        FDormantData := ASkinImage.FDormantData.Clone;
-      {$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+        DoSetSize(LSource.Width, LSource.Height);
+        FDormantData := TACLSkinFrameDormantData.CopyOf(LSource.FDormantData);
+      {$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
         Inc(FSkinImageMemoryUsageInDormant, BitCount * SizeOf(TACLPixel32));
         Inc(FSkinImageMemoryCompressed, FDormantData.DataSize);
         Inc(FSkinImageDormantCount);
@@ -1487,12 +1550,13 @@ begin
       end
       else
       begin
-        DoCreateBits(ASkinImage.Width, ASkinImage.Height);
-        acBitsCopy(ASkinImage.Bits, Bits, BitCount);
-        FBitsState := ASkinImage.FBitsState;
-        FHasAlpha := ASkinImage.FHasAlpha;
+        DoCreateBits(LSource.Width, LSource.Height);
+        if (LSource.Bits <> nil) and (Bits <> nil) and (BitCount > 0) then
+          FastMove(LSource.Bits^, Bits^, BitCount * SizeOf(TACLPixel32));
       end;
-      DoAssignParams(ASkinImage);
+      FBitsState := LSource.FBitsState;
+      FHasAlpha := LSource.FHasAlpha;
+      DoAssignParams(LSource);
     end;
 end;
 
@@ -1512,25 +1576,18 @@ begin
 end;
 
 procedure TACLSkinImage.DoCreateBits(AWidth, AHeight: Integer);
-{$IFDEF MSWINDOWS}
-var
-  AInfo: TBitmapInfo;
-{$ENDIF}
 begin
   ClearData;
   DoSetSize(AWidth, AHeight);
   if BitCount > 0 then
   begin
-  {$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
+  {$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
     Inc(FSkinImageMemoryUsage, BitCount * SizeOf(TACLPixel32));
   {$ENDIF}
-  {$IFDEF MSWINDOWS}
-    acInitBitmap32Info(AInfo, Width, Height);
-    FHandle := CreateDIBSection(0, AInfo, DIB_RGB_COLORS, Pointer(FBits), 0, 0);
-    if (FHandle = 0) or (FBits = nil) then
-      raise EACLSkinImageException.CreateFmt(sErrorCannotCreateImage, [Width, Height]);
+  {$IFDEF ACL_SKINIMAGE_CACHE_HBITMAP}
+    acCreateDib32(Width, Height, FBits, FHandle);
   {$ELSE}
-    FBits := acBitsAlloc(BitCount);
+    FBits := AllocMem(BitCount * SizeOf(TACLPixel32));
   {$ENDIF}
   end;
 end;
@@ -1565,23 +1622,23 @@ end;
 
 procedure TACLSkinImage.ReadFormatChunked(AStream: TStream);
 var
-  AChunkID: Integer;
-  AChunkSize: Integer;
-  APosition: Int64;
+  LChunkID: Integer;
+  LChunkSize: Integer;
+  LPosition: Int64;
   I: Integer;
 begin
   for I := 0 to AStream.ReadInt32 - 1 do
   begin
-    AChunkID := AStream.ReadInt32;
-    AChunkSize := AStream.ReadInt32;
-    if AChunkSize < 0 then
+    LChunkID := AStream.ReadInt32;
+    LChunkSize := AStream.ReadInt32;
+    if LChunkSize < 0 then
       Break;
 
-    APosition := AStream.Position;
+    LPosition := AStream.Position;
     try
-      ReadChunk(AStream, AChunkID, AChunkSize);
+      ReadChunk(AStream, LChunkID, LChunkSize);
     finally
-      AStream.Position := APosition + AChunkSize;
+      AStream.Position := LPosition + LChunkSize;
     end;
   end;
 end;
@@ -1680,9 +1737,9 @@ end;
 function TACLSkinImage.GetFrameInfo(Index: Integer): TACLSkinImageFrameState;
 begin
   CheckFramesInfo;
-  if (Index < 0) or (Index >= Length(FFramesInfo)) then
-    raise EACLSkinImageException.Create('Invalid FrameInfo Index');
-  Result := FFramesInfo[Index];
+  if (Index < 0) or (Index >= Length(FFrameInfo)) then
+    raise EInvalidArgument.CreateFmt('%s: %d is invalid FrameInfo index', [ClassName, Index]);
+  Result := FFrameInfo[Index];
 end;
 
 function TACLSkinImage.GetFrameSize: TSize;
@@ -1724,24 +1781,24 @@ end;
 
 function TACLSkinImage.GetHasAlpha: Boolean;
 var
-  AHasSemiTransparentPixels: Boolean;
-  AState: TACLSkinImageFrameState;
+  LHasSemitransparecy: Boolean;
+  LState: TACLSkinImageFrameState;
 begin
   if FHasAlpha = TACLBoolean.Default then
   begin
     CheckUnpacked;
-    AHasSemiTransparentPixels := False;
-    AState := TACLSkinImageAnalyzer.Analyze(PACLPixel32(Bits), BitCount);
-    if AState.IsTransparent then // null-alpha
+    LHasSemitransparecy := False;
+    LState := TAnalyzer.Run(Bits, BitCount);
+    if LState.IsTransparent then // null-alpha
     begin
-      TACLSkinImageAnalyzer.RecoveryAlpha(PACLPixel32(Bits), BitCount, AHasSemiTransparentPixels);
-      if AHasSemiTransparentPixels then
+      TAnalyzer.RecoveryAlpha(Bits, BitCount, LHasSemitransparecy);
+      if LHasSemitransparecy then
         FHasAlpha := TACLBoolean.True
       else
         FHasAlpha := TACLBoolean.False;
     end
     else
-      FHasAlpha := TACLBoolean.From(not AState.IsOpaque);
+      FHasAlpha := TACLBoolean.From(not LState.IsOpaque);
   end;
   Result := FHasAlpha = TACLBoolean.True;
 end;
@@ -1773,46 +1830,45 @@ begin
 
   if AValue <> FrameCount then
   begin
-    FFramesCount := AValue;
+    FFrameCount := AValue;
     Changed;
   end;
 end;
 
 procedure TACLSkinImage.SetFrameSize(const AValue: TSize);
 var
-  ABitmap: TACLDib;
-  AFrameBitmap: TACLDib;
-  AFrameRect: TRect;
-  AFrameCount: Integer;
+  LBitmap: TACLDib;
+  LFrameBitmap: TACLDib;
+  LFrameRect: TRect;
+  LFrameCount: Integer;
   I: Integer;
 begin
   if not (Empty or AValue.isEmpty) and (AValue <> FrameSize) then
   begin
     BeginUpdate;
     try
-      AFrameCount := FrameCount;
-      ABitmap := TACLDib.Create(AValue.cx, AValue.cy * FrameCount);
+      LFrameCount := FrameCount;
+      LBitmap := TACLDib.Create(AValue.cx, AValue.cy * FrameCount);
       try
-        ABitmap.Reset;
-        //ABitmap.AlphaFormat := afPremultiplied;
-        AFrameRect := TRect.Create(AValue);
-        AFrameBitmap := TACLDib.Create(FrameWidth, FrameHeight);
+        //LBitmap.AlphaFormat := afPremultiplied;
+        LFrameRect := TRect.Create(AValue);
+        LFrameBitmap := TACLDib.Create(FrameWidth, FrameHeight);
         try
-          for I := 0 to AFrameCount - 1 do
+          for I := 0 to LFrameCount - 1 do
           begin
-            AFrameBitmap.Reset;
-            Draw(AFrameBitmap.Canvas, AFrameBitmap.ClientRect, I);
-            AFrameBitmap.DrawBlend(ABitmap.Canvas, AFrameRect, MaxByte, True);
-            AFrameRect.Offset(0, AFrameRect.Height);
+            LFrameBitmap.Reset;
+            Draw(LFrameBitmap.Canvas, LFrameBitmap.ClientRect, I);
+            LFrameBitmap.DrawBlend(LBitmap.Canvas, LFrameRect, MaxByte, True);
+            LFrameRect.Offset(0, LFrameRect.Height);
           end;
         finally
-          AFrameBitmap.Free;
+          LFrameBitmap.Free;
         end;
-        LoadFromBitmap(ABitmap);
+        LoadFromBitmap(LBitmap);
         Layout := ilVertical;
-        FrameCount := AFrameCount;
+        FrameCount := LFrameCount;
       finally
-        ABitmap.Free;
+        LBitmap.Free;
       end;
     finally
       EndUpdate;
@@ -1892,6 +1948,54 @@ begin
   end;
 end;
 
+procedure TACLSkinImage.SwapLayout;
+const
+  SwapLayout: array[TACLSkinImageLayout] of TACLSkinImageLayout = (ilVertical, ilHorizontal);
+var
+  LFrame: Integer;
+  LTemp: PACLPixel32Array;
+  LTempFrames: Integer;
+  LTempSize: Integer;
+  LTempState: TACLSkinImageBitsState;
+  LTempStride: Integer;
+begin
+  if Empty or (FrameCount = 1) then Exit;
+
+  BeginUpdate;
+  try
+    CheckUnpacked;
+    LTempState := FBitsState;
+    LTempFrames := FrameCount;
+    LTempSize := BitCount * SizeOf(TACLPixel32);
+    LTemp := AllocMem(LTempSize);
+    try
+      if Layout = ilVertical then
+      begin
+        LTempStride := Width{=FrameWidth} * FrameCount;
+        for LFrame := 0 to FrameCount - 1 do
+          UnpackFrame(@LTemp^[LFrame * Width{=FrameWidth}], LFrame, LTempStride);
+        DoCreateBits(LTempStride, FrameHeight);
+        Layout := ilHorizontal;
+      end
+      else
+      begin
+        LTempStride := FrameHeight * FrameWidth;
+        for LFrame := 0 to FrameCount - 1 do
+          UnpackFrame(@LTemp^[LFrame * LTempStride], LFrame, FrameWidth);
+        DoCreateBits(FrameWidth, FrameHeight * FrameCount);
+        Layout := ilVertical;
+      end;
+      FBitsState := LTempState;
+      FrameCount := LTempFrames;
+      FastMove(LTemp^, Bits^, LTempSize);
+    finally
+      FreeMem(LTemp, LTempSize);
+    end;
+  finally
+    EndUpdate;
+  end;
+end;
+
 procedure TACLSkinImage.ReadChunkBits(AStream: TStream; ASize: Integer);
 var
   AFlags: Integer;
@@ -1923,13 +2027,12 @@ begin
   AWidth := AStream.ReadInt32;
   AHeight := AStream.ReadInt32;
   DoSetSize(AWidth, AHeight);
-  FDormantData := TACLSkinImageBitsStorage.Create(AStream);
-  FDormantData.HasAlpha := TACLBoolean.From(AFlags and FLAGS_BITS_HASALPHA = FLAGS_BITS_HASALPHA);
-  FDormantData.State := TACLSkinImageBitsState(AFlags and FLAGS_BITS_PREPARED = FLAGS_BITS_PREPARED);
-  FHasAlpha := FDormantData.HasAlpha;
-  FBitsState := FDormantData.State;
-{$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
-  Inc(FSkinImageMemoryUsageInDormant, BitCount * SizeOf(TRGBQuad));
+  if ASize > 12 then
+    FDormantData := TACLSkinFrameDormantData.Create(AStream);
+  FHasAlpha := TACLBoolean.From(AFlags and FLAGS_BITS_HASALPHA = FLAGS_BITS_HASALPHA);
+  FBitsState := TACLSkinImageBitsState(AFlags and FLAGS_BITS_PREPARED = FLAGS_BITS_PREPARED);
+{$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
+  Inc(FSkinImageMemoryUsageInDormant, BitCount * SizeOf(TACLPixel32));
   Inc(FSkinImageMemoryCompressed, FDormantData.DataSize);
   Inc(FSkinImageDormantCount);
 {$ENDIF}
@@ -1945,7 +2048,7 @@ begin
 
   if AFlags and FLAGS_DRAW_SIZING_BY_MARGINS <> 0 then
     SizingMode := ismMargins
-  else if AFlags and FLAGS_DRAW_SIZING_BY_TiledAreas <> 0 then
+  else if AFlags and FLAGS_DRAW_SIZING_BY_TILEDAREAS <> 0 then
     SizingMode := ismTiledAreas
   else
     SizingMode := ismDefault;
@@ -1958,23 +2061,23 @@ begin
   HitTestMask := TACLSkinImageHitTestMode(AStream.ReadByte);
   HitTestMaskFrameIndex := AStream.ReadInt32;
 
-  SetLength(FFramesInfo, FrameCount);
-  SetLength(FFramesInfoContent, FrameCount);
+  SetLength(FFrameInfo, FrameCount);
+  SetLength(FFrameInfoContent, FrameCount);
 
   for I := 0 to FrameCount - 1 do
-    FFramesInfo[I] := AStream.ReadInt32;
+    FFrameInfo[I] := AStream.ReadInt32;
 
   if ASize > 1 + 4 + 4 * FrameCount then
   begin
     for I := 0 to FrameCount - 1 do
-      FFramesInfoContent[I] := AStream.ReadInt32;
+      FFrameInfoContent[I] := AStream.ReadInt32;
   end
   else
   begin
     for I := 0 to FrameCount - 1 do
-      FFramesInfoContent[I] := FFramesInfo[I];
+      FFrameInfoContent[I] := FFrameInfo[I];
   end;
-  FFramesInfoIsValid := True;
+  FFrameInfoIsValid := True;
 end;
 
 procedure TACLSkinImage.ReadChunkLayout(AStream: TStream);
@@ -2004,95 +2107,88 @@ procedure TACLSkinImage.WriteChunkBits(AStream: TStream; var AChunkCount: Intege
   end;
 
 var
-  APosition: Int64;
+  LPosition: Int64;
 begin
-  if BitCount > 0 then
+  if BitCount = 0 then Exit;
+
+  if FSkinImageCompressionLevel = TCompressionlevel.clNone then
   begin
-    if FSkinImageCompressionLevel = TCompressionlevel.clNone then
-    begin
-      CheckUnpacked;
-      AStream.BeginWriteChunk(CHUNK_BITS, APosition);
-      AStream.WriteInt32(GetFlags);
-      AStream.WriteInt32(Width);
-      AStream.WriteInt32(Height);
-      AStream.WriteBuffer(Bits^, BitCount * SizeOf(TRGBQuad));
-      AStream.EndWriteChunk(APosition);
-      Inc(AChunkCount);
-    end
+    CheckUnpacked;
+    AStream.BeginWriteChunk(CHUNK_BITS, LPosition);
+    AStream.WriteInt32(GetFlags);
+    AStream.WriteInt32(Width);
+    AStream.WriteInt32(Height);
+    AStream.WriteBuffer(Bits^, BitCount * SizeOf(TACLPixel32));
+    AStream.EndWriteChunk(LPosition);
+    Inc(AChunkCount);
+  end
+  else
+  begin
+    AStream.BeginWriteChunk(CHUNK_BITZ, LPosition);
+    AStream.WriteInt32(GetFlags);
+    AStream.WriteInt32(Width);
+    AStream.WriteInt32(Height);
+
+    if FDormantData <> nil then
+      FDormantData.SaveToStream(AStream)
     else
-    begin
-      AStream.BeginWriteChunk(CHUNK_BITZ, APosition);
-      AStream.WriteInt32(GetFlags);
-      AStream.WriteInt32(Width);
-      AStream.WriteInt32(Height);
-
-    {$IFDEF DEBUG}
-      if FDormantData <> nil then
-      begin
-        if (FDormantData.HasAlpha <> FHasAlpha) or (FDormantData.State <> BitsState) then
-          raise EACLSkinImageException.Create('DormantData has a different state');
+      with CompressData do
+      try
+        SaveToStream(AStream);
+      finally
+        Free;
       end;
-    {$ENDIF}
 
-      if FDormantData <> nil then
-        FDormantData.SaveToStream(AStream)
-      else
-        with TACLSkinImageBitsStorage.Create(Bits, BitCount, FHasAlpha, FBitsState) do
-        try
-          SaveToStream(AStream);
-        finally
-          Free;
-        end;
-
-      AStream.EndWriteChunk(APosition);
-      Inc(AChunkCount);
-    end;
+    AStream.EndWriteChunk(LPosition);
+    Inc(AChunkCount);
   end;
 end;
 
 procedure TACLSkinImage.WriteChunkDraw(AStream: TStream; var AChunkCount: Integer);
 var
-  APosition: Int64;
+  LPosition: Int64;
 begin
-  AStream.BeginWriteChunk(CHUNK_DRAW, APosition);
+  AStream.BeginWriteChunk(CHUNK_DRAW, LPosition);
   AStream.WriteInt32(
     IfThen(AllowColoration, FLAGS_DRAW_ALLOWCOLORATION) or
     IfThen(SizingMode = ismMargins, FLAGS_DRAW_SIZING_BY_MARGINS) or
-    IfThen(SizingMode = ismTiledAreas, FLAGS_DRAW_SIZING_BY_TiledAreas));
+    IfThen(SizingMode = ismTiledAreas, FLAGS_DRAW_SIZING_BY_TILEDAREAS));
   AStream.WriteByte(Ord(StretchMode));
-  AStream.EndWriteChunk(APosition);
+  AStream.EndWriteChunk(LPosition);
   Inc(AChunkCount);
 end;
 
 procedure TACLSkinImage.WriteChunkFrameInfo(AStream: TStream; var AChunkCount: Integer);
 var
-  APosition: Int64;
+  LPosition: Int64;
   I: Integer;
 begin
-  CheckFramesInfo;
-  AStream.BeginWriteChunk(CHUNK_FRAMEINFO, APosition);
-  AStream.WriteByte(Ord(HitTestMask));
-  AStream.WriteInt32(HitTestMaskFrameIndex);
-  for I := 0 to FrameCount - 1 do
-    AStream.WriteInt32(FFramesInfo[I]);
-  for I := 0 to FrameCount - 1 do
-    AStream.WriteInt32(FFramesInfoContent[I]);
-  AStream.EndWriteChunk(APosition);
-  Inc(AChunkCount);
+  if FFrameInfoIsValid then
+  begin
+    AStream.BeginWriteChunk(CHUNK_FRAMEINFO, LPosition);
+    AStream.WriteByte(Ord(HitTestMask));
+    AStream.WriteInt32(HitTestMaskFrameIndex);
+    for I := 0 to FrameCount - 1 do
+      AStream.WriteInt32(FFrameInfo[I]);
+    for I := 0 to FrameCount - 1 do
+      AStream.WriteInt32(FFrameInfoContent[I]);
+    AStream.EndWriteChunk(LPosition);
+    Inc(AChunkCount);
+  end;
 end;
 
 procedure TACLSkinImage.WriteChunkLayout(AStream: TStream; var AChunkCount: Integer);
 var
-  APosition: Int64;
+  LPosition: Int64;
 begin
-  AStream.BeginWriteChunk(CHUNK_LAYOUT, APosition);
+  AStream.BeginWriteChunk(CHUNK_LAYOUT, LPosition);
   AStream.WriteBoolean(Layout = ilVertical);
   AStream.WriteInt32(FrameCount);
   AStream.WriteRect(Margins);
   AStream.WriteRect(ContentOffsets);
   AStream.WriteBoolean(TiledAreasMode = tpmVertical);
   AStream.WriteBuffer(TiledAreas, SizeOf(TACLSkinImageTiledAreas));
-  AStream.EndWriteChunk(APosition);
+  AStream.EndWriteChunk(LPosition);
   Inc(AChunkCount);
 end;
 
@@ -2100,95 +2196,45 @@ procedure TACLSkinImage.ReleaseHandle;
 begin
   if FBits <> nil then
   try
-  {$IFDEF ACL_DEBUG_SKINIMAGE_STAT}
-    Dec(FSkinImageMemoryUsage, BitCount * SizeOf(TRGBQuad));
+  {$IFDEF ACL_SKINIMAGE_COLLECT_STATS}
+    Dec(FSkinImageMemoryUsage, BitCount * SizeOf(TACLPixel32));
   {$ENDIF}
-  {$IFDEF MSWINDOWS}
+  {$IFDEF ACL_SKINIMAGE_CACHE_HBITMAP}
     DeleteObject(FHandle);
     FHandle := 0;
   {$ELSE}
-    FreeMemAndNil(FBits);
+    FreeMem(FBits);
   {$ENDIF}
   finally
     FBits := nil;
   end;
 end;
 
-{ TACLSkinImageAnalyzer }
-
-class function TACLSkinImageAnalyzer.Analyze(Q: PACLPixel32; ACount: Integer): TACLSkinImageFrameState;
+procedure TACLSkinImage.UnpackFrame(ATarget: PACLPixel32; AFrame, ATargetStride: Integer);
 var
-  AAlpha: DWORD;
-  AColor: DWORD;
+  LBytesPerRow: Integer;
+  LFrameRect: TRect;
+  LSource: PACLPixel32;
 begin
-  if ACount = 0 then
-    Exit(TACLSkinImageFrameState.TRANSPARENT);
-
-  AColor := PDWORD(Q)^;
-  AAlpha := Q^.A;
-  AnalyzeCore(Q, ACount, AAlpha, AColor);
-  Result := AnalyzeResultToState(AAlpha, AColor);
-end;
-
-class function TACLSkinImageAnalyzer.AnalyzeFrame(Q: PACLPixel32Array;
-  const AFrameRect: TRect; AImageWidth: Integer): TACLSkinImageFrameState;
-var
-  AAlpha: DWORD;
-  AColor: DWORD;
-  AWidth: Integer;
-  Y: Integer;
-begin
-  if AFrameRect.IsEmpty then
-    Exit(TACLSkinImageFrameState.TRANSPARENT);
-
-  AColor := PDWORD(Q)^;
-  AAlpha := Q^[0].A;
-  AWidth := AFrameRect.Width;
-  for Y := AFrameRect.Top to AFrameRect.Bottom - 1 do
-  begin
-    AnalyzeCore(@Q^[AFrameRect.Left + Y * AImageWidth], AWidth, AAlpha, AColor);
-    if AAlpha = INVALID_VALUE then
-      Break;
-  end;
-  Result := AnalyzeResultToState(AAlpha, AColor);
-end;
-
-class procedure TACLSkinImageAnalyzer.RecoveryAlpha(
-  Q: PACLPixel32; ACount: Integer; var AHasSemiTransparentPixels: Boolean);
-begin
-  while ACount > 0 do
-  begin
-    if TACLColors.IsMask(Q^) then
+  CheckUnpacked;
+  LFrameRect := FrameRect[AFrame];
+  LBytesPerRow := LFrameRect.Width * SizeOf(TACLPixel32);
+  LSource := @Bits[LFrameRect.Left + LFrameRect.Top * Width];
+  if (Layout = ilVertical) and (ATargetStride = LFrameRect.Width) then
+    FastMove(LSource^, ATarget^, LBytesPerRow * LFrameRect.Height)
+  else // general way
+    while LFrameRect.Top < LFrameRect.Bottom do
     begin
-      AHasSemiTransparentPixels := True;
-      TACLColors.Flush(Q^);
-    end
-    else
-      Q^.A := $FF;
-
-    Dec(ACount);
-    Inc(Q);
-  end;
-end;
-
-class procedure TACLSkinImageAnalyzer.AnalyzeCore(
-  Q: PACLPixel32; Count: Integer; var AAlpha: DWORD; var AColor: DWORD);
-begin
-  while Count > 0 do
-  begin
-    if AAlpha <> Q^.A then
-    begin
-      AAlpha := INVALID_VALUE;
-      Break;
+      FastMove(LSource^, ATarget^, LBytesPerRow);
+      Inc(ATarget, ATargetStride);
+      Inc(LFrameRect.Top);
+      Inc(LSource, Width);
     end;
-    if AColor <> PDWORD(Q)^ then
-      AColor := INVALID_VALUE;
-    Dec(Count);
-    Inc(Q);
-  end;
 end;
 
-class function TACLSkinImageAnalyzer.AnalyzeResultToState(
+{ TAnalyzer }
+
+class function TAnalyzer.AnalyzeResultToState(
   var AAlpha: DWORD; var AColor: DWORD): TACLSkinImageFrameState;
 begin
   if AAlpha = INVALID_VALUE then
@@ -2206,9 +2252,83 @@ begin
     Result := TACLSkinImageFrameState.OPAQUE;
 end;
 
-{ TACLSkinImageRenderer }
+class procedure TAnalyzer.RecoveryAlpha(
+  Q: PACLPixel32; ACount: Integer; var AHasSemitransparecy: Boolean);
+begin
+  if Q = nil then
+    Exit;
+  while ACount > 0 do
+  begin
+    if TACLColors.IsMask(Q^) then
+    begin
+      AHasSemitransparecy := True;
+      TACLColors.Flush(Q^);
+    end
+    else
+      Q^.A := $FF;
 
-class constructor TACLSkinImageRenderer.Create;
+    Dec(ACount);
+    Inc(Q);
+  end;
+end;
+
+class function TAnalyzer.Run(Q: PACLPixel32; ACount: Integer): TACLSkinImageFrameState;
+var
+  LAlpha: DWORD;
+  LColor: DWORD;
+begin
+  if (Q = nil) or (ACount = 0) then
+    Exit(TACLSkinImageFrameState.TRANSPARENT);
+
+  LAlpha := Q[0].A;
+  LColor := DWORD(Q[0]);
+  RunCore(Q, ACount, LAlpha, LColor);
+  Result := AnalyzeResultToState(LAlpha, LColor);
+end;
+
+class function TAnalyzer.Run(Q: PACLPixel32;
+  APart: TRect; AImageWidth: Integer): TACLSkinImageFrameState;
+var
+  LAlpha: DWORD;
+  LColor: DWORD;
+  LFirst: PACLPixel32;
+begin
+  if (Q = nil) or APart.IsEmpty then
+    Exit(TACLSkinImageFrameState.TRANSPARENT);
+
+  LFirst := @Q[APart.Left + APart.Top * AImageWidth];
+  LColor := DWORD(LFirst^);
+  LAlpha := LFirst^.A;
+  while APart.Top < APart.Bottom do
+  begin
+    RunCore(LFirst, APart.Width, LAlpha, LColor);
+    if LAlpha = INVALID_VALUE then Break;
+    Inc(LFirst, AImageWidth);
+    Inc(APart.Top);
+  end;
+  Result := AnalyzeResultToState(LAlpha, LColor);
+end;
+
+class procedure TAnalyzer.RunCore(
+  AColors: PACLPixel32; ACount: Integer; var AAlpha, AColor: DWORD);
+begin
+  while ACount > 0 do
+  begin
+    if AAlpha <> AColors^.A then
+    begin
+      AAlpha := INVALID_VALUE;
+      Break;
+    end;
+    if AColor <> PDWORD(AColors)^ then
+      AColor := INVALID_VALUE;
+    Inc(AColors);
+    Dec(ACount);
+  end;
+end;
+
+{ TRenderer }
+
+class constructor TRenderer.Create;
 begin
   FLock := TACLCriticalSection.Create(nil, 'SkinImageRender');
 {$IFDEF MSWINDOWS}
@@ -2221,26 +2341,32 @@ begin
 {$ENDIF}
 end;
 
-class destructor TACLSkinImageRenderer.Destroy;
+class destructor TRenderer.Destroy;
 begin
   FreeAndNil(FLock);
 {$IFDEF MSWINDOWS}
+  ZeroMemory(@FMemBmpInfo, SizeOf(FMemBmpInfo));
+  FMemBmpBits := nil;
+  DeleteObject(FMemBmp);
   DeleteDC(FMemDC);
+  FMemBmp := 0;
   FMemDC := 0;
 {$ENDIF}
 {$IFDEF ACL_CAIRO}
+  FreeMemAndNil(FCairoBits);
   FreeAndNil(FCairo);
 {$ENDIF}
 end;
 
 {$IFDEF MSWINDOWS}
-class procedure TACLSkinImageRenderer.doAlphaBlend(const R, SrcR: TRect);
+class procedure TRenderer.doAlphaBlend(const R, SrcR: TRect);
 begin
-  AlphaBlend(FDstCanvas.Handle, R.Left, R.Top, R.Right - R.Left, R.Bottom - R.Top, FMemDC,
+  AlphaBlend(FDstCanvas.Handle,
+    R.Left, R.Top, R.Right - R.Left, R.Bottom - R.Top, FMemDC,
     SrcR.Left, SrcR.Top, SrcR.Right - SrcR.Left, SrcR.Bottom - SrcR.Top, FFunc);
 end;
 
-class procedure TACLSkinImageRenderer.doAlphaBlendTile(const R, SrcR: TRect);
+class procedure TRenderer.doAlphaBlendTile(const R, SrcR: TRect);
 var
   AClipRgn: TRegionHandle;
   ALayer: TACLDib;
@@ -2267,7 +2393,7 @@ begin
     end;
   end
   else
-    if acStartClippedDraw(FDstCanvas.Handle, R, AClipRgn) then
+    if acStartClippedDraw(FDstCanvas, R, AClipRgn) then
     try
       for Y := 1 to YCount do
       begin
@@ -2283,46 +2409,47 @@ begin
         Inc(R1.Bottom, H);
       end;
     finally
-      acRestoreClipRegion(FDstCanvas.Handle, AClipRgn);
+      acEndClippedDraw(FDstCanvas, AClipRgn);
     end;
 end;
 
-class procedure TACLSkinImageRenderer.doWinDraw(const ATarget, ASource: TRect; ATile: Boolean);
+class procedure TRenderer.doWinDraw(const ATarget, ASource: TRect);
 begin
   if ATarget.IsEmpty or ASource.IsEmpty then
     Exit;
-  if ATile then
+  if FImage.StretchMode = isTile then
     doAlphaBlendTile(ATarget, ASource)
   else
     doAlphaBlend(ATarget, ASource);
 end;
 
-class procedure TACLSkinImageRenderer.doWinDrawOpaque(const ATarget, ASource: TRect; ATile: Boolean);
+class procedure TRenderer.doWinDrawOpaque(const ATarget, ASource: TRect);
 begin
   if ATarget.IsEmpty or ASource.IsEmpty then
     Exit;
-  if ATile then
+  if FImage.StretchMode = isTile then
     acTileBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource)
   else
     acStretchBlt(FDstCanvas.Handle, FMemDC, ATarget, ASource);
 end;
 
-class procedure TACLSkinImageRenderer.doWinFill(const ATarget: TRect; AColor: TAlphaColor);
+class procedure TRenderer.doWinFill(const ATarget: TRect; AColor: TAlphaColor);
 begin
   acFillRect(FDstCanvas, ATarget, AColor);
 end;
 
-class procedure TACLSkinImageRenderer.doWinFinish;
+class procedure TRenderer.doWinFinish;
 begin
-  SelectObject(FMemDC, FOldBmp);
+  SelectObject(FMemDC, FPrevBmp);
   doInit(nil, nil, nil);
   FDstCanvas := nil;
   FImage := nil;
   FLock.Leave;
 end;
+
 {$ENDIF}
 
-class procedure TACLSkinImageRenderer.doInit(
+class procedure TRenderer.doInit(
   AExitProc: TThreadMethod; AFillProc: TFillPart; ADrawProc: TDrawPart);
 begin
   Finish := AExitProc;
@@ -2330,55 +2457,98 @@ begin
   DrawPart := ADrawProc;
 end;
 
-class procedure TACLSkinImageRenderer.Start(AImage: TACLSkinImage;
+class procedure TRenderer.Start(AImage: TACLSkinImage;
   ACanvas: TCanvas; AFrameIndex: Integer; AAlpha: Byte);
 begin
   FLock.Enter;
   FImage := AImage;
   FFrame := AFrameIndex;
+  FFrameRect := FImage.FrameRect[FFrame];
 {$IFDEF MSWINDOWS}
   FDstCanvas := ACanvas;
   if FMemDC = 0 then
     FMemDC := CreateCompatibleDC(0);
-  FOldBmp := SelectObject(FMemDC, AImage.Handle);
   FFunc.SourceConstantAlpha := AAlpha;
+
+  {$IFDEF ACL_SKINIMAGE_CACHE_HBITMAP}
+    FPrevBmp := SelectObject(FMemDC, AImage.Handle);
+  {$ELSE}
+    if (FMemBmp = 0) or (FMemBmpBits = nil) or
+      (FFrameRect.Height > -FMemBmpInfo.bmiHeader.biHeight) or
+      (FFrameRect.Width > FMemBmpInfo.bmiHeader.biWidth) then
+    begin
+      DeleteObject(FMemBmp);
+      FMemBmpBits := nil;
+      FMemBmp := 0;
+      acInitBitmap32Info(FMemBmpInfo, FFrameRect.Width, FFrameRect.Height);
+      FMemBmp := CreateDIBSection(0, FMemBmpInfo, DIB_RGB_COLORS, FMemBmpBits, 0, 0);
+      if (FMemBmp = 0) or (FMemBmpBits = nil) then
+        raise EACLSkinImageException.CreateFmt(
+          sErrorCannotCreateImage, [FFrameRect.Width, FFrameRect.Height]);
+    end;
+
+    FFrameRect.Offset(-FFrameRect.Left, -FFrameRect.Top);
+    FImage.UnpackFrame(FMemBmpBits, FFrame, FMemBmpInfo.bmiHeader.biWidth);
+    FPrevBmp := SelectObject(FMemDC, FMemBmp);
+  {$ENDIF}
+
   if (AAlpha = 255) and FImage.FrameInfo[AFrameIndex].IsOpaque then
     doInit(doWinFinish, doWinFill, doWinDrawOpaque)
   else
-    doInit(doWinFinish, doWinFill, doWinDraw)
+    doInit(doWinFinish, doWinFill, doWinDraw);
 {$ELSE}
   FAlpha := AAlpha / 255;
   FCairo.BeginPaint(ACanvas);
-  FSourceSurface := cairo_create_surface(AImage.Bits, AImage.Width, AImage.Height);
-  doInit(doCairoFinish, doCairoFill, doCairoDraw);
+  doCairoInit;
 {$ENDIF}
 end;
 
 {$IFDEF ACL_CAIRO}
-class procedure TACLSkinImageRenderer.Start(AImage: TACLSkinImage;
+class procedure TRenderer.Start(AImage: TACLSkinImage;
   ACairo: Pcairo_t; AFrameIndex: Integer; AAlpha: Byte);
 begin
   FLock.Enter;
   FImage := AImage;
-  FFrame := AFrameIndex;
   FAlpha := AAlpha / 255;
+  FFrame := AFrameIndex;
+  FFrameRect := FImage.FrameRect[FFrame];
   FCairo.BeginPaint(ACairo);
-  FSourceSurface := cairo_create_surface(AImage.Bits, AImage.Width, AImage.Height);
-  doInit(doCairoFinish, doCairoFill, doCairoDraw);
+  doCairoInit;
 end;
 
-class procedure TACLSkinImageRenderer.doCairoDraw(const ATarget, ASource: TRect; ATile: Boolean);
+class procedure TRenderer.doCairoInit;
+var
+  LRequired: Integer;
+begin
+  doInit(doCairoFinish, doCairoFill, doCairoDraw);
+  if (FImage.Width >= MAXSHORT) or (FImage.Height >= MAXSHORT) then
+  begin
+    LRequired := FFrameRect.Width * FFrameRect.Height * SizeOf(TACLPixel32);
+    if LRequired > FCairoBitsSize then
+    begin
+      FCairoBitsSize := LRequired;
+      ReallocMem(FCairoBits, FCairoBitsSize);
+    end;
+    FImage.UnpackFrame(FCairoBits, FFrame, FFrameRect.Width);
+    FSourceSurface := cairo_create_surface(FCairoBits, FFrameRect.Width, FFrameRect.Height);
+    FFrameRect.Offset(-FFrameRect.Left, -FFrameRect.Top);
+  end
+  else
+    FSourceSurface := cairo_create_surface(FImage.Bits, FImage.Width, FImage.Height);
+end;
+
+class procedure TRenderer.doCairoDraw(const ATarget, ASource: TRect);
 begin
   if not (ATarget.IsEmpty or ASource.IsEmpty) then
-    FCairo.FillSurface(ATarget, ASource, FSourceSurface, FAlpha, ATile);
+    FCairo.FillSurface(ATarget, ASource, FSourceSurface, FAlpha, FImage.StretchMode = isTile);
 end;
 
-class procedure TACLSkinImageRenderer.doCairoFill(const ATarget: TRect; AColor: TAlphaColor);
+class procedure TRenderer.doCairoFill(const ATarget: TRect; AColor: TAlphaColor);
 begin
   FCairo.FillRectangle(ATarget.Left, ATarget.Top, ATarget.Right, ATarget.Bottom, AColor);
 end;
 
-class procedure TACLSkinImageRenderer.doCairoFinish;
+class procedure TRenderer.doCairoFinish;
 begin
   FCairo.EndPaint;
   cairo_surface_destroy(FSourceSurface);
@@ -2389,58 +2559,62 @@ begin
 end;
 {$ENDIF}
 
-class procedure TACLSkinImageRenderer.Draw(ARect: TRect);
+class procedure TRenderer.Draw(ARect: TRect);
 
   procedure DoDrawWithMargins(const ATarget, ASource: TRect; AContentState: TACLSkinImageFrameState);
   var
     LSourceParts: TACLMarginPartBounds;
     LTargetParts: TACLMarginPartBounds;
-    LPart: TACLMarginPart;
   begin
     acCalcPartBounds(LTargetParts, FImage.Margins, ATarget, ASource, FImage.StretchMode);
     acCalcPartBounds(LSourceParts, FImage.Margins, ASource, ASource, FImage.StretchMode);
-    for LPart := Low(TACLMarginPart) to High(TACLMarginPart) do
+
+    DrawPart(LTargetParts[mzLeftTop], LSourceParts[mzLeftTop]);
+    DrawPart(LTargetParts[mzLeft], LSourceParts[mzLeft]);
+    DrawPart(LTargetParts[mzLeftBottom], LSourceParts[mzLeftBottom]);
+
+    DrawPart(LTargetParts[mzTop], LSourceParts[mzTop]);
+    DrawPart(LTargetParts[mzBottom], LSourceParts[mzBottom]);
+
+    DrawPart(LTargetParts[mzRight], LSourceParts[mzRight]);
+    DrawPart(LTargetParts[mzRightTop], LSourceParts[mzRightTop]);
+    DrawPart(LTargetParts[mzRightBottom], LSourceParts[mzRightBottom]);
+
+    if not AContentState.IsTransparent then
     begin
-      if LPart = mzClient then
-      begin
-        if AContentState.IsTransparent then
-          Continue;
-        if AContentState.IsColor then
-        begin
-          FillPart(LTargetParts[LPart], TAlphaColor(AContentState));
-          Continue;
-        end;
-      end;
-      DrawPart(LTargetParts[LPart], LSourceParts[LPart], FImage.StretchMode = isTile);
+      if AContentState.IsColor then
+        FillPart(LTargetParts[mzClient], TAlphaColor(AContentState))
+      else
+        DrawPart(LTargetParts[mzClient], LSourceParts[mzClient]);
     end;
   end;
 
-  procedure DoDrawTiledAreas(const ATarget, ASource: TRect);
+  procedure DoDrawTiledAreas(const ATarget: TRect);
   var
     I: TACLSkinImageTiledAreasPart;
     S, D: TACLSkinImageTiledAreasPartBounds;
   begin
-    acCalculateTiledAreas(ASource, FImage.TiledAreas,
+    acCalculateTiledAreas(FFrameRect, FImage.TiledAreas,
       FImage.FrameWidth, FImage.FrameHeight, FImage.TiledAreasMode, S);
     acCalculateTiledAreas(ATarget, FImage.TiledAreas,
       FImage.FrameWidth, FImage.FrameHeight, FImage.TiledAreasMode, D);
     for I := Low(TACLSkinImageTiledAreasPart) to High(TACLSkinImageTiledAreasPart) do
-      DrawPart(D[I], S[I], FImage.StretchMode = isTile);
+      DrawPart(D[I], S[I]);
   end;
 
 begin
   case FImage.ActualSizingMode of
     ismMargins:
-      DoDrawWithMargins(ARect, FImage.FrameRect[FFrame], FImage.FFramesInfoContent[FFrame]);
+      DoDrawWithMargins(ARect, FFrameRect, FImage.FFrameInfoContent[FFrame]);
     ismTiledAreas:
-      DoDrawTiledAreas(ARect, FImage.FrameRect[FFrame]);
+      DoDrawTiledAreas(ARect);
   else {ismDefault}
     if FImage.StretchMode = isCenter then
     begin
       ARect.CenterHorz(FImage.FrameWidth);
       ARect.CenterVert(FImage.FrameHeight);
     end;
-    DrawPart(ARect, FImage.FrameRect[FFrame], FImage.StretchMode = isTile);
+    DrawPart(ARect, FFrameRect);
   end;
 end;
 

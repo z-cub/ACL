@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Thread Pool
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -35,6 +35,7 @@ uses
   ACL.Timers,
   ACL.Threading,
   ACL.Utils.Common,
+  ACL.Utils.Logger,
   ACL.Utils.Strings;
 
 type
@@ -77,6 +78,9 @@ type
     //# Properties
     property Caption: string read GetCaption;
     property Handle: TObjHandle read GetHandle;
+    //# Events
+    property OnComplete: TThreadMethod read FOnComplete write FOnComplete;
+    property OnCompleteMode: TACLThreadMethodCallMode read FOnCompleteMode write FOnCompleteMode;
   end;
 
   { TACLTaskGroup }
@@ -407,10 +411,7 @@ begin
   begin
     FLock.Enter;
     try
-      if FPendingTasks.Count > 0 then
-        FCurrentTask := FPendingTasks.Extract(FPendingTasks.First) as TACLTask
-      else
-        FCurrentTask := nil;
+      FCurrentTask := FPendingTasks.ExtractAt(0) as TACLTask
     finally
       FLock.Leave;
     end;
@@ -557,7 +558,8 @@ begin
   CheckActiveTasks;
 end;
 
-function TACLTaskDispatcher.Run(AProc, ACompleteEvent: TThreadMethod; ACompleteEventCallMode: TACLThreadMethodCallMode): TObjHandle;
+function TACLTaskDispatcher.Run(AProc, ACompleteEvent: TThreadMethod;
+  ACompleteEventCallMode: TACLThreadMethodCallMode): TObjHandle;
 begin
   Result := Run(TACLSimpleTask.Create(AProc), ACompleteEvent, ACompleteEventCallMode);
 end;
@@ -592,43 +594,43 @@ end;
 
 function TACLTaskDispatcher.Cancel(ATaskHandle: TObjHandle; AWaitTimeOut: Cardinal): TWaitResult;
 var
-  AIndex: Integer;
-  ATask: TACLTask;
-  AWaitEvent: IACLTaskEvent;
+  LIndex: Integer;
+  LTask: TACLTask;
+  LWaitEvent: IACLTaskEvent;
 begin
-  AWaitEvent := nil;
-  if ATaskHandle <> 0 then
-  begin
-    // Cancel pending item
-    FLock.Enter;
-    try
-      AIndex := FTasks.IndexOf(TACLTask(ATaskHandle));
-      if AIndex >= 0 then
-      begin
-        TACLTask(ATaskHandle).FCanceled := 1;
-        TACLTask(ATaskHandle).Complete;
-        FTasks.Delete(AIndex);
-        Exit(wrSignaled);
-      end;
+  if ATaskHandle = 0 then
+    Exit(wrSignaled);
 
-      // Cancel active item
-      for AIndex := 0 to FActiveTasks.Count - 1 do
-      begin
-        ATask := FActiveTasks.List[AIndex];
-        if ATaskHandle = ATask.Handle then
-        begin
-          ATask.Cancel;
-          AWaitEvent := ATask.FEvent;
-          Break;
-        end;
-      end;
-    finally
-      FLock.Leave;
+  LWaitEvent := nil;
+  FLock.Enter;
+  try
+    // Cancel pending item
+    LIndex := FTasks.IndexOf(TACLTask(ATaskHandle));
+    if LIndex >= 0 then
+    begin
+      TACLTask(ATaskHandle).FCanceled := 1;
+      TACLTask(ATaskHandle).Complete;
+      FTasks.Delete(LIndex);
+      Exit(wrSignaled);
     end;
+
+    // Cancel active item
+    for LIndex := 0 to FActiveTasks.Count - 1 do
+    begin
+      LTask := FActiveTasks.List[LIndex];
+      if ATaskHandle = LTask.Handle then
+      begin
+        LTask.Cancel;
+        LWaitEvent := LTask.FEvent;
+        Break;
+      end;
+    end;
+  finally
+    FLock.Leave;
   end;
 
-  if AWaitEvent <> nil then
-    Result := AWaitEvent.WaitFor(AWaitTimeOut)
+  if LWaitEvent <> nil then
+    Result := LWaitEvent.WaitFor(AWaitTimeOut)
   else
     Result := wrAbandoned;
 
@@ -638,16 +640,16 @@ end;
 
 function TACLTaskDispatcher.CurrentTask: TACLTask;
 var
-  AThreadId: Cardinal;
-  AIndex: Integer;
+  LThreadId: Cardinal;
+  LIndex: Integer;
 begin
   FLock.Enter;
   try
-    AThreadId := GetCurrentThreadId;
-    for AIndex := 0 to FActiveTasks.Count - 1 do
+    LThreadId := GetCurrentThreadId;
+    for LIndex := 0 to FActiveTasks.Count - 1 do
     begin
-      Result := FActiveTasks.List[AIndex];
-      if Result.FThreadID = AThreadId then
+      Result := FActiveTasks.List[LIndex];
+      if Result.FThreadID = LThreadId then
         Exit;
     end;
     Result := nil;
@@ -705,6 +707,8 @@ begin
     ATask.FOwner.AsyncRun(ATask);
   except
     // Мы в потоке, падать никак нельзя
+    on E: Exception do
+      LogEntry(acGeneralLogFileName, 'ThreadPool', E);
   end;
 {$IFDEF ACL_THREADING_DEBUG}
   TThread.NameThreadForDebugging('ThreadPool - Idle');
@@ -764,8 +768,8 @@ begin
         ATask.Complete;
       end;
     except
-  //    FException := ExceptObject;
-  //    RunInMainThread(SyncHandleException);
+      on E: Exception do
+        LogEntry(acGeneralLogFileName, 'ThreadPool', E);
     end;
 
     FLock.Enter;

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Binding Diagram
 //
@@ -92,7 +92,6 @@ type
     property OptionsView: TACLBindingDiagramOptionsView read GetOptionsView write SetOptionsView;
     property ResourceCollection;
     property Style: TACLStyleBindingDiagram read GetStyle write SetStyle;
-    property StyleHint;
     property StyleScrollBox;
     property Transparent;
     //# Events

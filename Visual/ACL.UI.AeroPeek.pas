@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Windows 7 Aero Peek support
 //
@@ -303,10 +303,13 @@ begin
   FImageList.OnChange := ImageListChanged;
   FButtons := TACLAeroPeekButtons.Create(Self);
 {$IFDEF MSWINDOWS}
-  FPrevWndProc := FOwnerWindow.WindowProc;
-  FOwnerWindow.WindowProc := OwnerWindowWndProc;
-  if Failed(CoCreateInstance(CLSID_TaskbarList, nil, CLSCTX_INPROC_SERVER, IID_ITaskbarList3, FTaskBarList)) then
-    FTaskBarList := nil;
+  if not IsWine then
+  begin
+    FPrevWndProc := FOwnerWindow.WindowProc;
+    FOwnerWindow.WindowProc := OwnerWindowWndProc;
+    if Failed(CoCreateInstance(CLSID_TaskbarList, nil, CLSCTX_INPROC_SERVER, IID_ITaskbarList3, FTaskBarList)) then
+      FTaskBarList := nil;
+  end;
 {$ENDIF}
   if OwnerWindow.HandleAllocated then
     DoInitialize;
@@ -315,8 +318,11 @@ end;
 destructor TACLAeroPeek.Destroy;
 begin
 {$IFDEF MSWINDOWS}
-  SetWindowAttribute(DWMWA_HAS_ICONIC_BITMAP, False);
-  FOwnerWindow.WindowProc := FPrevWndProc;
+  if not IsWine then
+  begin
+    SetWindowAttribute(DWMWA_HAS_ICONIC_BITMAP, False);
+    FOwnerWindow.WindowProc := FPrevWndProc;
+  end;
 {$ENDIF}
   StopLivePreviewTimer;
   FImageList.OnChange := nil;
@@ -484,7 +490,8 @@ end;
 
 procedure TACLAeroPeek.ImageListChanged(Sender: TObject);
 begin
-  SyncButtons;
+  if Buttons.UpdateCount = 0 then
+    SyncButtons;
 end;
 
 procedure TACLAeroPeek.OwnerWindowWndProc(var AMessage: TMessage);
@@ -524,7 +531,7 @@ var
   AClassName: string;
 begin
   AClassName := acGetClassName(WindowFromPoint(MouseCursorPos));
-  if acSameTextEx(AClassName, ['TaskListThumbnailWnd', 'MSTaskListWClass', 'ToolbarWindow32']) then
+  if acContains(AClassName, ['TaskListThumbnailWnd', 'MSTaskListWClass', 'ToolbarWindow32'], True) then
     UpdateLivePreviews
   else
     StopLivePreviewTimer;
@@ -595,22 +602,6 @@ procedure TACLAeroPeek.SyncButtons;
     B.iId := AIndex;
   end;
 
-  procedure UpdateThumbBar(AButtons: PThumbButton; AButtonsCount: Integer);
-  begin
-    try
-      TaskBarList.ThumbBarSetImageList(OwnerWindow.Handle, ImageList.Handle);
-    except
-      // failed to create imagelist
-    end;
-    if FTaskBarButtonsInitialized then
-      TaskBarList.ThumbBarUpdateButtons(OwnerWindow.Handle, AButtonsCount, AButtons)
-    else
-    begin
-      TaskBarList.ThumbBarAddButtons(OwnerWindow.Handle, AButtonsCount, AButtons);
-      FTaskBarButtonsInitialized := True;
-    end;
-  end;
-
 var
   LButtonCount: Integer;
   I: Integer;
@@ -622,7 +613,15 @@ begin
       PrepareButton(FTaskBarButtons[I], Buttons[I], I);
     if Initialized then
     try
-      UpdateThumbBar(@FTaskBarButtons[0], LButtonCount);
+      if ImageList <> nil then
+        TaskBarList.ThumbBarSetImageList(OwnerWindow.Handle, ImageList.Handle);
+      if FTaskBarButtonsInitialized then
+        TaskBarList.ThumbBarUpdateButtons(OwnerWindow.Handle, LButtonCount, @FTaskBarButtons[0])
+      else
+      begin
+        TaskBarList.ThumbBarAddButtons(OwnerWindow.Handle, LButtonCount, @FTaskBarButtons[0]);
+        FTaskBarButtonsInitialized := True;
+      end;
     except
       // do nothing
     end;

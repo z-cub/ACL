@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   RTTI Utilities
 //
@@ -19,6 +19,7 @@ interface
 
 uses
   {System.}Classes,
+  {System.}SysUtils,
   {System.}Variants,
   {System.}TypInfo,
   {System.}Rtti;
@@ -27,6 +28,14 @@ type
   TMemberVisibilities = set of TMemberVisibility;
 
   TRttiEnumProc<T> = reference to procedure (const AValue: T);
+
+  { ERttiError }
+
+  ERttiError = class(EPropertyError)
+  public
+    constructor CreateNoProp(const AClassName, AFieldName: string);
+    constructor CreateUnsupportedPropType(APropInfo: PPropInfo);
+  end;
 
   { TRTTI }
 
@@ -128,7 +137,6 @@ implementation
 uses
   {System.}Math,
   {System.}RTLConsts,
-  {System.}SysUtils,
   // ACL
   ACL.FastCode,
   ACL.Utils.Common,
@@ -165,6 +173,19 @@ end;
 procedure SetBoolProp(Instance: TObject; PropInfo: PPropInfo; Value: Boolean);
 begin
   SetOrdProp(Instance, PropInfo, IfThen(Value, 1, 0));
+end;
+
+{ ERttiError }
+
+constructor ERttiError.CreateNoProp(const AClassName, AFieldName: string);
+begin
+  CreateFmt('The %s.%s property was not found', [AClassName, AFieldName]);
+end;
+
+constructor ERttiError.CreateUnsupportedPropType(APropInfo: PPropInfo);
+begin
+  CreateFmt('The %s property has unsupported type (%d)',
+    [GetPropName(APropInfo), Ord(GetPropType(APropInfo)^.Kind)]);
 end;
 
 { TRTTI }
@@ -383,7 +404,8 @@ begin
     Result := '';
 end;
 
-class function TRTTI.GetPropValue(AObject: TObject; const APropInfo: PPropInfo; out AValue: string): Boolean;
+class function TRTTI.GetPropValue(AObject: TObject;
+  const APropInfo: PPropInfo; out AValue: string): Boolean;
 var
   LValue: Variant;
 begin
@@ -413,8 +435,18 @@ begin
     Exit(Null);
 
   Result := TypInfo.GetPropValue(AObject, APropInfo, PreferStrings);
-  if IsUnsignedInt(APropInfo) then
-    Result := LongWord(Int64(Result));
+{$IFDEF FPC}
+  if IsBoolean(APropInfo) then
+  begin
+    if PreferStrings then
+      Result := BoolToStr(Result <> 0, True)
+    else
+      Result := Result <> 0;
+  end
+  else
+{$ENDIF}
+    if IsUnsignedInt(APropInfo) then
+      Result := LongWord(Int64(Result));
 end;
 
 class function TRTTI.GetPropValueAsVariant(

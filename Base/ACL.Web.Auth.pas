@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Web Authorization Utilities
 //
@@ -143,7 +143,7 @@ begin
   Result.Reset;
   LData := TEncoding.UTF8.GetString(TACLMimecode.DecodeBytes(AStr));
   acCryptStringXOR(LData, 'TAuthToken');
-  acExplodeString(acString(LData), #9, LParts);
+  acSplitString(acString(LData), #9, LParts);
   if Length(LParts) > 3 then
   begin
     Result.AccessToken := LParts[0];

@@ -25,7 +25,7 @@
 {$IMAGEBASE $400000}
 {$DEFINE DEBUG}
 {$ENDIF IMPLICITBUILDING}
-{$DESCRIPTION 'Artem''s Components Library v6.0'}
+{$DESCRIPTION 'Artem''s Components Library v7.0'}
 {$DESIGNONLY}
 {$IMPLICITBUILD ON}
 
@@ -61,11 +61,13 @@ contains
   ACL.Graphics.Ex.D2D in 'Base\ACL.Graphics.Ex.D2D.pas',
   ACL.Graphics.Ex.D2D.Types in 'Base\ACL.Graphics.Ex.D2D.Types.pas',
   ACL.Graphics.Ex.Gdip in 'Base\ACL.Graphics.Ex.Gdip.pas',
+  ACL.Graphics.Ex.Stub in 'Base\ACL.Graphics.Ex.Stub.pas',
   ACL.Graphics.FontCache in 'Base\ACL.Graphics.FontCache.pas',
   ACL.Graphics.Images in 'Base\ACL.Graphics.Images.pas',
   ACL.Graphics.Palette in 'Base\ACL.Graphics.Palette.pas',
   ACL.Graphics.SkinImage in 'Base\ACL.Graphics.SkinImage.pas',
   ACL.Graphics.SkinImageSet in 'Base\ACL.Graphics.SkinImageSet.pas',
+  ACL.Graphics.Stub in 'Base\ACL.Graphics.Stub.pas',
   ACL.Graphics.TextLayout in 'Base\ACL.Graphics.TextLayout.pas',
   ACL.Hashes in 'Base\ACL.Hashes.pas',
   ACL.Math in 'Base\ACL.Math.pas',
@@ -93,13 +95,11 @@ contains
   ACL.Utils.Registry in 'Base\ACL.Utils.Registry.pas',
   ACL.Utils.RTTI in 'Base\ACL.Utils.RTTI.pas',
   ACL.Utils.Shell in 'Base\ACL.Utils.Shell.pas',
-  ACL.Utils.Shell.FileTypeRegistrar in 'Base\ACL.Utils.Shell.FileTypeRegistrar.pas',
   ACL.Utils.Stream in 'Base\ACL.Utils.Stream.pas',
   ACL.Utils.Strings in 'Base\ACL.Utils.Strings.pas',
   ACL.Web in 'Base\ACL.Web.pas',
   ACL.Web.Auth in 'Base\ACL.Web.Auth.pas',
   ACL.Web.Http in 'Base\ACL.Web.Http.pas',
-
   ACL.UI.AeroPeek in 'Visual\ACL.UI.AeroPeek.pas',
   ACL.UI.Animation in 'Visual\ACL.UI.Animation.pas',
   ACL.UI.Application in 'Visual\ACL.UI.Application.pas',
@@ -123,7 +123,6 @@ contains
   ACL.UI.Controls.DateTimeEdit in 'Visual\ACL.UI.Controls.DateTimeEdit.pas',
   ACL.UI.Controls.Docking in 'Visual\ACL.UI.Controls.Docking.pas',
   ACL.UI.Controls.DropDown in 'Visual\ACL.UI.Controls.DropDown.pas',
-  ACL.UI.Controls.FormattedLabel in 'Visual\ACL.UI.Controls.FormattedLabel.pas',
   ACL.UI.Controls.GroupBox in 'Visual\ACL.UI.Controls.GroupBox.pas',
   ACL.UI.Controls.HexView in 'Visual\ACL.UI.Controls.HexView.pas',
   ACL.UI.Controls.ImageComboBox in 'Visual\ACL.UI.Controls.ImageComboBox.pas',
@@ -150,9 +149,9 @@ contains
   ACL.UI.Controls.TreeList in 'Visual\ACL.UI.Controls.TreeList.pas',
   ACL.UI.Controls.TreeList.Options in 'Visual\ACL.UI.Controls.TreeList.Options.pas',
   ACL.UI.Controls.TreeList.SubClass in 'Visual\ACL.UI.Controls.TreeList.SubClass.pas',
-  ACL.UI.Controls.TreeList.SubClass.DragAndDrop in 'Visual\ACL.UI.Controls.TreeList.SubClass.DragAndDrop.pas',
   ACL.UI.Controls.TreeList.Types in 'Visual\ACL.UI.Controls.TreeList.Types.pas',
   ACL.UI.DesignTime.PropEditors in 'Visual\ACL.UI.DesignTime.PropEditors.pas',
+  ACL.UI.DesignTime.PropEditors.Stub in 'Visual\ACL.UI.DesignTime.PropEditors.Stub.pas',
   ACL.UI.DesignTime.PropEditors.ImageList in 'Visual\ACL.UI.DesignTime.PropEditors.ImageList.pas',
   ACL.UI.DesignTime.PropEditors.Menu in 'Visual\ACL.UI.DesignTime.PropEditors.Menu.pas',
   ACL.UI.DesignTime.PropEditors.Texture in 'Visual\ACL.UI.DesignTime.PropEditors.Texture.pas',
@@ -171,7 +170,8 @@ contains
   ACL.UI.Insight in 'Visual\ACL.UI.Insight.pas',
   ACL.UI.Menus in 'Visual\ACL.UI.Menus.pas',
   ACL.UI.Resources in 'Visual\ACL.UI.Resources.pas',
-  ACL.UI.TrayIcon in 'Visual\ACL.UI.TrayIcon.pas';
+  ACL.UI.TrayIcon in 'Visual\ACL.UI.TrayIcon.pas',
+  ACL.UndoRedo in 'Base\ACL.UndoRedo.pas';
 
 end.
 

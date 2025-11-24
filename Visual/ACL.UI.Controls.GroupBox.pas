@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   GroupBox
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -52,60 +52,40 @@ type
 
   { TACLCustomGroupBox }
 
-  TACLCustomGroupBox = class(TACLContainer,
-    IACLButtonOwner,
-    IACLCursorProvider)
+  TACLCustomGroupBox = class(TACLContainer, IACLCursorProvider)
   strict private
     FCaptionSubClass: TACLCheckBoxSubClass;
+    FDescription: string;
     FStyleCaption: TACLStyleCheckBox;
 
-    procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     procedure CheckBoxClickHandler(Sender: TObject);
     function GetCaption: string;
-    function GetContentRect: TRect;
-    procedure SetCaption(const S: string);
-    procedure SetStyleCaption(const Value: TACLStyleCheckBox);
+    procedure SetCaption(const AValue: string);
+    procedure SetDescription(const AValue: string);
+    procedure SetStyleCaption(AValue: TACLStyleCheckBox);
   protected
-    FCaptionArea: TRect;
-    FCaptionContentRect: TRect;
+    FCaptionRect: TRect;
+    FDescriptionRect: TRect;
     FFrameRect: TRect;
 
     procedure Calculate(const R: TRect); virtual;
-    procedure CalculateCaptionRect(const R: TRect); virtual;
-    procedure CalculateFrameRect(const R: TRect); virtual;
     function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     function CreatePadding: TACLPadding; override;
     function CreateStyleCaption: TACLStyleCheckBox; virtual; abstract;
 
     procedure AdjustClientRect(var Rect: TRect); override;
     procedure BoundsChanged; override;
-    procedure DoCheckBoxClick; virtual;
     procedure FocusChanged; override;
     function GetContentOffset: TRect; override;
     procedure ResourceChanged; override;
     procedure SetTargetDPI(AValue: Integer); override;
 
+    // Events
+    procedure DoCheckBoxClick; virtual;
+
     // Drawing
     procedure DrawBackground(ACanvas: TCanvas; const R: TRect);
-    procedure DrawCaption(ACanvas: TCanvas; const R: TRect); virtual;
-    procedure DrawContent(ACanvas: TCanvas; const R: TRect); virtual;
     procedure Paint; override;
-
-    // Keyboard
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
-
-    // Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-
-    // IACLButtonOwner
-    procedure IACLButtonOwner.ButtonOwnerRecalculate = FullRefresh;
-    function ButtonOwnerGetFont: TFont;
-    function ButtonOwnerGetImages: TCustomImageList;
-    function ButtonOwnerGetStyle: TACLStyleButton;
 
     // IACLCursorProvider
     function GetCursor(const P: TPoint): TCursor; reintroduce;
@@ -114,7 +94,7 @@ type
     destructor Destroy; override;
     // Properties
     property CaptionSubClass: TACLCheckBoxSubClass read FCaptionSubClass;
-    property ContentRect: TRect read GetContentRect;
+    property Description: string read FDescription write SetDescription;
   published
     property Anchors;
     property AutoSize;
@@ -140,9 +120,10 @@ type
     procedure SetAction(const Value: TACLGroupBoxCheckBoxAction);
     procedure SetChecked(const Value: Boolean);
     procedure SetVisible(const Value: Boolean);
+  protected
+    procedure AssignTo(ATarget: TPersistent); override;
   public
     constructor Create(AOwner: TACLGroupBox);
-    procedure Assign(Source: TPersistent); override;
     procedure Toggle;
   published
     property Action: TACLGroupBoxCheckBoxAction read FAction write SetAction default cbaNone;
@@ -182,7 +163,7 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
-
+    //# Properties
     property Minimized: Boolean read FMinimized write SetMinimized;
   published
     property CheckBox: TACLGroupBoxCheckBox read FCheckBox write SetCheckBox;
@@ -203,6 +184,13 @@ uses
 
 type
 
+  { TACLGroupBoxCheckBoxSubClass }
+
+  TACLGroupBoxCheckBoxSubClass = class(TACLCheckBoxSubClass)
+  protected
+    procedure AssignCanvasParameters(ACanvas: TCanvas); override;
+  end;
+
   { TACLGroupBoxUIInsightAdapter }
 
   TACLGroupBoxUIInsightAdapter = class(TACLUIInsightAdapterWinControl)
@@ -217,98 +205,96 @@ begin
   inherited Create(AOwner);
   ControlStyle := ControlStyle + [csAcceptsControls];
   FStyleCaption := CreateStyleCaption;
-  FCaptionSubClass := TACLCheckBoxSubClass.Create(Self);
-  FCaptionSubClass.Alignment := taLeftJustify;
-  FCaptionSubClass.CheckState := cbChecked;
-  FCaptionSubClass.ShowCheckMark := False;
-  FCaptionSubClass.OnClick := CheckBoxClickHandler;
+  RegisterSubClass(FCaptionSubClass, TACLGroupBoxCheckBoxSubClass.Create(Self, StyleCaption));
+  CaptionSubClass.Alignment := taLeftJustify;
+  CaptionSubClass.CheckState := cbChecked;
+  CaptionSubClass.ShowCheckMark := False;
+  CaptionSubClass.OnClick := CheckBoxClickHandler;
   DoubleBuffered := True;
 end;
 
 destructor TACLCustomGroupBox.Destroy;
 begin
-  FreeAndNil(FCaptionSubClass);
   FreeAndNil(FStyleCaption);
   inherited Destroy;
 end;
 
 procedure TACLCustomGroupBox.Calculate(const R: TRect);
+var
+  LHeight: Integer;
+  LIndent: Integer;
+  LMargins: TRect;
+  LWidth: Integer;
 begin
   TabStop := CaptionSubClass.ShowCheckMark;
   FocusOnClick := CaptionSubClass.ShowCheckMark;
-  CalculateCaptionRect(R);
-  CalculateFrameRect(R);
-  CaptionSubClass.IsEnabled := Enabled;
-  CaptionSubClass.Calculate(FCaptionContentRect);
-end;
 
-procedure TACLCustomGroupBox.CalculateCaptionRect(const R: TRect);
-var
-  AHeight: Integer;
-  AIndent: Integer;
-  AMargins: TRect;
-  AWidth: Integer;
-begin
+  FDescriptionRect := NullRect;
   if CaptionSubClass.Caption <> '' then
   begin
-    AWidth := -1;
-    AHeight := -1;
-    CaptionSubClass.CalculateAutoSize(AWidth, AHeight);
+    LWidth := -1;
+    LHeight := -1;
+    CaptionSubClass.CalculateAutoSize(LWidth, LHeight);
+    LIndent := dpiApply(acTextIndent, FCurrentPPI);
 
-    AIndent := Trunc(TACLMargins.DefaultValue * FCurrentPPI / acDefaultDPI);
-    AMargins := Padding.GetScaledMargins(FCurrentPPI);
-    AMargins.MarginsAdd(GetContentOffset);
-    AMargins.MarginsAdd(AIndent, 0, AIndent, 0);
+    FCaptionRect := R;
+    LMargins := Padding.GetScaledMargins(FCurrentPPI);
+    LMargins.MarginsAdd(GetContentOffset);
+    Inc(FCaptionRect.Left, LMargins.Left);
+    Dec(FCaptionRect.Right, LMargins.Right);
+    FCaptionRect.Height := LHeight;
 
-    FCaptionContentRect := R;
-    Inc(FCaptionContentRect.Left, AMargins.Left);
-    Dec(FCaptionContentRect.Right, AMargins.Right);
-    FCaptionContentRect.Height := AHeight;
-    FCaptionContentRect.Width := Min(AWidth, FCaptionContentRect.Width);
+    if Description <> '' then
+    begin
+      FDescriptionRect := FCaptionRect.Split(srRight, 2 * LIndent + acTextSize(Font, Description).Width);
+      FCaptionRect.Right := FDescriptionRect.Left - dpiApply(16, FCurrentPPI);
+    end;
 
-    FCaptionArea := FCaptionContentRect;
-    FCaptionArea.Inflate(dpiApply(acTextIndent, FCurrentPPI), 0)
+    FCaptionRect.Width := Min(LWidth, FCaptionRect.Width);
+    FCaptionSubClass.Calculate(FCaptionRect);
+    FCaptionRect.Inflate(LIndent, 0);
   end
   else
   begin
-    FCaptionArea := R;
-    FCaptionArea.Height := 0;
-    FCaptionContentRect := FCaptionArea;
+    FCaptionRect := R;
+    FCaptionRect.Height := 0;
+    CaptionSubClass.Calculate(NullRect);
   end;
-end;
 
-procedure TACLCustomGroupBox.CalculateFrameRect(const R: TRect);
-begin
   FFrameRect := R;
-  FFrameRect.Top := (FCaptionArea.Top + FCaptionArea.Bottom) div 2;
+  FFrameRect.Top := (FCaptionRect.Top + FCaptionRect.Bottom) div 2 + FCaptionRect.Height and $1;
 end;
 
 function TACLCustomGroupBox.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
 begin
   Result := inherited CanAutoSize(NewWidth, NewHeight);
-  if not FCaptionArea.IsEmpty then
+  if not FCaptionRect.IsEmpty then
   begin
-    NewHeight := Max(NewHeight, FCaptionArea.Height);
-    NewWidth := Max(NewWidth, FCaptionArea.Width);
+    NewHeight := Max(NewHeight, FCaptionRect.Height);
+    NewWidth := Max(NewWidth, FCaptionRect.Width);
   end;
 end;
 
 function TACLCustomGroupBox.CreatePadding: TACLPadding;
 begin
-  Result := TACLPadding.Create(5);
+  Result := TACLPadding.Create(8);
 end;
 
 procedure TACLCustomGroupBox.AdjustClientRect(var Rect: TRect);
 begin
   inherited;
-  if not FCaptionArea.IsEmpty then
-    Rect.Top := Max(Rect.Top, FCaptionArea.Bottom - 1);
+  Rect.Top := Max(Rect.Top, FCaptionRect.Bottom);
 end;
 
 procedure TACLCustomGroupBox.BoundsChanged;
 begin
   inherited;
   Calculate(ClientRect);
+end;
+
+procedure TACLCustomGroupBox.CheckBoxClickHandler(Sender: TObject);
+begin
+  DoCheckBoxClick;
 end;
 
 procedure TACLCustomGroupBox.DoCheckBoxClick;
@@ -325,12 +311,12 @@ end;
 
 function TACLCustomGroupBox.GetContentOffset: TRect;
 begin
-  if FCaptionArea.IsEmpty then // Panel-like mode.
+  if FCaptionRect.IsEmpty then
     Result := inherited
   else
   begin
     Result := acBorderOffsets;
-    Result.Top := FFrameRect.Top;
+    Inc(Result.Top, FFrameRect.Top + 1);
   end;
 end;
 
@@ -361,83 +347,32 @@ begin
     Style.DrawContent(ACanvas, R);
 end;
 
-procedure TACLCustomGroupBox.DrawCaption(ACanvas: TCanvas; const R: TRect);
-begin
-  CaptionSubClass.Draw(ACanvas);
-end;
-
-procedure TACLCustomGroupBox.DrawContent(ACanvas: TCanvas; const R: TRect);
-begin
-  // do nothing
-end;
-
 procedure TACLCustomGroupBox.Paint;
 var
-  ASaveIndex: Integer;
+  LClipRgn: TRegionHandle;
 begin
-  Canvas.Font := Font;
-  Canvas.Brush.Style := bsClear;
-  ASaveIndex := acSaveDC(Canvas);
-  try
-    DrawBackground(Canvas, ClientRect);
-    DrawCaption(Canvas, FCaptionArea);
-    acExcludeFromClipRegion(Canvas.Handle, FCaptionArea);
-    DrawContent(Canvas, ContentRect);
-    Style.DrawBorder(Canvas, FFrameRect, Borders);
-  finally
-    acRestoreDC(Canvas, ASaveIndex);
+  DrawBackground(Canvas, ClientRect);
+  if FCaptionRect.IsEmpty then
+    Style.DrawBorder(Canvas, FFrameRect, Borders)
+  else
+  begin
+    LClipRgn := acSaveClipRegion(Canvas.Handle);
+    try
+      CaptionSubClass.Draw(Canvas);
+      if not FDescriptionRect.IsEmpty then
+      begin
+        Canvas.Font := Font;
+        Canvas.Font.Color := StyleCaption.ColorTextDisabled.AsColor;
+        Canvas.Brush.Style := bsClear;
+        acTextDraw(Canvas, Description, FDescriptionRect, taCenter);
+      end;
+      acExcludeFromClipRegion(Canvas.Handle, FCaptionRect);
+      acExcludeFromClipRegion(Canvas.Handle, FDescriptionRect);
+      Style.DrawBorder(Canvas, FFrameRect, Borders);
+    finally
+      acRestoreClipRegion(Canvas.Handle, LClipRgn);
+    end;
   end;
-end;
-
-procedure TACLCustomGroupBox.KeyDown(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyDown(Key, Shift);
-  CaptionSubClass.KeyDown(Key, Shift);
-end;
-
-procedure TACLCustomGroupBox.KeyUp(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyUp(Key, Shift);
-  CaptionSubClass.KeyUp(Key, Shift);
-end;
-
-procedure TACLCustomGroupBox.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseDown(Button, Shift, X, Y);
-  CaptionSubClass.MouseDown(Button, Point(X, Y));
-end;
-
-procedure TACLCustomGroupBox.MouseLeave;
-begin
-  inherited MouseLeave;
-  CaptionSubClass.MouseMove([], InvalidPoint);
-end;
-
-procedure TACLCustomGroupBox.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseMove(Shift, X, Y);
-  CaptionSubClass.MouseMove(Shift, Point(X, Y));
-end;
-
-procedure TACLCustomGroupBox.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseUp(Button, Shift, X, Y);
-  CaptionSubClass.MouseUp(mbLeft, Point(X, Y));
-end;
-
-function TACLCustomGroupBox.ButtonOwnerGetFont: TFont;
-begin
-  Result := Font;
-end;
-
-function TACLCustomGroupBox.ButtonOwnerGetImages: TCustomImageList;
-begin
-  Result := nil;
-end;
-
-function TACLCustomGroupBox.ButtonOwnerGetStyle: TACLStyleButton;
-begin
-  Result := StyleCaption;
 end;
 
 function TACLCustomGroupBox.GetCaption: string;
@@ -445,36 +380,29 @@ begin
   Result := CaptionSubClass.Caption;
 end;
 
-function TACLCustomGroupBox.GetContentRect: TRect;
+procedure TACLCustomGroupBox.SetCaption(const AValue: string);
 begin
-  Result := ClientRect;
-  AdjustClientRect(Result);
-end;
-
-procedure TACLCustomGroupBox.SetCaption(const S: string);
-begin
-  if Caption <> S then
+  if Caption <> AValue then
   begin
-    CaptionSubClass.Caption := S;
+    CaptionSubClass.Caption := AValue;
     FullRefresh;
     Realign;
   end;
 end;
 
-procedure TACLCustomGroupBox.SetStyleCaption(const Value: TACLStyleCheckBox);
+procedure TACLCustomGroupBox.SetDescription(const AValue: string);
 begin
-  FStyleCaption.Assign(Value);
+  if Description <> AValue then
+  begin
+    FDescription := AValue;
+    Calculate(ClientRect);
+    Invalidate;
+  end;
 end;
 
-procedure TACLCustomGroupBox.CheckBoxClickHandler(Sender: TObject);
+procedure TACLCustomGroupBox.SetStyleCaption(AValue: TACLStyleCheckBox);
 begin
-  DoCheckBoxClick;
-end;
-
-procedure TACLCustomGroupBox.CMEnabledChanged(var Message: TMessage);
-begin
-  inherited;
-  FullRefresh;
+  FStyleCaption.Assign(AValue);
 end;
 
 { TACLGroupBoxCheckBox }
@@ -484,13 +412,13 @@ begin
   FOwner := AOwner;
 end;
 
-procedure TACLGroupBoxCheckBox.Assign(Source: TPersistent);
+procedure TACLGroupBoxCheckBox.AssignTo(ATarget: TPersistent);
 begin
-  if Source is TACLGroupBoxCheckBox then
+  if ATarget is TACLGroupBoxCheckBox then
   begin
-    Action := TACLGroupBoxCheckBox(Source).Action;
-    Checked := TACLGroupBoxCheckBox(Source).Checked;
-    Visible := TACLGroupBoxCheckBox(Source).Visible;
+    TACLGroupBoxCheckBox(ATarget).Action := Action;
+    TACLGroupBoxCheckBox(ATarget).Checked := Checked;
+    TACLGroupBoxCheckBox(ATarget).Visible := Visible;
   end;
 end;
 
@@ -538,6 +466,7 @@ begin
   if Visible <> Value then
   begin
     FOwner.CaptionSubClass.ShowCheckMark := Value;
+    FOwner.BoundsChanged; // recalculate
     FOwner.ApplyCheckBoxState;
   end;
 end;
@@ -566,13 +495,12 @@ end;
 
 procedure TACLGroupBox.AdjustClientRect(var Rect: TRect);
 begin
+  inherited;
   if Minimized then
   begin
     Rect.Top := GetMinimizeStateHeight;
-    Rect.Bottom := MaxWord;
-  end
-  else
-    inherited;
+    Rect.Bottom := High(SmallInt);
+  end;
 end;
 
 procedure TACLGroupBox.ApplyCheckBoxState;
@@ -622,7 +550,7 @@ end;
 
 function TACLGroupBox.GetMinimizeStateHeight: Integer;
 begin
-  Result := FCaptionArea.Bottom + acBorderOffsets.Bottom;
+  Result := FCaptionRect.Bottom + acBorderOffsets.Bottom;
 end;
 
 procedure TACLGroupBox.DisableChildren;
@@ -674,10 +602,12 @@ begin
   begin
     FMinimized := AValue;
     if Minimized then
-      FRestoredHeight := Height
+    begin
+      FRestoredHeight := Height;
+      Height := GetMinimizeStateHeight;
+    end
     else
       Height := FRestoredHeight;
-    AdjustSize;
   end;
 end;
 
@@ -707,6 +637,14 @@ begin
   ColorTextPressed.InitailizeDefaults('Groups.Colors.HeaderText');
   ColorTextDisabled.InitailizeDefaults('Groups.Colors.HeaderText');
   InitializeTextures;
+end;
+
+{ TACLGroupBoxCheckBoxSubClass }
+
+procedure TACLGroupBoxCheckBoxSubClass.AssignCanvasParameters(ACanvas: TCanvas);
+begin
+  inherited;
+  ACanvas.Font.Style := [TFontStyle.fsBold];
 end;
 
 { TACLGroupBoxUIInsightAdapter }

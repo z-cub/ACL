@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Fast-way cross platform INI-file implementation
 //
@@ -495,7 +495,7 @@ function TACLIniFileSection.ReadColor(const AKey: string; ADefault: TColor): TCo
 var
   A: array[0..2] of Integer;
 begin
-  case acExplodeStringAsIntegerArray(ReadString(AKey), ',', @A[0], Length(A)) of
+  case acSplitStringAsIntegerArray(ReadString(AKey), ',', @A[0], Length(A)) of
     0: Result := ADefault;
     1: Result := {%H-}A[0];
     else

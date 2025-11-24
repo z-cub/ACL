@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Base classes for controls
 //
@@ -23,6 +23,7 @@ uses
   LCLType,
   LMessages,
   LResources,
+  WSLCLClasses,
 {$ELSE}
   Winapi.DwmApi,
   Winapi.Windows,
@@ -61,7 +62,9 @@ uses
   ACL.UI.Resources,
   ACL.Utils.Common,
   ACL.Utils.DPIAware,
-  ACL.Utils.FileSystem;
+  ACL.Utils.FileSystem,
+  ACL.Utils.Shell,
+  ACL.Utils.Strings;
 
 const
   CM_SCALECHANGING = $BF00;
@@ -129,6 +132,7 @@ type
 {$ENDIF}
 
 const
+  acAutoScrollInterval =  300;
   acIndentBetweenElements = 5;
   acResizeHitTestAreaSize = 6;
 
@@ -139,25 +143,34 @@ const
   acAnchorBottomRight = [akRight, akBottom];
 
 type
+
 {$REGION ' General Types '}
 
   TTabOrderList = {$IFDEF FPC}TFPList{$ELSE}TList{$ENDIF};
   TWideKeyEvent = procedure(var Key: WideChar) of object;
 
-  TACLOrientation = (oHorizontal, oVertical);
   TACLControlActionType = (ccatNone, ccatMouse, ccatGesture, ccatKeyboard);
+
+  TACLOrientation = (oHorizontal, oVertical);
+  {$SCOPEDENUMS ON}
+  TACLScrollToMode = (MakeVisible, MakeTop, MakeCenter);
+  {$SCOPEDENUMS OFF}
   TACLSelectionMode = (smUnselect, smSelect, smInvert);
 
   TACLCustomDrawEvent = procedure (Sender: TObject;
     ACanvas: TCanvas; const R: TRect; var AHandled: Boolean) of object;
+  TACLGetHintEvent = procedure (Sender: TObject;
+    X, Y: Integer; var AHint: string) of object;
   TACLKeyPreviewEvent = procedure (AKey: Word;
     AShift: TShiftState; var AAccept: Boolean) of object;
-  TACLGetHintEvent = procedure (Sender: TObject; X, Y: Integer; var AHint: string) of object;
+  TACLHyperlinkEvent = procedure (Sender: TObject;
+    const AUrl: string; var AHandled: Boolean) of object;
 
   { IACLControl }
 
   IACLControl = interface(IACLCurrentDPI)
   ['{D41EBD0F-D2EE-4517-AD7E-EEE8FC0ACFD4}']
+    function GetFont: TFont;
     function GetEnabled: Boolean;
     procedure InvalidateRect(const R: TRect);
     procedure Update;
@@ -247,13 +260,13 @@ type
     FOnChanged: TNotifyEvent;
 
     function GetAll: Integer;
-    function GetMargins: TRect;
+    function GetRect: TRect;
     function GetValue(const Index: Integer): Integer;
     function IsAllAssigned: Boolean;
     function IsAllStored: Boolean;
     function IsValueStored(const Index: Integer): Boolean;
     procedure SetAll(const Value: Integer);
-    procedure SetMargins(const Value: TRect);
+    procedure SetRect(const Value: TRect);
     procedure SetScalable(const Value: Boolean);
     procedure SetValue(const Index, Value: Integer);
   protected
@@ -263,8 +276,9 @@ type
     constructor Create(ADefaultValue: Integer);
     procedure Assign(Source: TPersistent); override;
     function GetScaledMargins(ATargetDpi: Integer): TRect;
+    function ToString: string; override;
     // Properties
-    property Margins: TRect read GetMargins write SetMargins;
+    property Rect: TRect read GetRect write SetRect;
     // Events
     property OnChanged: TNotifyEvent read FOnChanged write FOnChanged;
   published
@@ -280,16 +294,17 @@ type
 
   TACLMargins = class(TACLPadding)
   public const
-    DefaultValue = 3;
+    Default = 3;
   end;
 
   { TACLSubControlOptions }
 
   TACLSubControlOptions = class(TPersistent)
   strict private
-    FAutoSizeCache: TRect;
     FAlign: TACLBoolean;
+    FAutoSizeCache: TRect;
     FControl: TControl;
+    FIndent: Integer;
     FOwner: TControl;
     FPosition: TACLBorder;
     FPrevWndProc: TWndMethod;
@@ -298,8 +313,10 @@ type
     function Validate: Boolean;
     procedure SetAlign(AValue: TACLBoolean);
     procedure SetControl(AValue: TControl);
+    procedure SetIndent(AValue: Integer);
     procedure SetPosition(AValue: TACLBorder);
   protected
+    procedure AssignTo(ATarget: TPersistent); override;
     procedure Changed; virtual;
     procedure WindowProc(var Message: TMessage); virtual;
     // Called from the Owner
@@ -314,10 +331,10 @@ type
   public
     constructor Create(AOwner: TControl);
     destructor Destroy; override;
-    procedure Assign(Source: TPersistent); override;
     class function TryGet(ACtrl: TControl): TACLSubControlOptions;
   published
     property Align: TACLBoolean read FAlign write SetAlign default TACLBoolean.Default;
+    property Indent: Integer read FIndent write SetIndent default -1;
     property Position: TACLBorder read FPosition write SetPosition default mRight;
     property Control: TControl read FControl write SetControl; // last
   end;
@@ -325,7 +342,7 @@ type
   { TACLDeferPlacementUpdate }
 
   TACLDeferPlacementUpdate = class
-  strict private
+  protected
     FBounds: TACLDictionary<TControl, TRect>;
     function GetBounds(AControl: TControl): TRect;
   public
@@ -333,7 +350,7 @@ type
     destructor Destroy; override;
     procedure Add(AControl: TControl; ALeft, ATop, AWidth, AHeight: Integer); overload;
     procedure Add(AControl: TControl; const ABounds: TRect); overload;
-    procedure Apply;
+    procedure Apply; virtual;
     property Bounds[AControl: TControl]: TRect read GetBounds;
   end;
 
@@ -427,7 +444,7 @@ type
     class var FInstance: TACLMouseTracker;
     class function Get: TACLMouseTracker;
   protected
-    function DoAdding(const AObject: IACLMouseTracking): Boolean; override;
+    function CanAdd(const AObject: IACLMouseTracking): Boolean; override;
     procedure TimerObject(const AObject: IACLMouseTracking); override;
   public
     class destructor Destroy;
@@ -463,9 +480,57 @@ type
     DirectionToScrollCodeI: array[TACLMouseWheelDirection] of Integer = (SB_LINEDOWN, SB_LINEUP);
   public
     class constructor Create;
+    class procedure HWheelToVWheel(var AMessage: TWMMouseWheel);
     class function GetDirection(AWheelDelta: Integer): TACLMouseWheelDirection;
     class function GetScrollLines(AState: TShiftState): Integer;
-    class function HWheelToVWheel(const AMessage: TWMMouseWheel): TWMMouseWheel;
+  end;
+
+{$ENDREGION}
+
+{$REGION ' SubClasses '}
+
+  TACLControlSubClass = class(TComponent)
+  strict private
+    FOwner: IACLControl;
+  protected
+    FBounds: TRect;
+  public
+    constructor Create(const AOwner: IACLControl); reintroduce;
+    procedure Calculate(ABounds: TRect); virtual;
+    procedure Draw(ACanvas: TCanvas); virtual;
+    procedure Invalidate;
+    procedure Refresh;
+    procedure RefreshAutoSize;
+    // Keyboard
+    procedure KeyChar(var Key: WideChar); virtual;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); virtual;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); virtual;
+    // Mouse
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; const P: TPoint); virtual;
+    procedure MouseLeave; virtual;
+    procedure MouseMove(Shift: TShiftState; const P: TPoint); virtual;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; const P: TPoint); virtual;
+    // Properties
+    property Bounds: TRect read FBounds;
+    property Owner: IACLControl read FOwner;
+  end;
+
+  { TACLControlSubClasses }
+
+  TACLControlSubClasses = class(TACLObjectList)
+  public
+    procedure Dispatch(var AMessage); reintroduce; // override;
+    procedure Draw(ACanvas: TCanvas);
+    function HitTest(const P: TPoint): TACLControlSubClass;
+    // Keyboard
+    procedure KeyDown(var Key: Word; Shift: TShiftState);
+    procedure KeyPress(var Key: WideChar);
+    procedure KeyUp(var Key: Word; Shift: TShiftState);
+    // Mouse
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; const P: TPoint);
+    procedure MouseLeave;
+    procedure MouseMove(Shift: TShiftState; const P: TPoint);
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; const P: TPoint);
   end;
 
 {$ENDREGION}
@@ -496,13 +561,9 @@ type
     function IsMarginsStored: Boolean;
     procedure MarginsChangeHandler(Sender: TObject);
     procedure SetAlignOrder(AValue: Integer);
+    procedure SetAlignWithMargins(AValue: Boolean);
     procedure SetMargins(const Value: TACLMargins);
     procedure SetResourceCollection(AValue: TACLCustomResourceCollection);
-  {$IFDEF FPC}
-  strict private
-    FAlignWithMargins: Boolean;
-    procedure SetAlignWithMargins(AValue: Boolean);
-  {$ENDIF}
   protected
     FDefaultSize: TSize;
   {$IFDEF FPC}
@@ -522,6 +583,8 @@ type
 
     // IACLCurrentDpi
     function GetCurrentDpi: Integer;
+    // IACLControl
+    function GetFont: TFont;
     // IACLMouseTracking
     function IsMouseAtControl: Boolean; virtual;
     procedure MouseEnter; reintroduce; virtual;
@@ -567,8 +630,10 @@ type
   published
     property Align;
     property AlignOrder: Integer read FAlignOrder write SetAlignOrder default 0;
-  {$IFDEF FPC}
-    property AlignWithMargins: Boolean read FAlignWithMargins write SetAlignWithMargins default False;
+  {$IFNDEF FPC}
+    // Especially for migration reasons.
+    // This property is no longer needed, now the margins will be set as it defined in Margins property
+    property AlignWithMargins write SetAlignWithMargins stored False;
   {$ENDIF}
     property Anchors;
     property Enabled;
@@ -586,6 +651,7 @@ type
   protected
     // IACLCurrentDpi
     function GetCurrentDpi: Integer;
+    function GetFont: TFont;
     // TControl
     procedure SetParent(NewParent: TWinControl); override;
   {$IFDEF FPC}
@@ -625,6 +691,8 @@ type
     FResourceCollection: TACLCustomResourceCollection;
     FScaleChangeCount: Integer;
     FScaleChangeState: TObject;
+    FSkipCaptureChanged: Boolean;
+    FSubClasses: TACLControlSubClasses;
     FTransparent: Boolean;
 
     FOnBoundsChanged: TNotifyEvent;
@@ -633,33 +701,33 @@ type
     function IsMarginsStored: Boolean;
     function IsPaddingStored: Boolean;
     procedure SetAlignOrder(AValue: Integer);
-    procedure SetMargins(const Value: TACLMargins);
-    procedure SetPadding(const Value: TACLPadding);
+    procedure SetAlignWithMargins(AValue: Boolean);
+    procedure SetMargins(AValue: TACLMargins);
+    procedure SetPadding(AValue: TACLPadding);
     procedure SetResourceCollection(AValue: TACLCustomResourceCollection);
     procedure SetTransparent(AValue: Boolean);
     //# Handlers
     procedure MarginsChangeHandler(Sender: TObject);
     procedure PaddingChangeHandler(Sender: TObject);
     //# Messages
+    procedure CMCancelMode(var Message: TMessage); message CM_CANCELMODE;
     procedure CMDialogChar(var Message: TCMDialogChar); message {%H-}CM_DIALOGCHAR;
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
     procedure CMScaleChanged(var Message: TMessage); message CM_SCALECHANGED;
     procedure CMScaleChanging(var Message: TMessage); message CM_SCALECHANGING;
+    procedure WMCaptureChanged(var Message: TMessage); message WM_CAPTURECHANGED;
     procedure WMEraseBkgnd(var Message: TWMEraseBkgnd); message WM_ERASEBKGND;
     procedure WMKillFocus(var Message: TWMKillFocus); message WM_KILLFOCUS;
     procedure WMLButtonDown(var Message: TWMLButtonDown); message WM_LBUTTONDOWN;
+    procedure WMLButtonUp(var Message: TWMLButtonUp); message WM_LBUTTONUP;
+    procedure WMNCHitTest(var Message: TWMNCHitTest); message WM_NCHITTEST;
     procedure WMMouseMove(var Message: TWMMouseMove); message WM_MOUSEMOVE;
     procedure WMMouseWheelHorz(var Message: TWMMouseWheel); message WM_MOUSEHWHEEL;
     procedure WMPaint(var Message: TWMPaint); message WM_PAINT;
     procedure WMSetFocus(var Message: TWMSetFocus); message WM_SETFOCUS;
     procedure WMSize(var Message: TWMSize); message WM_SIZE;
-  {$IFDEF FPC}
-  strict private
-    FAlignWithMargins: Boolean;
-    procedure SetAlignWithMargins(AValue: Boolean);
-  {$ENDIF}
   protected
     FDefaultSize: TSize;
     FRedrawOnResize: Boolean;
@@ -672,6 +740,7 @@ type
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
     procedure KeyDownBeforeInterface(var Key: Word; Shift: TShiftState); override;
     procedure InitializeWnd; override;
+    class procedure WSRegisterClass; override;
   {$ENDIF}
     procedure ChangeScale(M, D: Integer; isDpiChange: Boolean); override;
     function CreatePadding: TACLPadding; virtual;
@@ -688,13 +757,23 @@ type
     procedure Paint; override;
     procedure PaintWindow(DC: HDC); override;
     procedure Resize; override; final;
+    procedure RegisterSubClass(out Obj; Inst: TACLControlSubClass);
     procedure SetFocusOnClick; virtual;
     procedure SetTargetDPI(AValue: Integer); virtual;
     procedure UpdateCursor;
     procedure UpdateTransparency; virtual;
     procedure WndProc(var Message: TMessage); override;
 
-    // IACLMouseTracking
+    //# Keyboard
+    procedure KeyChar(var Key: WideChar); virtual;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyPress(var Key: Char); override; final;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
+  {$IFDEF FPC}
+    procedure Utf8KeyPress(var Key: TUTF8Char); override; final;
+  {$ENDIF}
+
+    //# Mouse
     function DoMouseWheel(Shift: TShiftState; Delta: Integer; MousePos: TPoint): Boolean; override; final;
     function DoMouseWheelDown(Shift: TShiftState; MousePos: TPoint): Boolean; override; final;
     function DoMouseWheelUp(Shift: TShiftState; MousePos: TPoint): Boolean; override; final;
@@ -702,6 +781,8 @@ type
     procedure MouseEnter; reintroduce; virtual;
     procedure MouseLeave; reintroduce; virtual;
     procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     function MouseWheel(Direction: TACLMouseWheelDirection;
       Shift: TShiftState; const MousePos: TPoint): Boolean; virtual;
 
@@ -718,6 +799,7 @@ type
     property MouseInClient: Boolean read FMouseInClient;
     property Padding: TACLPadding read FPadding write SetPadding stored IsPaddingStored;
     property ResourceCollection: TACLCustomResourceCollection read FResourceCollection write SetResourceCollection;
+    property SubClasses: TACLControlSubClasses read FSubClasses {nullable};
     property Transparent: Boolean read FTransparent write SetTransparent default False;
   public
     constructor Create(AOwner: TComponent); override;
@@ -725,6 +807,7 @@ type
     procedure AdjustSize; override;
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
+    function ClientRectForControls: TRect;
     procedure FullRefresh;
     procedure Invalidate; override;
     // IACLControl
@@ -739,8 +822,10 @@ type
   published
     property Align;
     property AlignOrder: Integer read FAlignOrder write SetAlignOrder default 0;
-  {$IFDEF FPC}
-    property AlignWithMargins: Boolean read FAlignWithMargins write SetAlignWithMargins default False;
+  {$IFNDEF FPC}
+    // Especially for migration reasons.
+    // This property is no longer needed, now the margins will be set as it defined in Margins property
+    property AlignWithMargins write SetAlignWithMargins stored False;
   {$ENDIF}
     property Anchors;
     property Constraints;
@@ -812,6 +897,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    procedure AdjustForContentHeight(ATargetHeight: Integer);
   published
     property ResourceCollection;
     property Style: TACLStyleBackground read FStyle write SetStyle;
@@ -844,7 +930,15 @@ type
     procedure PaintTo(ACanvas: TCanvas; X, Y: Integer);
   {$IFDEF FPC}
     procedure SendCancelMode(Sender: TControl);
+    procedure SetDesignVisible(Value: Boolean);
   {$ENDIF}
+  end;
+
+  { TACLWinControlHelper }
+
+  TACLWinControlHelper = class helper{(TACLControlHelper)} for TWinControl
+  public
+    procedure EnableChildren(AEnabled: Boolean);
   end;
 
   { TACLControls }
@@ -859,11 +953,10 @@ type
     class procedure ScaleChanging(AControl: TWinControl; var AState: TObject);
     class procedure ScaleChanged(AControl: TWinControl; var AState: TObject);
     // Margins
-    class procedure SetAlignWithMargins(AControl: TControl; AEnabled: Boolean);
-    class procedure UpdateMargins(AControl: TControl;
-      AUseMargins: Boolean; AMargins: TACLPadding; ACurrentDpi: Integer); overload;
-    class procedure UpdateMargins(AControl: TControl; const AMargins: TRect); overload;
+    class function GetMargins(AControl: TControl; out AMargins: TACLMargins): Boolean;
+    class procedure UpdateMargins(AControl: TControl; const AMargins: TRect);
     // Messages
+    class function NCHitTest(AControl: TWinControl; var Message: TWMMouse): Integer;
     class function WndProc(ACaller: TWinControl; var Message: TMessage): Boolean; inline;
   end;
 
@@ -879,29 +972,34 @@ type
       AValue: Single; AChanges: TACLPersistentChanges = [apcStruct]);
   end;
 
+  { TDragImageListHelper }
+
+  TDragImageListHelper = class helper for TDragImageList
+  public
+    procedure ShowDragImageEx;
+  end;
+
 {$ENDREGION}
-
-  { TACLScrollToMode }
-
-  {$SCOPEDENUMS ON}
-  TACLScrollToMode = (MakeVisible, MakeTop, MakeCenter);
-  {$SCOPEDENUMS OFF}
 
 var
   acMenuLoopCount: Integer = 0; //!!! read-only
 
 function CallCustomDrawEvent(Sender: TObject;
   AEvent: TACLCustomDrawEvent; ACanvas: TCanvas; const R: TRect): Boolean;
+procedure CallHyperlink(Sender: TObject;
+  ACustomEvent: TACLHyperlinkEvent; const AHyperlink: string);
 function CreateControl(AClass: TControlClass; AParent: TWinControl;
   const R: TRect; AAlign: TAlign = alNone; AAnchors: TAnchors = [akLeft, akTop]): TControl; overload;
 procedure CreateControl(out Obj; AClass: TControlClass; AParent: TWinControl;
   const R: TRect; AAlign: TAlign = alNone; AAnchors: TAnchors = [akLeft, akTop]); overload;
-function GetElementWidthIncludeOffset(const R: TRect; ATargetDpi: Integer): Integer;
 
+function acCalculateNextPageIndex(AFocusedIndex: Integer;
+  AFirstVisibleIndex, ALastVisibleIndex: Integer; AGoForward: Boolean): Integer;
 function acCalculateScrollToDelta(
   const AObjectBounds, AAreaBounds: TRect; AScrollToMode: TACLScrollToMode): TPoint; overload;
 function acCalculateScrollToDelta(AObjectTopValue, AObjectBottomValue: Integer;
   AAreaTopValue, AAreaBottomValue: Integer; AScrollToMode: TACLScrollToMode): Integer; overload;
+function acElementRectIncludeOffset(const R: TRect; ATargetDpi: Integer): TRect;
 
 procedure acDrawTransparentControlBackground(AControl: TWinControl;
   DC: HDC; R: TRect; APaintWithChildren: Boolean = True);
@@ -939,6 +1037,8 @@ function acIsDropDownCommand(Key: Word; Shift: TShiftState): Boolean;
 function acIsShiftPressed(ATest, AState: TShiftState): Boolean;
 function acShiftStateToKeys(AShift: TShiftState): Word;
 
+procedure acMessageBeep(AType: TMsgDlgType);
+
 {$IFDEF FPC}
 function PointToLParam(const P: TPoint): LPARAM;
 procedure ProcessUtf8KeyPress(var Key: TUTF8Char; AEvent: TWideKeyEvent);
@@ -946,15 +1046,11 @@ procedure ProcessUtf8KeyPress(var Key: TUTF8Char; AEvent: TWideKeyEvent);
 implementation
 
 uses
-  ACL.UI.Forms.Base,
-{$IF DEFINED(LCLGtk2)}
-  ACL.UI.Core.Impl.Gtk2,
-{$ELSEIF DEFINED(MSWINDOWS)}
-  ACL.UI.Core.Impl.Win32,
-{$ENDIF}
+{$I ACL.UI.Core.Impl.inc},
   ACL.Threading,
-  ACL.Utils.RTTI,
-  ACL.UI.HintWindow;
+  ACL.UI.Forms.Base,
+  ACL.UI.HintWindow,
+  ACL.Utils.RTTI;
 
 type
   TPersistentAccess = class(TPersistent);
@@ -1007,6 +1103,20 @@ end;
 function acOpacityToAlphaBlendValue(AOpacity: Integer): Byte;
 begin
   Result := 15 + MulDiv(240, AOpacity, 100)
+end;
+
+procedure acMessageBeep(AType: TMsgDlgType);
+{$IFNDEF FPC}
+const
+  Map: array[TMsgDlgType] of Integer = (
+    MB_ICONWARNING, MB_ICONERROR, MB_ICONINFORMATION, MB_ICONQUESTION, 0);
+{$ENDIF}
+begin
+{$IFDEF FPC}
+  Beep;
+{$ELSE}
+  MessageBeep(Map[AType]);
+{$ENDIF}
 end;
 
 procedure acDrawTransparentControlBackground(AControl: TWinControl;
@@ -1087,7 +1197,9 @@ var
   LRegion1: HRGN;
   LRegion2: HRGN;
 begin
-  if (ABorderWidths <> NullRect) and AControl.HandleAllocated then
+  if ABorderWidths = NullRect then
+    Exit;
+  if AControl.HandleAllocated and not (csDestroying in AControl.ComponentState) then
   begin
     LRegion1 := CreateRectRgnIndirect(ARect);
     LRegion2 := CreateRectRgnIndirect(ARect.Split(ABorderWidths));
@@ -1100,7 +1212,7 @@ end;
 
 procedure acInvalidateRect(AControl: TWinControl; const ARect: TRect; AErase: Boolean);
 begin
-  if AControl.HandleAllocated then
+  if AControl.HandleAllocated and not (csDestroying in AControl.ComponentState) then
     InvalidateRect(AControl.Handle, {$IFDEF FPC}@{$ENDIF}ARect, AErase);
 end;
 
@@ -1137,7 +1249,20 @@ begin
   end;
 end;
 
-function acCalculateScrollToDelta(const AObjectBounds, AAreaBounds: TRect; AScrollToMode: TACLScrollToMode): TPoint;
+function acCalculateNextPageIndex(AFocusedIndex: Integer;
+  AFirstVisibleIndex, ALastVisibleIndex: Integer; AGoForward: Boolean): Integer;
+begin
+  if (AFirstVisibleIndex < 0) or (ALastVisibleIndex < 0) then
+    Exit(AFocusedIndex);
+  if not AGoForward and (AFocusedIndex <> AFirstVisibleIndex) then
+    Exit(AFirstVisibleIndex);
+  if AGoForward and (AFocusedIndex <> ALastVisibleIndex) then
+    Exit(ALastVisibleIndex);
+  Result := AFocusedIndex + Signs[AGoForward] * (ALastVisibleIndex - AFirstVisibleIndex);
+end;
+
+function acCalculateScrollToDelta(const AObjectBounds, AAreaBounds: TRect;
+  AScrollToMode: TACLScrollToMode): TPoint;
 begin
   Result.X := acCalculateScrollToDelta(AObjectBounds.Left,
     AObjectBounds.Right, AAreaBounds.Left, AAreaBounds.Right, AScrollToMode);
@@ -1170,7 +1295,7 @@ end;
 
 function acCanStartDragging(AControl: TWinControl; X, Y: Integer): Boolean;
 begin
-  Result := CheckStartDragImpl(AControl, X, Y,
+  Result := TACLStartDragHelper.Check(AControl, X, Y,
     dpiApply(Mouse.DragThreshold, acGetCurrentDpi(AControl)));
 end;
 
@@ -1194,19 +1319,20 @@ begin
     Result := AControl;
 end;
 
+function acElementRectIncludeOffset(const R: TRect; ATargetDpi: Integer): TRect;
+begin
+  if not R.IsEmpty then
+    Result := R.InflateTo(dpiApply(acIndentBetweenElements, ATargetDpi))
+  else
+    Result := R;
+end;
+
 function ImageListSize(AImages: TCustomImageList): TSize;
 begin
   if AImages <> nil then
     Result := TSize.Create(AImages.Width, AImages.Height)
   else
     Result := NullSize;
-end;
-
-function GetElementWidthIncludeOffset(const R: TRect; ATargetDpi: Integer): Integer;
-begin
-  Result := R.Width;
-  if Result > 0 then
-    Inc(Result, dpiApply(acIndentBetweenElements, ATargetDpi));
 end;
 
 function acIsChildOrSelf(AControl, AChildToTest: TControl): Boolean;
@@ -1334,6 +1460,18 @@ begin
     AEvent(Sender, ACanvas, R, Result);
 end;
 
+procedure CallHyperlink(Sender: TObject;
+  ACustomEvent: TACLHyperlinkEvent; const AHyperlink: string);
+var
+  LHandled: Boolean;
+begin
+  LHandled := False;
+  if Assigned(ACustomEvent) then
+    ACustomEvent(Sender, AHyperlink, LHandled);
+  if not LHandled and (AHyperlink <> '_') then
+    ShellExecute(acTrim(AHyperlink));
+end;
+
 function CreateControl(AClass: TControlClass; AParent: TWinControl;
   const R: TRect; AAlign: TAlign = alNone; AAnchors: TAnchors = [akLeft, akTop]): TControl;
 begin
@@ -1426,7 +1564,7 @@ begin
     Result.Top := Trunc(Top * AValue);
   end
   else
-    Result := Margins;
+    Result := Rect;
 end;
 
 procedure TACLPadding.Changed;
@@ -1451,9 +1589,12 @@ begin
     Result := 0;
 end;
 
-function TACLPadding.GetMargins: TRect;
+function TACLPadding.GetRect: TRect;
 begin
-  Result := Rect(Left, Top, Right, Bottom);
+  Result.Bottom := Bottom;
+  Result.Left := Left;
+  Result.Right := Right;
+  Result.Top := Top;
 end;
 
 function TACLPadding.GetValue(const Index: Integer): Integer;
@@ -1488,7 +1629,7 @@ begin
   end;
 end;
 
-procedure TACLPadding.SetMargins(const Value: TRect);
+procedure TACLPadding.SetRect(const Value: TRect);
 begin
   Bottom := Value.Bottom;
   Left := Value.Left;
@@ -1514,12 +1655,18 @@ begin
   end;
 end;
 
+function TACLPadding.ToString: string;
+begin
+  Result := '(' + acRectToString(Rect) + ')';
+end;
+
 { TACLSubControlOptions }
 
 constructor TACLSubControlOptions.Create(AOwner: TControl);
 begin
   FOwner := AOwner;
   FPosition := mRight;
+  FIndent := -1;
 end;
 
 destructor TACLSubControlOptions.Destroy;
@@ -1529,53 +1676,16 @@ begin
   inherited;
 end;
 
-procedure TACLSubControlOptions.Assign(Source: TPersistent);
-begin
-  if Source is TACLSubControlOptions then
-  begin
-    Control := TACLSubControlOptions(Source).Control;
-    Position := TACLSubControlOptions(Source).Position;
-    Align := TACLSubControlOptions(Source).Align;
-  end;
-end;
-
-procedure TACLSubControlOptions.Changed;
-begin
-  if not (csDestroying in FOwner.ComponentState) then
-  begin
-    TControlAccess(FOwner).AdjustSize;
-    TControlAccess(FOwner).Resize;
-    TControlAccess(FOwner).Invalidate;
-  end;
-end;
-
-procedure TACLSubControlOptions.WindowProc(var Message: TMessage);
-const
-  SWP_POS_CHANGE = SWP_NOMOVE or SWP_NOSIZE;
-var
-  AWindowPos: PWindowPos;
-begin
-  if Message.Msg = WM_WINDOWPOSCHANGED then
-  begin
-    AWindowPos := TWMWindowPosChanged(Message).WindowPos;
-    if (AWindowPos = nil) or (AWindowPos^.flags and SWP_POS_CHANGE <> SWP_POS_CHANGE) then
-    begin
-      if not (csAligning in Control.ControlState) then
-    {$IFDEF FPC}
-      if not Control.Parent.AutoSizeDelayed then
-    {$ENDIF}
-        TACLMainThread.RunPostponed(Changed, Self);
-    end;
-  end;
-  FPrevWndProc(Message);
-end;
-
 function TACLSubControlOptions.ActualIndentBetweenElements: Integer;
 begin
-  if Position in [mRight, mLeft] then
-    Result := dpiApply(acIndentBetweenElements, acGetCurrentDpi(FOwner))
+  if Indent >= 0 then
+    Result := Indent
+  else if Position in [mRight, mLeft] then
+    Result := acIndentBetweenElements
   else
-    Result := dpiApply(2, acGetCurrentDpi(FOwner));
+    Result := 2;
+
+  Result := dpiApply(Result, acGetCurrentDpi(FOwner));
 end;
 
 procedure TACLSubControlOptions.AlignControl(var AClientRect: TRect);
@@ -1628,21 +1738,33 @@ begin
   if TControlAccess(Control).AutoSize then
   begin
     LAutoSize := Bounds(LBounds.Width, LBounds.Height, 0, 0);
-  {$IFDEF FPC}
-    TControlAccess(Control).GetPreferredSize(LAutoSize.Right, LAutoSize.Bottom);
-  {$ELSE}
     if TControlAccess(Control).CanAutoSize(LAutoSize.Right, LAutoSize.Bottom) then
-  {$ENDIF}
-    if LAutoSize <> FAutoSizeCache then
     begin
-      FAutoSizeCache := LAutoSize;
-      LBounds.Height := LAutoSize.Bottom;
-      LBounds.Width := LAutoSize.Right;
-      TACLMainThread.RunPostponed(Changed, Self);
+      if LAutoSize <> FAutoSizeCache then
+      begin
+        FAutoSizeCache := LAutoSize;
+        //LBounds.Height := LAutoSize.Bottom;
+        //LBounds.Width := LAutoSize.Right;
+        TACLMainThread.RunPostponed(Changed, Self);
+      end;
     end;
+    // Всегда, иначе LCL начнет играть в пинг-понг
+    LBounds.Height := LAutoSize.Bottom;
+    LBounds.Width := LAutoSize.Right;
   end;
 
   TACLControls.AlignControl(Control, LBounds);
+end;
+
+procedure TACLSubControlOptions.AssignTo(ATarget: TPersistent);
+begin
+  if ATarget is TACLSubControlOptions then
+  begin
+    TACLSubControlOptions(ATarget).Control := Control;
+    TACLSubControlOptions(ATarget).Position := Position;
+    TACLSubControlOptions(ATarget).Indent := Indent;
+    TACLSubControlOptions(ATarget).Align := Align;
+  end;
 end;
 
 procedure TACLSubControlOptions.AfterAutoSize(var AWidth, AHeight: Integer);
@@ -1681,39 +1803,27 @@ begin
   end;
 end;
 
+procedure TACLSubControlOptions.Changed;
+begin
+  if not (csDestroying in FOwner.ComponentState) then
+  begin
+    TControlAccess(FOwner).AdjustSize;
+  {$IFDEF FPC}
+    TControlAccess(FOwner).BoundsChanged;
+  {$ELSE}
+    if FOwner is TACLCustomControl then
+      TACLCustomControl(FOwner).BoundsChanged
+    else
+      TControlAccess(FOwner).Resize;
+  {$ENDIF}
+    TControlAccess(FOwner).Invalidate;
+  end;
+end;
+
 procedure TACLSubControlOptions.Notification(AComponent: TComponent; AOperation: TOperation);
 begin
   if AComponent = Control then
     Control := nil;
-end;
-
-class function TACLSubControlOptions.TryGet(ACtrl: TControl): TACLSubControlOptions;
-begin
-  Result := TRTTI.TryGetPropObject<TACLSubControlOptions>(ACtrl, 'SubControl');
-end;
-
-function TACLSubControlOptions.TrySetFocus: Boolean;
-begin
-  Result := (Control is TWinControl) and TWinControlAccess(Control).CanFocus;
-  if Result then
-    TWinControlAccess(Control).SetFocus;
-end;
-
-procedure TACLSubControlOptions.UpdateVisibility;
-begin
-  if Control <> nil then
-    Control.Visible := Owner.Visible;
-end;
-
-function TACLSubControlOptions.Validate: Boolean;
-begin
-  if (Control <> nil) and (Control.Parent <> FOwner.Parent) then
-    Control := nil;
-  if (Control <> nil) and (Control.Align <> alNone) then
-    Control.Align := alNone; // alCustom disables auto-size feature
-  if (Control <> nil) then
-    TACLControls.SetAlignWithMargins(Control, False);
-  Result := Control <> nil;
 end;
 
 procedure TACLSubControlOptions.SetAlign(AValue: TACLBoolean);
@@ -1762,6 +1872,17 @@ begin
   end;
 end;
 
+procedure TACLSubControlOptions.SetIndent(AValue: Integer);
+begin
+  AValue := Max(AValue, 0);
+  if AValue <> Indent then
+  begin
+    FIndent := AValue;
+    if Control <> nil then
+      Changed;
+  end;
+end;
+
 procedure TACLSubControlOptions.SetPosition(AValue: TACLBorder);
 begin
   if FPosition <> AValue then
@@ -1770,6 +1891,72 @@ begin
     if Control <> nil then
       Changed;
   end;
+end;
+
+class function TACLSubControlOptions.TryGet(ACtrl: TControl): TACLSubControlOptions;
+begin
+  Result := TRTTI.TryGetPropObject<TACLSubControlOptions>(ACtrl, 'SubControl');
+end;
+
+function TACLSubControlOptions.TrySetFocus: Boolean;
+begin
+  Result := (Control is TWinControl) and TWinControlAccess(Control).CanFocus;
+  if Result then
+    TWinControlAccess(Control).SetFocus;
+end;
+
+function TACLSubControlOptions.Validate: Boolean;
+var
+  LMargins: TACLMargins;
+begin
+  if (Control <> nil) and (Control.Parent <> FOwner.Parent) then
+    Control := nil;
+  if (Control <> nil) and (Control.Align <> alNone) then
+    Control.Align := alNone; // alCustom disables auto-size feature
+  if (Control <> nil) then
+  begin
+    if TACLControls.GetMargins(Control, LMargins) then
+      LMargins.All := 0
+    else
+      TACLControls.UpdateMargins(Control, NullRect);
+  end;
+  Result := Control <> nil;
+end;
+
+procedure TACLSubControlOptions.UpdateVisibility;
+begin
+  if Control <> nil then
+    Control.Visible := Owner.Visible;
+end;
+
+procedure TACLSubControlOptions.WindowProc(var Message: TMessage);
+
+  procedure TryRealign;
+  begin
+    if not (csAligning in Control.ControlState) then
+      TACLMainThread.RunPostponed(Changed, Self);
+  end;
+
+var
+  LPos: PWindowPos;
+begin
+{$IFDEF FPC}
+  if (Message.Msg = WM_SIZE) and Control.AutoSize then
+    TryRealign;
+{$ENDIF}
+  if Message.Msg = WM_WINDOWPOSCHANGED then
+  begin
+    LPos := TWMWindowPosChanged(Message).WindowPos;
+    if (LPos = nil) or
+       (LPos^.flags and SWP_NOMOVE = 0) or
+       (LPos^.flags and SWP_NOSIZE = 0)
+    then
+    {$IFDEF FPC}
+      if not Control.Parent.AutoSizeDelayed then
+    {$ENDIF}
+        TryRealign;
+  end;
+  FPrevWndProc(Message);
 end;
 
 { TACLDeferPlacementUpdate }
@@ -1975,9 +2162,14 @@ begin
   for I := 0 to AParent.ControlCount - 1 do
   begin
     LControl := AParent.Controls[I];
-    if (LControl.Align in AAlignSet) and (
+    if (LControl.Align in AAlignSet) and (LControl.Visible or
       (LControl.Align = alNone) or // должны позиционироваться всегда, иначе якоря не обновятся
-      (csDesigning in LControl.ComponentState) or LControl.Visible)
+      (csDesigning in LControl.ComponentState) and not
+      {$IFDEF FPC}
+        (csNoDesignVisible in LControl.ControlStyle)
+      {$ELSE}
+        (csDesignerHide in LControl.ControlState)
+      {$ENDIF})
     then
       AList.Add(LControl);
   end;
@@ -2026,7 +2218,12 @@ end;
 
 procedure TACLStyleBackground.DrawContent(ACanvas: TCanvas; const R: TRect);
 begin
-  acDrawGradient(ACanvas, R, ColorContent1.Value, ColorContent2.Value);
+{$IFDEF MSWINDOWS} // Optimization: gdi+ is too slow
+  if not IsTransparentBackground then
+    acFillRect(ACanvas, R, ColorContent1.AsColor)
+  else
+{$ENDIF}
+    acDrawGradient(ACanvas, R, ColorContent1.Value, ColorContent2.Value);
 end;
 
 function TACLStyleBackground.IsTransparentBackground: Boolean;
@@ -2096,6 +2293,23 @@ begin
   FreeAndNil(FInstance);
 end;
 
+function TACLMouseTracker.CanAdd(const AObject: IACLMouseTracking): Boolean;
+begin
+  Result := AObject.IsMouseAtControl;
+  if Result then
+    AObject.MouseEnter;
+end;
+
+class function TACLMouseTracker.Get: TACLMouseTracker;
+begin
+  if FInstance = nil then
+  begin
+    FInstance := TACLMouseTracker.Create;
+    FInstance.Interval := 50;
+  end;
+  Result := FInstance;
+end;
+
 class procedure TACLMouseTracker.Release(const AIntf: IACLMouseTracking);
 begin
   if FInstance <> nil then
@@ -2115,28 +2329,11 @@ begin
   Get.Add(AIntf);
 end;
 
-function TACLMouseTracker.DoAdding(const AObject: IACLMouseTracking): Boolean;
-begin
-  Result := AObject.IsMouseAtControl;
-  if Result then
-    AObject.MouseEnter;
-end;
-
-class function TACLMouseTracker.Get: TACLMouseTracker;
-begin
-  if FInstance = nil then
-  begin
-    FInstance := TACLMouseTracker.Create;
-    FInstance.Interval := 50;
-  end;
-  Result := FInstance;
-end;
-
 procedure TACLMouseTracker.TimerObject(const AObject: IACLMouseTracking);
 begin
   if not AObject.IsMouseAtControl then
   begin
-    Remove(AObject);
+    Remove(AObject); // first
     AObject.MouseLeave;
   end;
 end;
@@ -2171,17 +2368,205 @@ begin
     Result := Mouse.WheelScrollLines;
 end;
 
-class function TACLMouseWheel.HWheelToVWheel(const AMessage: TWMMouseWheel): TWMMouseWheel;
+class procedure TACLMouseWheel.HWheelToVWheel(var AMessage: TWMMouseWheel);
 begin
-  Result := AMessage;
 {$IFDEF FPC}
-  Include(Result.ShiftState, ssShift);
+  Include(AMessage.ShiftState, ssShift);
 {$ELSE}
-  Result.Keys := Result.Keys or MK_SHIFT;
+  AMessage.Keys := AMessage.Keys or MK_SHIFT;
 {$ENDIF}
-  Result.WheelDelta := -Result.WheelDelta;
+  AMessage.WheelDelta := -AMessage.WheelDelta;
+  AMessage.Msg := WM_MOUSEWHEEL;
 end;
 
+{$ENDREGION}
+
+{$REGION ' SubClasses '}
+
+{ TACLControlSubClass }
+
+constructor TACLControlSubClass.Create(const AOwner: IACLControl);
+begin
+  FOwner := AOwner;
+  if AOwner is TComponent then
+    inherited Create(AOwner as TComponent) // Specially for design-time
+  else
+    inherited Create(nil);
+end;
+
+procedure TACLControlSubClass.Calculate(ABounds: TRect);
+begin
+  FBounds := ABounds;
+end;
+
+procedure TACLControlSubClass.Draw(ACanvas: TCanvas);
+begin
+end;
+
+procedure TACLControlSubClass.Invalidate;
+begin
+  FOwner.InvalidateRect(Bounds);
+end;
+
+procedure TACLControlSubClass.KeyChar(var Key: WideChar);
+begin
+end;
+
+procedure TACLControlSubClass.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+end;
+
+procedure TACLControlSubClass.KeyUp(var Key: Word; Shift: TShiftState);
+begin
+end;
+
+procedure TACLControlSubClass.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
+begin
+end;
+
+procedure TACLControlSubClass.MouseLeave;
+begin
+  MouseMove([], InvalidPoint);
+end;
+
+procedure TACLControlSubClass.MouseMove(Shift: TShiftState; const P: TPoint);
+begin
+end;
+
+procedure TACLControlSubClass.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
+begin
+end;
+
+procedure TACLControlSubClass.Refresh;
+begin
+  if csDestroying in ComponentState then Exit;
+  Calculate(Bounds);
+  Invalidate;
+end;
+
+procedure TACLControlSubClass.RefreshAutoSize;
+var
+  LControl: TControlAccess;
+begin
+  Refresh;
+  if Safe.Cast(Owner as TObject, TControl, LControl) then
+  begin
+    if LControl.AutoSize then
+      LControl.AdjustSize;
+  end;
+end;
+
+{ TACLControlSubClasses }
+
+procedure TACLControlSubClasses.Dispatch(var AMessage);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).Dispatch(AMessage);
+end;
+
+procedure TACLControlSubClasses.Draw(ACanvas: TCanvas);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).Draw(ACanvas);
+end;
+
+function TACLControlSubClasses.HitTest(const P: TPoint): TACLControlSubClass;
+var
+  LClass: TACLControlSubClass;
+  I: Integer;
+begin
+  if Self = nil then
+    Exit(nil);
+  for I := Count - 1 downto 0 do
+  begin
+    LClass := List[I];
+    if LClass.Bounds.Contains(P) then
+      Exit(LClass);
+  end;
+  Result := nil;
+end;
+
+procedure TACLControlSubClasses.KeyDown(var Key: Word; Shift: TShiftState);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).KeyDown(Key, Shift);
+end;
+
+procedure TACLControlSubClasses.KeyPress(var Key: WideChar);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).KeyChar(Key);
+end;
+
+procedure TACLControlSubClasses.KeyUp(var Key: Word; Shift: TShiftState);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).KeyUp(Key, Shift);
+end;
+
+procedure TACLControlSubClasses.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).MouseDown(Button, Shift, P);
+end;
+
+procedure TACLControlSubClasses.MouseLeave;
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).MouseLeave;
+end;
+
+procedure TACLControlSubClasses.MouseMove(Shift: TShiftState; const P: TPoint);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).MouseMove(Shift, P);
+end;
+
+procedure TACLControlSubClasses.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
+var
+  I: Integer;
+begin
+  if Self = nil then
+    Exit;
+  for I := 0 to Count - 1 do
+    TACLControlSubClass(List[I]).MouseUp(Button, Shift, P);
+end;
 {$ENDREGION}
 
 {$REGION ' Controls '}
@@ -2195,7 +2580,7 @@ begin
   FCurrentPPI := acDefaultDpi;
 {$ENDIF}
   FDefaultSize := TSize.Create(200, 30);
-  FMargins := TACLMargins.Create(TACLMargins.DefaultValue);
+  FMargins := TACLMargins.Create(0);
   FMargins.OnChanged := MarginsChangeHandler;
 end;
 
@@ -2240,6 +2625,11 @@ begin
     FAlignOrder := AValue;
     RequestAlign;
   end;
+end;
+
+procedure TACLGraphicControl.SetAlignWithMargins(AValue: Boolean);
+begin
+  Margins.All := IfThen(AValue, TACLMargins.Default, 0);
 end;
 
 procedure TACLGraphicControl.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
@@ -2323,6 +2713,11 @@ end;
 function TACLGraphicControl.GetCurrentDpi: Integer;
 begin
   Result := FCurrentPPI;
+end;
+
+function TACLGraphicControl.GetFont: TFont;
+begin
+  Result := Self.Font;
 end;
 
 function TACLGraphicControl.GetCollection: TACLCustomResourceCollection;
@@ -2424,19 +2819,8 @@ end;
 
 procedure TACLGraphicControl.MarginsChangeHandler(Sender: TObject);
 begin
-  TACLControls.UpdateMargins(Self, AlignWithMargins, Margins, FCurrentPPI);
+  TACLControls.UpdateMargins(Self, Margins.GetScaledMargins(FCurrentPPI));
 end;
-
-{$IFDEF FPC}
-procedure TACLGraphicControl.SetAlignWithMargins(AValue: Boolean);
-begin
-  if FAlignWithMargins <> AValue then
-  begin
-    FAlignWithMargins := AValue;
-    MarginsChangeHandler(nil);
-  end;
-end;
-{$ENDIF}
 
 procedure TACLGraphicControl.SetMargins(const Value: TACLMargins);
 begin
@@ -2526,6 +2910,11 @@ begin
   Result := FCurrentPPI;
 end;
 
+function TCustomScalableControl.GetFont: TFont;
+begin
+  Result := Self.Font;
+end;
+
 procedure TCustomScalableControl.ScaleForPPI(NewPPI: Integer);
 begin
 {$IFDEF FPC}
@@ -2597,7 +2986,7 @@ end;
 constructor TACLCustomControl.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FMargins := TACLMargins.Create(TACLMargins.DefaultValue);
+  FMargins := TACLMargins.Create(0);
   FMargins.OnChanged := MarginsChangeHandler;
   FPadding := CreatePadding;
   FPadding.OnChanged := PaddingChangeHandler;
@@ -2606,6 +2995,7 @@ end;
 
 destructor TACLCustomControl.Destroy;
 begin
+  FreeAndNil(FSubClasses);
   FreeAndNil(FPadding);
   FreeAndNil(FMargins);
   inherited Destroy;
@@ -2703,6 +3093,8 @@ var
 begin
   if HandleAllocated and IsWindowVisible(Handle) then
   begin
+    if MouseCapture then
+      Exit(True);
     P := CalcCursorPos;
     Result := PtInRect(ClientRect, P) and (Perform(CM_HITTEST, 0, PointToLParam(P)) <> 0);
   end
@@ -2741,14 +3133,27 @@ end;
 procedure TACLCustomControl.MouseLeave;
 begin
   FMouseInClient := False;
+  SubClasses.MouseLeave;
+end;
+
+procedure TACLCustomControl.MouseMove(Shift: TShiftState; X, Y: Integer);
+begin
+  inherited;
+  SubClasses.MouseMove(Shift, Point(X, Y));
+end;
+
+procedure TACLCustomControl.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  SubClasses.MouseUp(Button, Shift, Point(X, Y));
+  inherited;
 end;
 
 procedure TACLCustomControl.MouseDown(
   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
-  if FocusOnClick then
-    SetFocusOnClick;
   inherited MouseDown(Button, Shift, X, Y);
+  SubClasses.MouseDown(Button, Shift, Point(X, Y));
 end;
 
 function TACLCustomControl.MouseWheel(Direction: TACLMouseWheelDirection;
@@ -2790,13 +3195,17 @@ begin
   inherited PaintWindow(DC);
 end;
 
+procedure TACLCustomControl.RegisterSubClass(out Obj; Inst: TACLControlSubClass);
+begin
+  if FSubClasses = nil then
+    FSubClasses := TACLControlSubClasses.Create;
+  FSubClasses.Add(Inst);
+  TObject(Obj) := Inst;
+end;
+
 procedure TACLCustomControl.Resize;
 begin
-  inherited Resize;
-{$IFNDEF FPC}
-  if not (csDestroying in ComponentState) then
-    BoundsChanged;
-{$ENDIF}
+  inherited; // to be a final
 end;
 
 procedure TACLCustomControl.SetAlignOrder(AValue: Integer);
@@ -2809,15 +3218,20 @@ begin
   end;
 end;
 
+procedure TACLCustomControl.SetAlignWithMargins(AValue: Boolean);
+begin
+  Margins.All := IfThen(AValue, TACLMargins.Default, 0);
+end;
+
 procedure TACLCustomControl.SetFocusOnClick;
 begin
   if not Focused then
     acSafeSetFocus(Self);
 end;
 
-procedure TACLCustomControl.SetMargins(const Value: TACLMargins);
+procedure TACLCustomControl.SetMargins(AValue: TACLMargins);
 begin
-  Margins.Assign(Value);
+  Margins.Assign(AValue);
 end;
 
 procedure TACLCustomControl.SetTargetDPI(AValue: Integer);
@@ -2872,6 +3286,12 @@ begin
     inherited WndProc(Message);
 end;
 
+procedure TACLCustomControl.CMCancelMode(var Message: TMessage);
+begin
+  SubClasses.Dispatch(Message);
+  inherited;
+end;
+
 procedure TACLCustomControl.CMDialogChar(var Message: TCMDialogChar);
 begin
   if DialogChar(Message) then
@@ -2883,6 +3303,7 @@ end;
 procedure TACLCustomControl.CMEnabledChanged(var Message: TMessage);
 begin
   inherited;
+  SubClasses.Dispatch(Message);
   Invalidate;
   UpdateCursor;
 end;
@@ -2917,14 +3338,15 @@ end;
 
 procedure TACLCustomControl.WMSize(var Message: TWMSize);
 begin
-{$IFNDEF FPC}
+{$IFDEF FPC}
+  inherited;
+{$ELSE}
   // Для корректной работы anchor-ов при смене dpi в Delphi
   if not (csDestroying in ComponentState) then
   begin
     UpdateBounds;
     BoundsChanged;
   end;
-{$ENDIF}
 
   inherited;
 
@@ -2933,18 +3355,8 @@ begin
     if TWinControlAccess(Parent).AutoSize then
       TWinControlAccess(Parent).AdjustSize;
   end;
-end;
-
-{$IFDEF FPC}
-procedure TACLCustomControl.SetAlignWithMargins(AValue: Boolean);
-begin
-  if FAlignWithMargins <> AValue then
-  begin
-    FAlignWithMargins := AValue;
-    MarginsChangeHandler(nil);
-  end;
-end;
 {$ENDIF}
+end;
 
 procedure TACLCustomControl.CMScaleChanging(var Message: TMessage);
 begin
@@ -2967,6 +3379,13 @@ begin
 {$ENDIF}
 end;
 
+procedure TACLCustomControl.WMCaptureChanged(var Message: TMessage);
+begin
+  if not FSkipCaptureChanged then
+    Perform(CM_CANCELMODE, 0, 0);
+  inherited;
+end;
+
 procedure TACLCustomControl.WMEraseBkgnd(var Message: TWMEraseBkgnd);
 begin
   Message.Result := 1;
@@ -2983,7 +3402,30 @@ begin
 {$IFDEF FPC}
   SendCancelMode(Self);
 {$ENDIF}
+  if FocusOnClick then
+    SetFocusOnClick;
   inherited;
+end;
+
+procedure TACLCustomControl.WMLButtonUp(var Message: TWMLButtonUp);
+begin
+  // VCL сначала снимет кэпчу, а уже потом даст управление в MouseUp
+  // А у нас при потере кэпчи генерируется отмена драг-дропа.
+  FSkipCaptureChanged := True;
+  try
+    inherited;
+  finally
+    FSkipCaptureChanged := False;
+  end;
+end;
+
+procedure TACLCustomControl.WMNCHitTest(var Message: TWMNCHitTest);
+begin
+{$IFDEF FPC}
+  Message.Result := HTCLIENT;
+{$ELSE}
+  inherited;
+{$ENDIF}
 end;
 
 procedure TACLCustomControl.WMMouseMove(var Message: TWMMouseMove);
@@ -2994,8 +3436,8 @@ end;
 
 procedure TACLCustomControl.WMMouseWheelHorz(var Message: TWMMouseWheel);
 begin
-  with TMessage(TACLMouseWheel.HWheelToVWheel(Message)) do
-    Message.Result := Perform(WM_MOUSEWHEEL, WParam, LParam);
+  TACLMouseWheel.HWheelToVWheel(Message);
+  WindowProc(TMessage(Message));
 end;
 
 procedure TACLCustomControl.AdjustClientRect(var ARect: TRect);
@@ -3077,6 +3519,11 @@ begin
   inherited InitializeWnd;
   Perform(WM_CREATE, 0, 0); // especially for TACLDropTarget
 end;
+
+class procedure TACLCustomControl.WSRegisterClass;
+begin
+  RegisterWSComponent(TACLCustomControl, TACLWSCustomControl);
+end;
 {$ENDIF}
 
 procedure TACLCustomControl.ChangeScale(M, D: Integer; isDpiChange: Boolean);
@@ -3089,6 +3536,12 @@ begin
   finally
     Perform(CM_SCALECHANGED, 0, 0);
   end;
+end;
+
+function TACLCustomControl.ClientRectForControls: TRect;
+begin
+  Result := ClientRect;
+  AdjustClientRect(Result);
 end;
 
 function TACLCustomControl.CreatePadding: TACLPadding;
@@ -3128,9 +3581,42 @@ begin
   Result := Padding.IsStored;
 end;
 
-procedure TACLCustomControl.SetPadding(const Value: TACLPadding);
+procedure TACLCustomControl.KeyChar(var Key: WideChar);
 begin
-  Padding.Assign(Value);
+  SubClasses.KeyPress(Key);
+end;
+
+procedure TACLCustomControl.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  inherited;
+  SubClasses.KeyDown(Key, Shift);
+end;
+
+procedure TACLCustomControl.KeyPress(var Key: Char);
+begin
+  inherited;
+{$IFNDEF FPC}
+  KeyChar(Key);
+{$ENDIF}
+end;
+
+{$IFDEF FPC}
+procedure TACLCustomControl.Utf8KeyPress(var Key: TUTF8Char);
+begin
+  inherited;
+  ProcessUtf8KeyPress(Key, KeyChar);
+end;
+{$ENDIF}
+
+procedure TACLCustomControl.KeyUp(var Key: Word; Shift: TShiftState);
+begin
+  inherited;
+  SubClasses.KeyUp(Key, Shift);
+end;
+
+procedure TACLCustomControl.SetPadding(AValue: TACLPadding);
+begin
+  Padding.Assign(AValue);
 end;
 
 procedure TACLCustomControl.SetResourceCollection(AValue: TACLCustomResourceCollection);
@@ -3152,7 +3638,7 @@ procedure TACLCustomControl.MarginsChangeHandler(Sender: TObject);
 begin
   DisableAlign;
   try
-    TACLControls.UpdateMargins(Self, AlignWithMargins, Margins, FCurrentPPI);
+    TACLControls.UpdateMargins(Self, Margins.GetScaledMargins(FCurrentPPI));
   finally
     EnableAlign;
   end;
@@ -3176,6 +3662,15 @@ destructor TACLContainer.Destroy;
 begin
   FreeAndNil(FStyle);
   inherited Destroy;
+end;
+
+procedure TACLContainer.AdjustForContentHeight(ATargetHeight: Integer);
+var
+  LRect: TRect;
+begin
+  LRect := ClientRect;
+  AdjustClientRect(LRect);
+  Height := Height + ATargetHeight - LRect.Height;
 end;
 
 procedure TACLContainer.AlignControls(AControl: TControl; var Rect: TRect);
@@ -3273,6 +3768,16 @@ begin
     ControlStyle := ControlStyle - [csOpaque]
   else
     ControlStyle := ControlStyle + [csOpaque];
+end;
+
+{ TDragImageListHelper }
+
+procedure TDragImageListHelper.ShowDragImageEx;
+begin
+  Self.ShowDragImage;
+{$IFDEF LCLGtk2}
+  SetDragImageListOpacity(128);
+{$ENDIF}
 end;
 
 {$ENDREGION}
@@ -3426,24 +3931,19 @@ begin
   TWinControlAccess(AControl).EnableAlign;
 end;
 
-class procedure TACLControls.SetAlignWithMargins(AControl: TControl; AEnabled: Boolean);
+class function TACLControls.NCHitTest(AControl: TWinControl; var Message: TWMMouse): Integer;
+var
+  LPoint: TPoint;
 begin
-{$IFDEF FPC}
-  if AControl is TACLGraphicControl then
-    TACLGraphicControl(AControl).AlignWithMargins := AEnabled
-  else if AControl is TACLCustomControl then
-    TACLCustomControl(AControl).AlignWithMargins := AEnabled
-  else if not AEnabled then
-    UpdateMargins(AControl, NullRect);
-{$ELSE}
-  AControl.AlignWithMargins := AEnabled;
-{$ENDIF}
+  LPoint := AControl.ClientToScreen(Point(Message.XPos, Message.YPos));
+  Result := AControl.Perform(WM_NCHITTEST, 0, PointToLParam(LPoint));
 end;
 
 class function TACLControls.WndProc(ACaller: TWinControl; var Message: TMessage): Boolean;
 {$IFDEF FPC}
 var
   LCapture: TControl;
+  LCode: SmallInt;
   LForm: TCustomForm;
 {$ENDIF}
 begin
@@ -3453,7 +3953,8 @@ begin
   begin
     if not Mouse.IsDragging then
     begin
-      if ACaller.Perform(WM_SETCURSOR, ACaller.Handle, MakeLong(HTCLIENT, Message.Msg)) = 0 then
+      LCode := NCHitTest(ACaller, TWMMouse(Message));
+      if ACaller.Perform(WM_SETCURSOR, ACaller.Handle, MakeLong(LCode, Message.Msg)) = 0 then
         SetCursor(crDefault);
     end;
   end;
@@ -3475,15 +3976,16 @@ begin
   end;
 end;
 
-class procedure TACLControls.UpdateMargins(AControl: TControl;
-  AUseMargins: Boolean; AMargins: TACLPadding; ACurrentDpi: Integer);
+class function TACLControls.GetMargins(AControl: TControl; out AMargins: TACLMargins): Boolean;
 begin
-{$IFDEF FPC}
-  if not AUseMargins then
-    UpdateMargins(AControl, NullRect)
+  if AControl is TACLGraphicControl then
+    AMargins := TACLGraphicControl(AControl).Margins
+  else if AControl is TACLCustomControl then
+    AMargins := TACLCustomControl(AControl).Margins
   else
-{$ENDIF}
-    UpdateMargins(AControl, AMargins.GetScaledMargins(ACurrentDpi));
+    AMargins := nil;
+
+  Result := AMargins <> nil;
 end;
 
 class procedure TACLControls.UpdateMargins(AControl: TControl; const AMargins: TRect);
@@ -3502,16 +4004,19 @@ begin
     Right := AMargins.Right;
     Bottom := AMargins.Bottom;
   end;
+{$IFNDEF FPC}
+  AControl.AlignWithMargins := AMargins <> NullRect;
+{$ENDIF}
 end;
 
 class procedure TACLControls.UpdateCursor(ACaller: TWinControl; var Message: TWMSetCursor);
 
   function GetCursor(AControl: TControl): TCursor;
   var
-    ACursorProvider: IACLCursorProvider;
+    LIntf: IACLCursorProvider;
   begin
-    if Supports(AControl, IACLCursorProvider, ACursorProvider) then
-      Result := ACursorProvider.GetCursor(AControl.CalcCursorPos)
+    if Supports(AControl, IACLCursorProvider, LIntf) then
+      Result := LIntf.GetCursor(AControl.CalcCursorPos)
     else
       Result := AControl.Cursor;
   end;
@@ -3523,7 +4028,13 @@ begin
   if csDesigning in ACaller.ComponentState then
     Exit;
   if Message.HitTest <> HTCLIENT then
+  begin
+  {$IFDEF FPC}
+    SetCursor(Screen.Cursors[GtkNCGetCursor(Message.HitTest)]);
+    Message.Result := 1;
+  {$ENDIF}
     Exit;
+  end;
   if ACaller.HandleAllocated and (Message.CursorWnd = ACaller.Handle) then
   begin
     ACursor := Screen.Cursor;
@@ -3623,7 +4134,28 @@ begin
     LControl := LControl.Parent;
   end;
 end;
+
+procedure TACLControlHelper.SetDesignVisible(Value: Boolean);
+begin
+  if csDesigning in ComponentState then
+  begin
+    if Value then
+      ControlStyle := ControlStyle - [csNoDesignVisible]
+    else
+      ControlStyle := ControlStyle + [csNoDesignVisible];
+  end;
+end;
 {$ENDIF}
+
+{ TACLWinControlHelper }
+
+procedure TACLWinControlHelper.EnableChildren(AEnabled: Boolean);
+var
+  I: Integer;
+begin
+  for I := 0 to ControlCount - 1 do
+    Controls[I].Enabled := AEnabled;
+end;
 
 { TACLCustomOptionsPersistent }
 
@@ -3656,7 +4188,6 @@ begin
     Changed(AChanges);
   end;
 end;
-
 {$ENDREGION}
 
 initialization

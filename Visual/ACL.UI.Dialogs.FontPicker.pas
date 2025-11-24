@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Font Picker Dialog
 //
@@ -238,8 +238,8 @@ begin
   for AStyle := Low(AStyle) to High(AStyle) do
   begin
     CreateControl(ACheckBox, TACLCheckBox, FFontStyleGroup, Rect(MaxWord, 0, 0, 0), alLeft);
-    ACheckBox.AlignWithMargins := True;
     ACheckBox.Caption := CaptionMap[AStyle];
+    ACheckBox.Margins.All := TACLMargins.Default;
     ACheckBox.Font.Style := ACheckBox.Font.Style + [AStyle];
     ACheckBox.Tag := Ord(AStyle);
     ACheckBox.OnClick := HandlerFontModified;
@@ -249,8 +249,7 @@ begin
     Rect(0, 0, FontSizeEdit.Width, dpiApply(ButtonHeight, FCurrentPPI)), alRight);
   FColorPicker.ColorAllowEditAlpha := False;
   FColorPicker.OnClick := HandlerColorPickerClick;
-  FColorPicker.Margins.Margins := Rect(3, 0, 0, 0);
-  FColorPicker.AlignWithMargins := True;
+  FColorPicker.Margins.Rect := Rect(3, 0, 0, 0);
 
   CreateControl(FPreview, TPaintBox, Self, NullRect);
   FPreview.OnPaint := HandlerPreviewPaint;

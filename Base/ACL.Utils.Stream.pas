@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Stream Utilities
 //
@@ -429,7 +429,7 @@ end;
 
 function StreamCreateReader(const AFileName: string): TStream; overload;
 begin
-  Result := TACLBufferedFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  Result := TACLBufferedFileStream.Create(AFileName, fmOpenReadOnly);
 end;
 
 function StreamCreateWriter(const AFileName: string): TStream;
@@ -478,9 +478,15 @@ begin
     AStream.Free;
 end;
 
-function StreamResourceExists(AInstance: HModule; const AResourceName: string; AResourceType: PChar): Boolean;
+function StreamResourceExists(AInstance: HModule;
+  const AResourceName: string; AResourceType: PChar): Boolean;
+var
+  LHandle: NativeUInt;
 begin
-  Result := FindResource(AInstance, PChar(AResourceName), AResourceType) <> 0;
+  LHandle := FindResource(AInstance, PChar(AResourceName), AResourceType);
+  Result := LHandle <> 0;
+  if Result then
+    FreeResource(LHandle);
 end;
 
 function StreamLoadFromFile(AStream: TStream; const AFileName: string): Boolean;
@@ -1393,24 +1399,23 @@ procedure TACLStreamHelper.WriteVariant(const AValue: Variant);
 
   procedure WriteInteger(Value: Integer);
   begin
-  {$IFDEF ACL_PACK_VARIANT_INTEGERS}
     if (Value >= Low(ShortInt)) and (Value <= High(ShortInt)) then
     begin
       WriteValueType(vaInt8);
       WriteByte(Value);
     end
     else
-      if (Value >= Low(SmallInt)) and (Value <= High(SmallInt)) then
-      begin
-        WriteValueType(vaInt16);
-        WriteWord(Value);
-      end
-      else
-  {$ENDIF}
-      begin
-        WriteValueType(vaInt32);
-        WriteInt32(Value);
-      end;
+
+    if (Value >= Low(SmallInt)) and (Value <= High(SmallInt)) then
+    begin
+      WriteValueType(vaInt16);
+      WriteWord(Value);
+    end
+    else
+    begin
+      WriteValueType(vaInt32);
+      WriteInt32(Value);
+    end;
   end;
 
   procedure WriteCardinal(Value: Cardinal); // to prevent from Variant conversion error
@@ -1426,17 +1431,15 @@ procedure TACLStreamHelper.WriteVariant(const AValue: Variant);
       raise EWriteError.Create(sErrorUnsupportedVariantType);
     L := VarArrayLowBound(Value, 1);
     H := VarArrayHighBound(Value, 1);
-  {$IFDEF ACL_PACK_VARIANT_ARRAYS}
-    if L = H then
+    if H > L then
     begin
+      WriteValueType(vaList);
+      WriteInteger(H - L + 1);
+      for I := L to H do
+        WriteVariant(Value[I]);
+    end
+    else
       WriteVariant(Value[L]);
-      Exit;
-    end;
-  {$ENDIF}
-    WriteValueType(vaList);
-    WriteInteger(H - L + 1);
-    for I := L to H do
-      WriteVariant(Value[I]);
   end;
 
 var

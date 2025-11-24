@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Activity Indicator
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -71,9 +71,9 @@ type
     procedure SetActive(const Value: Boolean);
     procedure SetStyle(const Value: TACLStyleActivityIndicator);
   protected
-    procedure Calculate(const R: TRect); override;
+    procedure Calculate(ABounds: TRect); override;
     function CreateStyle: TACLStyleLabel; override;
-    procedure DrawBackground(ACanvas: TCanvas); override;
+    procedure Paint; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -129,41 +129,15 @@ begin
   inherited;
 end;
 
-procedure TACLActivityIndicator.Calculate(const R: TRect);
-var
-  ARect: TRect;
+procedure TACLActivityIndicator.Calculate(ABounds: TRect);
 begin
-  ARect := R;
-  ARect.Right := ARect.Right - GetIndicatorWidth;
-  inherited Calculate(ARect);
+  Dec(ABounds.Right, GetIndicatorWidth);
+  inherited;
 end;
 
 function TACLActivityIndicator.CreateStyle: TACLStyleLabel;
 begin
   Result := TACLStyleActivityIndicator.Create(Self);
-end;
-
-procedure TACLActivityIndicator.DrawBackground(ACanvas: TCanvas);
-var
-  LDotSize: Integer;
-  LIndentBetweenDots: Integer;
-  LRect: TRect;
-  I: Integer;
-begin
-  inherited;
-
-  LDotSize := dpiApply(Style.DotSize, FCurrentPPI);
-  LIndentBetweenDots := dpiApply(Style.IndentBetweenDots, FCurrentPPI);
-
-  // Draw dots
-  LRect := ClientRect;
-  LRect.CenterVert(LDotSize);
-  LRect.Left := LRect.Right - LDotSize;
-  for I := Style.DotCount - 1 downto 0 do
-  begin
-    Style.DrawDot(Canvas, LRect, I = FTimer.Tag);
-    LRect.Offset(-LDotSize - LIndentBetweenDots, 0);
-  end;
 end;
 
 function TACLActivityIndicator.GetActive: Boolean;
@@ -210,6 +184,29 @@ begin
   Result := inherited MeasureSize(AWidth);
   Result.cy := Max(Result.cy, dpiApply(Style.DotSize, FCurrentPPI));
   Result.cx := Result.cx + LIndicatorWidth;
+end;
+
+procedure TACLActivityIndicator.Paint;
+var
+  LDotSize: Integer;
+  LIndentBetweenDots: Integer;
+  LRect: TRect;
+  I: Integer;
+begin
+  inherited;
+
+  LDotSize := dpiApply(Style.DotSize, FCurrentPPI);
+  LIndentBetweenDots := dpiApply(Style.IndentBetweenDots, FCurrentPPI);
+
+  // Draw dots
+  LRect := ClientRect;
+  LRect.CenterVert(LDotSize);
+  LRect.Left := LRect.Right - LDotSize;
+  for I := Style.DotCount - 1 downto 0 do
+  begin
+    Style.DrawDot(Canvas, LRect, I = FTimer.Tag);
+    LRect.Offset(-LDotSize - LIndentBetweenDots, 0);
+  end;
 end;
 
 end.

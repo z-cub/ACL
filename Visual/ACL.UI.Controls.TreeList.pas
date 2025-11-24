@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TreeList
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -27,6 +27,7 @@ uses
   {Winapi.}Messages,
   // System
   {System.}Classes,
+  {System.}Types,
   System.UITypes,
   // Vcl
   {Vcl.}Controls,
@@ -110,8 +111,6 @@ type
     function GetStyleMenu: TACLStylePopupMenu;
     function GetStyle: TACLStyleTreeList;
     function GetSubClass: TACLTreeListSubClass; inline;
-    function GetViewportX: Integer;
-    function GetViewportY: Integer;
     function GetVisibleScrolls: TACLVisibleScrollBars; inline;
     procedure SetColumns(const AValue: TACLTreeListColumns);
     procedure SetFocusedColumn(const Value: TACLTreeListColumn);
@@ -159,8 +158,6 @@ type
     procedure SetStyleInplaceEditButton(const Value: TACLStyleEditButton);
     procedure SetStyleMenu(const AValue: TACLStylePopupMenu);
     procedure SetStyle(const AValue: TACLStyleTreeList);
-    procedure SetViewportX(const Value: Integer);
-    procedure SetViewportY(const Value: Integer);
     //# Messages
     procedure WMGetDlgCode(var AMessage: TWMGetDlgCode); message WM_GETDLGCODE;
   protected
@@ -268,8 +265,6 @@ type
     property SelectedCheckState: TCheckBoxState read GetSelectedCheckState;
     property SelectedCount: Integer read GetSelectedCount;
     property SubClass: TACLTreeListSubClass read GetSubClass;
-    property ViewportX: Integer read GetViewportX write SetViewportX;
-    property ViewportY: Integer read GetViewportY write SetViewportY;
     property VisibleScrolls: TACLVisibleScrollBars read GetVisibleScrolls;
   end;
 
@@ -287,7 +282,6 @@ type
     property OptionsView;
     property ResourceCollection;
     property Style;
-    property StyleHint;
     property StyleInplaceEdit;
     property StyleInplaceEditButton;
     property StyleScrollBox;
@@ -376,7 +370,7 @@ end;
 
 function TACLCustomTreeList.ObjectAtPos(const X, Y: Integer): TObject;
 begin
-  SubClass.UpdateHitTest(X, Y);
+  UpdateHitTest(Point(X, Y));
   Result := SubClass.HitTest.HitObject;
 end;
 
@@ -787,16 +781,6 @@ begin
   Result := SubClass.Style;
 end;
 
-function TACLCustomTreeList.GetViewportX: Integer;
-begin
-  Result := SubClass.ViewportX;
-end;
-
-function TACLCustomTreeList.GetViewportY: Integer;
-begin
-  Result := SubClass.ViewportY;
-end;
-
 function TACLCustomTreeList.GetVisibleScrolls: TACLVisibleScrollBars;
 begin
   Result := SubClass.VisibleScrolls;
@@ -1030,16 +1014,6 @@ end;
 procedure TACLCustomTreeList.SetStyle(const AValue: TACLStyleTreeList);
 begin
   SubClass.Style := AValue;
-end;
-
-procedure TACLCustomTreeList.SetViewportX(const Value: Integer);
-begin
-  SubClass.ViewportX := Value;
-end;
-
-procedure TACLCustomTreeList.SetViewportY(const Value: Integer);
-begin
-  SubClass.ViewportY := Value;
 end;
 
 procedure TACLCustomTreeList.WMGetDlgCode(var AMessage: TWMGetDlgCode);

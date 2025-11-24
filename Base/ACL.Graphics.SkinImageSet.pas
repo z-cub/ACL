@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Set of Skinned Images
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -37,7 +37,10 @@ uses
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
+  ACL.Geometry,
+  ACL.Geometry.Utils,
   ACL.Graphics,
+  ACL.Graphics.Images,
   ACL.Graphics.SkinImage,
   ACL.Utils.DPIAware,
   ACL.Utils.Common,
@@ -60,7 +63,7 @@ type
     procedure DoAssign(AObject: TObject); override;
     procedure ReadChunk(AStream: TStream; AChunkID: Integer; AChunkSize: Integer); override;
     procedure WriteChunks(AStream: TStream; var AChunkCount: Integer); override;
-    //
+    // Properties
     property ReferenceCount: Integer read FReferenceCount;
   public
     constructor Create(DPI: Integer = acDefaultDPI); reintroduce;
@@ -70,10 +73,10 @@ type
     function Equals(Obj: TObject): Boolean; override;
     procedure Release; virtual;
     function ToString: string; override;
-    //
+    // References Counting
     procedure ReferenceAdd;
     procedure ReferenceRemove;
-    //
+    // Properties
     property DPI: Integer read FDPI;
   end;
 
@@ -92,7 +95,6 @@ type
     function GetCount: Integer; inline;
     function GetItem(Index: Integer): TACLSkinImageSetItem; inline;
     procedure SetItem(Index: Integer; AValue: TACLSkinImageSetItem); inline;
-    //
     procedure ImageChangeHandler(Sender: TObject);
     procedure ItemsChangeHandler(Sender: TObject;
       const Item: TACLSkinImageSetItem; Action: TCollectionNotification);
@@ -118,12 +120,17 @@ type
     function Equals(Obj: TObject): Boolean; override;
     function Find(DPI: Integer): TACLSkinImageSetItem;
     function Get(DPI: Integer): TACLSkinImageSetItem; overload;
-    function Get(DPI: Integer; const AColor: TAlphaColor;
+    function Get(DPI: Integer; AColor: TAlphaColor;
       AMode: TACLSkinImageColorationMode): TACLSkinImageSetItem; overload;
-    function Get(DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem; overload;
+    function Get(DPI: Integer;
+      const AColorSchema: TACLColorSchema): TACLSkinImageSetItem; overload;
     function GetHashCode: TObjHashCode; override;
     function IsEmpty: Boolean;
     procedure MakeUnique;
+
+    // Find optimal resolution for target rect and use it to raster the frame
+    // Return nil if image set is empty
+    function OptimalFill(const ASize: TSize; AFrameIndex: Integer): IACLImage;
 
     // I/O
     procedure ImportFromImage(const AImage: TBitmap; DPI: Integer = acDefaultDPI);
@@ -135,9 +142,10 @@ type
     procedure SaveToFile(const AFileName: string);
     procedure SaveToStream(const AStream: TStream);
 
+    // Properties
     property Count: Integer read GetCount;
     property Items[Index: Integer]: TACLSkinImageSetItem read GetItem write SetItem; default;
-
+    // Events
     property OnChange: TNotifyEvent read FOnChange write FOnChange;
   end;
 
@@ -158,16 +166,18 @@ type
   TACLSkinImageSetTintedItem = class(TACLSkinImageSetItem)
   strict private
     FCollection: TList;
-    FColor: TAlphaColor;
-    FMode: TACLSkinImageColorationMode;
+    FSignature: Int64;
   public
-    constructor Create(ACollection: TList; ASource: TACLSkinImageSetItem; AColor: TAlphaColor; AMode: TACLSkinImageColorationMode);
+    constructor Create(ACollection: TList; ASource: TACLSkinImageSetItem); overload;
+    constructor Create(ACollection: TList; ASource: TACLSkinImageSetItem;
+      const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode); overload;
+    constructor Create(ACollection: TList; ASource: TACLSkinImageSetItem;
+      const AColorSchema: TACLColorSchema); overload;
     destructor Destroy; override;
     procedure Dormant; override;
     procedure Release; override;
-    //
-    property Color: TAlphaColor read FColor;
-    property Mode: TACLSkinImageColorationMode read FMode;
+    // Properties
+    property Signature: Int64 read FSignature;
   end;
 
   { TACLSkinImageSetTintedItemList }
@@ -176,14 +186,28 @@ type
   strict private
     FList: TList;
     FOwner: TACLSkinImageSet;
+    function Find(DPI: Integer; ASignature: Int64): TACLSkinImageSetTintedItem;
   public
     constructor Create(AOwner: TACLSkinImageSet);
     destructor Destroy; override;
-    function Find(DPI: Integer; AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
-    function GetOrCreate(DPI: Integer; const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem; overload;
-    function GetOrCreate(DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem; overload;
+    function GetOrCreate(DPI: Integer; AColor: TAlphaColor;
+      AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem; overload;
+    function GetOrCreate(DPI: Integer; const
+      AColorSchema: TACLColorSchema): TACLSkinImageSetTintedItem; overload;
     procedure Release;
   end;
+
+function MakeSignature(AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): Int64; overload;
+begin
+  Int64Rec(Result).Lo := AColor;
+  Int64Rec(Result).Hi := Ord(AMode);
+end;
+
+function MakeSignature(const AColorSchema: TACLColorSchema): Int64; overload;
+begin
+  Int64Rec(Result).Lo := AColorSchema.ToDword;
+  Int64Rec(Result).Hi := MAXDWORD;
+end;
 
 { TACLSkinImageSetItem }
 
@@ -447,7 +471,7 @@ begin
   end;
 end;
 
-function TACLSkinImageSet.Get(DPI: Integer; const AColor: TAlphaColor;
+function TACLSkinImageSet.Get(DPI: Integer; AColor: TAlphaColor;
   AMode: TACLSkinImageColorationMode): TACLSkinImageSetItem;
 begin
   if AColor.IsValid then
@@ -456,28 +480,70 @@ begin
     Result := Get(DPI);
 end;
 
-function TACLSkinImageSet.Get(DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem;
+function TACLSkinImageSet.Get(DPI: Integer; const AColorSchema: TACLColorSchema): TACLSkinImageSetItem;
 begin
-  if AColorScheme.IsAssigned then
-    Result := TACLSkinImageSetTintedItemList(FTintedItems).GetOrCreate(DPI, AColorScheme)
+  if AColorSchema.IsAssigned then
+    Result := TACLSkinImageSetTintedItemList(FTintedItems).GetOrCreate(DPI, AColorSchema)
   else
     Result := Get(DPI);
 end;
 
 procedure TACLSkinImageSet.MakeUnique;
 var
-  AIndex: Integer;
+  I: Integer;
 begin
   BeginUpdate;
   try
-    for AIndex := 0 to Count - 1 do
+    for I := 0 to Count - 1 do
     begin
-      if Items[AIndex].ReferenceCount > 1 then
-        Items[AIndex] := Items[AIndex].Clone;
+      if Items[I].ReferenceCount > 1 then
+        Items[I] := Items[I].Clone;
     end;
   finally
     EndUpdate;
   end;
+end;
+
+function TACLSkinImageSet.OptimalFill(const ASize: TSize; AFrameIndex: Integer): IACLImage;
+var
+  I: Integer;
+  LBitmap: TACLBitmap;
+  LOptimal: TACLSkinImageSetItem;
+  LOptimalScore: TSize;
+  LSize: TSize;
+begin
+  if IsEmpty or ASize.IsEmpty then
+    Exit(nil);
+
+  LOptimal := nil;
+  LOptimalScore := TSize.Create(MaxWord);
+  for I := 0 to Count - 1 do
+  begin
+    LSize := FItems.List[I].FrameSize;
+    if (Abs(LSize.cx - ASize.cx) < LOptimalScore.cx) and
+       (Abs(LSize.cy - ASize.cy) < LOptimalScore.cy)
+    then
+      begin
+        LOptimalScore.cx := Abs(LSize.cx - ASize.cx);
+        LOptimalScore.cy := Abs(LSize.cy - ASize.cy);
+        LOptimal := FItems.List[I];
+      end;
+  end;
+
+  if LOptimal <> nil then
+  begin
+    LBitmap := TACLBitmap.CreateEx(LOptimal.FrameSize, pf32bit, True);
+    try
+      LOptimal.Draw(LBitmap.Canvas, LBitmap.ClientRect, 0);
+      Result := TACLImageKeeper.CreateFrom(LBitmap);
+      if not InRange(LOptimal.FrameWidth / ASize.Width, 0.95, 1.05) then
+        Result.Inst.Scale(ASize.Width, LOptimal.FrameWidth);
+    finally
+      LBitmap.Free;
+    end;
+  end
+  else
+    Result := nil;
 end;
 
 procedure TACLSkinImageSet.ReleaseItems;
@@ -506,7 +572,7 @@ procedure TACLSkinImageSet.ImportFromImageFile(const AFileName: string; DPI: Int
 var
   AStream: TStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     ImportFromImageStream(AStream);
   finally
@@ -529,7 +595,7 @@ procedure TACLSkinImageSet.LoadFromFile(const AFileName: string);
 var
   AStream: TStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     LoadFromStream(AStream);
   finally
@@ -683,31 +749,43 @@ end;
 
 { TACLSkinImageSetTintedItem }
 
-constructor TACLSkinImageSetTintedItem.Create(ACollection: TList;
-  ASource: TACLSkinImageSetItem; AColor: TAlphaColor; AMode: TACLSkinImageColorationMode);
-var
-  H, S, L: Byte;
+constructor TACLSkinImageSetTintedItem.Create(
+  ACollection: TList; ASource: TACLSkinImageSetItem);
 begin
   inherited Create(ASource.DPI);
-  FColor := AColor;
-  FMode := AMode;
   FCollection := ACollection;
   FCollection.Add(Self);
   Assign(ASource);
+  BitsNeeded(ibsUnpremultiplied);
+end;
 
-  CheckUnpacked;
-  CheckBitsState(ibsUnpremultiplied);
+constructor TACLSkinImageSetTintedItem.Create(
+  ACollection: TList; ASource: TACLSkinImageSetItem;
+  const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode);
+var
+  H, S, L: Byte;
+begin
+  Create(ACollection, ASource);
+  FSignature := MakeSignature(AColor, AMode);
   case AMode of
-    cmTint:
-      TACLColors.Tint(PACLPixel32(Bits), BitCount, AColor.ToPixel);
     cmColor:
-      TACLColors.ChangeColor(PACLPixel32(Bits), BitCount, AColor.ToPixel);
+      TACLColors.ChangeColor(Bits, BitCount, AColor.ToPixel);
+    cmTint:
+      TACLColors.Tint(Bits, BitCount, AColor.ToPixel);
     cmHue:
       begin
         TACLColors.RGBtoHSLi(AColor.ToColor, H, S, L);
-        TACLColors.ChangeHue(PACLPixel32(Bits), BitCount, H, S);
+        TACLColors.ChangeHue(Bits, BitCount, H, S);
       end;
   end;
+end;
+
+constructor TACLSkinImageSetTintedItem.Create(ACollection: TList;
+  ASource: TACLSkinImageSetItem; const AColorSchema: TACLColorSchema);
+begin
+  Create(ACollection, ASource);
+  FSignature := MakeSignature(AColorSchema);
+  TACLColors.ApplyColorSchema(Bits, BitCount, AColorSchema);
 end;
 
 destructor TACLSkinImageSetTintedItem.Destroy;
@@ -741,42 +819,48 @@ begin
   inherited;
 end;
 
-function TACLSkinImageSetTintedItemList.Find(DPI: Integer;
-  AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
+function TACLSkinImageSetTintedItemList.Find(DPI: Integer; ASignature: Int64): TACLSkinImageSetTintedItem;
 var
   I: Integer;
 begin
   for I := 0 to FList.Count - 1 do
   begin
-    Result := TACLSkinImageSetTintedItem(FList.List[I]);
-    if (Result.DPI = DPI) and (Result.Color = AColor) and (Result.Mode = AMode) then
+    Result := FList.List[I];
+    if (Result.DPI = DPI) and (Result.Signature = ASignature) then
       Exit;
   end;
   Result := nil;
 end;
 
 function TACLSkinImageSetTintedItemList.GetOrCreate(
-  DPI: Integer; const AColorScheme: TACLColorSchema): TACLSkinImageSetItem;
+  DPI: Integer; const AColorSchema: TACLColorSchema): TACLSkinImageSetTintedItem;
 var
-  R, G, B: Byte;
+  LSource: TACLSkinImageSetItem;
 begin
-  TACLColors.HSLtoRGBi(AColorScheme.Hue, AColorScheme.HueIntensity, 128, R, G, B);
-  Result := GetOrCreate(DPI, TAlphaColor.FromARGB(MaxByte, R, G, B), cmHue);
-end;
-
-function TACLSkinImageSetTintedItemList.GetOrCreate(DPI: Integer;
-  const AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
-var
-  ASource: TACLSkinImageSetItem;
-begin
-  Result := Find(DPI, AColor, AMode);
+  Result := Find(DPI, MakeSignature(AColorSchema));
   if Result = nil then
   begin
-    ASource := FOwner.Get(DPI);
-    if ASource.DPI <> DPI then
-      Result := Find(ASource.DPI, AColor, AMode);
+    LSource := FOwner.Get(DPI);
+    if LSource.DPI <> DPI then
+      Result := Find(LSource.DPI, MakeSignature(AColorSchema));
     if Result = nil then
-      Result := TACLSkinImageSetTintedItem.Create(FList, ASource, AColor, AMode);
+      Result := TACLSkinImageSetTintedItem.Create(FList, LSource, AColorSchema);
+  end;
+end;
+
+function TACLSkinImageSetTintedItemList.GetOrCreate(
+  DPI: Integer; AColor: TAlphaColor; AMode: TACLSkinImageColorationMode): TACLSkinImageSetTintedItem;
+var
+  LSource: TACLSkinImageSetItem;
+begin
+  Result := Find(DPI, MakeSignature(AColor, AMode));
+  if Result = nil then
+  begin
+    LSource := FOwner.Get(DPI);
+    if LSource.DPI <> DPI then
+      Result := Find(LSource.DPI, MakeSignature(AColor, AMode));
+    if Result = nil then
+      Result := TACLSkinImageSetTintedItem.Create(FList, LSource, AColor, AMode);
   end;
 end;
 

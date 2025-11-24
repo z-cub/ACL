@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Slider (TrackBar)
 //
@@ -324,14 +324,12 @@ type
 
     FMoving: Boolean;
     FMovingHint: TACLHintWindow;
-    FMovingHintAutoHideTimer: TACLTimer;
 
     FOnChange: TNotifyEvent;
     FOnDrawBackground: TACLCustomDrawEvent;
     FOnDrawThumb: TACLCustomDrawEvent;
     FOnGetHint: TACLSliderGetHintEvent;
 
-    procedure MovingHintAutoHideTimerHandler(Sender: TObject);
     function GetPositionAsInteger: Integer;
     function GetStyleSlider: TACLStyleSlider;
     procedure InternalSetPosition(AValue: Single);
@@ -803,7 +801,7 @@ procedure TACLSliderViewInfo.CalculateLabels(ACanvas: TCanvas; var R: TRect);
       AViewInfo.TextColor := Style.ColorRangeLabel.AsColor;
       if ACustomTextWidth > 0 then
       begin
-        AViewInfo.TextSize.cx := ACustomTextWidth;
+        AViewInfo.TextSize.cx := dpiApply(ACustomTextWidth, FOwner.FCurrentPPI);
         AViewInfo.TextSize.cy := acFontHeight(ACanvas);
       end
       else
@@ -838,7 +836,7 @@ begin
       FLabelCurrentValue.TextColor := Style.TextColors[FOwner.Enabled];
       if OptionsLabels.CurrentValueWidth > 0 then
       begin
-        FLabelCurrentValue.TextSize.cx := OptionsLabels.CurrentValueWidth;
+        FLabelCurrentValue.TextSize.cx := dpiApply(OptionsLabels.CurrentValueWidth, FOwner.FCurrentPPI);
         FLabelCurrentValue.TextSize.cy := acFontHeight(ACanvas);
       end
       else
@@ -1392,7 +1390,6 @@ end;
 
 destructor TACLSlider.Destroy;
 begin
-  FreeAndNil(FMovingHintAutoHideTimer);
   FreeAndNil(FMovingHint);
   FreeAndNil(FOptionsLabels);
   FreeAndNil(FOptionsValue);
@@ -1605,37 +1602,25 @@ begin
   inherited MouseUp(Button, Shift, X, Y);
 end;
 
-procedure TACLSlider.HideMovingHint;
-begin
-  FreeAndNil(FMovingHintAutoHideTimer);
-  FreeAndNil(FMovingHint);
-end;
-
 procedure TACLSlider.ShowMovingHint(APosition: Single; AAutoHide: Boolean);
 var
-  AHint: string;
+  LHint: string;
 begin
-  AHint := '';
+  LHint := '';
 //  if OptionsLabels.IsCurrentValueMasked then
-//    AHint := OptionsLabels.FormatCurrentValue(APosition);
+//    LHint := OptionsLabels.FormatCurrentValue(APosition);
   if Assigned(OnGetHint) then
-    OnGetHint(Self, APosition, AHint);
+    OnGetHint(Self, APosition, LHint);
 
-  if AHint <> '' then
+  if LHint <> '' then
   begin
     Application.CancelHint;
     if FMovingHint = nil then
-      FMovingHint := TACLHintWindow.Create(nil);
-    FMovingHint.ShowFloatHint(AHint, Self, hwhaCenter, hwvaAbove);
-
-    if AAutoHide then
     begin
-      if FMovingHintAutoHideTimer = nil then
-        FMovingHintAutoHideTimer := TACLTimer.CreateEx(MovingHintAutoHideTimerHandler);
-      FMovingHintAutoHideTimer.Restart;
-    end
-    else
-      FreeAndNil(FMovingHintAutoHideTimer);
+      FMovingHint := TACLHintWindow.Create(nil);
+      FMovingHint.OnHide := HideMovingHint;
+    end;
+    FMovingHint.ShowFloatHint(LHint, Self, hwhaCenter, hwvaAbove, IfThen(AAutoHide, 1000));
   end;
 end;
 
@@ -1742,7 +1727,12 @@ begin
   begin
     UpdateThumbState(CalcCursorPos);
     Invalidate;
-  end;
+  end
+  else
+    if Enabled then
+      FThumbState := absNormal
+    else
+      FThumbState := absDisabled;
 end;
 
 procedure TACLSlider.CMHintShow(var Message: TCMHintShow);
@@ -1756,13 +1746,6 @@ begin
   Message.Result := DLGC_WANTARROWS;
 end;
 
-procedure TACLSlider.MovingHintAutoHideTimerHandler(Sender: TObject);
-begin
-  if not FMoving then
-    HideMovingHint;
-  FreeAndNil(FMovingHintAutoHideTimer);
-end;
-
 function TACLSlider.GetPositionAsInteger: Integer;
 begin
   Result := Round(Position);
@@ -1771,6 +1754,11 @@ end;
 function TACLSlider.GetStyleSlider: TACLStyleSlider;
 begin
   Result := TACLStyleSlider(inherited Style);
+end;
+
+procedure TACLSlider.HideMovingHint;
+begin
+  FreeAndNil(FMovingHint);
 end;
 
 procedure TACLSlider.InternalSetPosition(AValue: Single);

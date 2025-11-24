@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TimeEdit
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -45,52 +45,26 @@ uses
   ACL.UI.Resources;
 
 type
-  { TACLInnerTimeEdit }
-
-  TACLTimeEditorSection = (tesNone, tesHour, tesMinutes, tesSeconds);
-
-  TACLInnerTimeEdit = class(TACLInnerEdit)
-  strict private
-    function GetDateTime: TDateTime;
-    function GetFocusedSection: TACLTimeEditorSection;
-    function GetTime: TTime;
-    function Replace(const AStr, AWithStr: string; AFrom, ALength: Integer): string;
-    procedure CleanSelection;
-    procedure SetTime(AValue: TTime);
-  protected
-    procedure Decode(const AText: string; out H, M, S: Integer);
-    procedure Encode(H, M, S: Integer);
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure KeyPressCore(var Key: WideChar); override;
-    procedure Validate(var H, M, S: Integer); reintroduce;
-    procedure ValidateEdit(const AText: string); reintroduce;
-  public
-    constructor Create(AOwner: TComponent); override;
-    procedure Increase(AForward: Boolean);
-    //# Properties
-    property DateTime: TDateTime read GetDateTime;
-    property FocusedSection: TACLTimeEditorSection read GetFocusedSection;
-    property Time: TTime read GetTime write SetTime;
-  end;
 
   { TACLTimeEdit }
 
   TACLTimeEdit = class(TACLCustomSpinEdit)
   strict private
     function GetDateTime: TDateTime;
-    function GetEdit: TACLInnerTimeEdit;
     function GetTime: TTime;
     function IsTimeStored: Boolean;
     procedure SetTime(AValue: TTime);
+  strict private
+    procedure DecodeValues(const AText: string; out H, M, S: Integer);
+    function EncodeValues(H, M, S: Integer): string;
+    procedure Validate(var H, M, S: Integer); overload;
+    procedure Validate(var AText: string); overload;
   protected
-    function CreateEditor: TWinControl; override;
-    procedure ButtonClick(AStep: Integer); override;
-    procedure DoEditChange(Sender: TObject);
-    function MouseWheel(Direction: TACLMouseWheelDirection;
-      Shift: TShiftState; const MousePos: TPoint): Boolean; override;
-    //# Properties
-    property Edit: TACLInnerTimeEdit read GetEdit;
+    procedure CheckInput(var AText, APart1, APart2: string; var AAccept: Boolean); override;
   public
+    constructor Create(AOwner: TComponent); override;
+    procedure Increase(AStep: Integer); override;
+    //# Properties
     property DateTime: TDateTime read GetDateTime;
   published
     property Time: TTime read GetTime write SetTime stored IsTimeStored;
@@ -104,224 +78,95 @@ uses
   ACL.Utils.Common,
   ACL.Utils.Strings;
 
-{ TACLInnerTimeEdit }
+{ TACLTimeEdit }
 
-constructor TACLInnerTimeEdit.Create(AOwner: TComponent);
+constructor TACLTimeEdit.Create(AOwner: TComponent);
 begin
-  inherited Create(AOwner);
-  MaxLength := 8;
-  Alignment := taCenter;
-  ValidateEdit(Text);
+  inherited;
+  FEditBox.Text := EncodeValues(0, 0, 0);
 end;
 
-procedure TACLInnerTimeEdit.CleanSelection;
+procedure TACLTimeEdit.CheckInput(
+  var AText, APart1, APart2: string; var AAccept: Boolean);
 var
-  LPrevSelStart: Integer;
+  LChar: Char;
+  LCurr: Integer;
+  LText: string;
 begin
-  LPrevSelStart := SelStart;
-  try
-    ValidateEdit(Replace(Text, acDupeString('0', SelLength), SelStart, SelLength));
-  finally
-    SelStart := LPrevSelStart;
-    SelLength := 0;
+  if FEditBox.SelLength > 0 then
+  begin
+    LText := APart1 + acDupeString('0', FEditBox.SelLength) + APart2;
+    Validate(LText);
+  end
+  else
+    LText := FEditBox.Text;
+
+  LCurr := FEditBox.SelStart;
+  for LChar in AText do
+  begin
+    if CharInSet(LChar, ['0'..'9']) then
+    begin
+      Inc(LCurr);
+      if InRange(LCurr, 1, Length(LText)) and (LText[LCurr] = ':') then
+        Inc(LCurr);
+      LText[LCurr] := LChar;
+    end;
   end;
+
+  Validate(LText);
+  APart1 := '';
+  APart2 := Copy(LText, LCurr + 1);
+  AText  := Copy(LText, 1, LCurr);
 end;
 
-procedure TACLInnerTimeEdit.Decode(const AText: string; out H, M, S: Integer);
+procedure TACLTimeEdit.DecodeValues(const AText: string; out H, M, S: Integer);
 begin
   H := StrToIntDef(Copy(AText, 1, 2), 0);
   M := StrToIntDef(Copy(AText, 4, 2), 0);
   S := StrToIntDef(Copy(AText, 7, 2), 0);
 end;
 
-procedure TACLInnerTimeEdit.Encode(H, M, S: Integer);
+function TACLTimeEdit.EncodeValues(H, M, S: Integer): string;
 begin
-  Text :=
+  Result :=
     FormatFloat('00', H) + ':' +
     FormatFloat('00', M) + ':' +
     FormatFloat('00', S);
 end;
 
-procedure TACLInnerTimeEdit.Increase(AForward: Boolean);
-var
-  LPrevSelStart: Integer;
-  H, M, S: Integer;
-begin
-  LPrevSelStart := SelStart;
-  try
-    Decode(Text, H, M, S);
-    case FocusedSection of
-      tesHour:
-        Inc(H, Signs[AForward]);
-      tesMinutes:
-        Inc(M, Signs[AForward]);
-      tesSeconds:
-        Inc(S, Signs[AForward]);
-    else;
-    end;
-    Validate(H, M, S);
-    Encode(H, M, S);
-  finally
-    SelStart := LPrevSelStart;
-  end;
-end;
-
-procedure TACLInnerTimeEdit.KeyDown(var Key: Word; Shift: TShiftState);
-begin
-  case Key of
-    VK_UP, VK_DOWN:
-      begin
-        Increase(Key = VK_UP);
-        Key := 0;
-      end;
-
-    VK_DELETE:
-      begin
-        SelLength := Max(SelLength, 1);
-        CleanSelection;
-        Key := 0;
-      end;
-
-    VK_BACK:
-      begin
-        if SelLength = 0 then
-        begin
-          SelStart := SelStart - 1;
-          SelLength := 1;
-        end;
-        CleanSelection;
-        Key := 0;
-      end;
-  end;
-end;
-
-procedure TACLInnerTimeEdit.KeyPressCore(var Key: WideChar);
-var
-  LCursor: Integer;
-begin
-  if CharInSet(Key, ['0'..'9']) then
-  begin
-    LCursor := SelStart;
-    try
-      if SelLength > 0 then
-        CleanSelection;
-      if InRange(Cursor, 0, Length(Text) - 1) and (Text[LCursor + 1] = ':') then
-        Inc(LCursor, 1);
-      ValidateEdit(Replace(Text, acString(Key), LCursor, 1));
-    finally
-      SelStart := LCursor + 1;
-    end;
-  end;
-  Key := #0;
-end;
-
-function TACLInnerTimeEdit.Replace(
-  const AStr, AWithStr: string; AFrom, ALength: Integer): string;
-begin
-  Result :=
-    Copy(AStr, 1, AFrom) + AWithStr +
-    Copy(AStr, AFrom + ALength + 1);
-end;
-
-procedure TACLInnerTimeEdit.Validate(var H, M, S: Integer);
-var
-  AValue: Int64;
-begin
-  AValue := Max(H * 3600 + M * 60 + S, 0);
-  S := AValue mod 60;
-  AValue := AValue div 60;
-  M := AValue mod 60;
-  AValue := AValue div 60;
-  H := AValue mod 24;
-end;
-
-procedure TACLInnerTimeEdit.ValidateEdit(const AText: string);
-var
-  H, M, S: Integer;
-begin
-  Decode(AText, H, M, S);
-  Validate(H, M, S);
-  Encode(H, M, S);
-end;
-
-function TACLInnerTimeEdit.GetDateTime: TDateTime;
+function TACLTimeEdit.GetDateTime: TDateTime;
 begin
   Result := Date + Time;
 end;
 
-function TACLInnerTimeEdit.GetFocusedSection: TACLTimeEditorSection;
-begin
-  case SelStart of
-    0..2: Result := tesHour;
-    3..5: Result := tesMinutes;
-    6..8: Result := tesSeconds;
-  else
-    Result := tesNone;
-  end;
-end;
-
-function TACLInnerTimeEdit.GetTime: TTime;
+function TACLTimeEdit.GetTime: TTime;
 var
   H, M, S: Integer;
 begin
-  Decode(Text, H, M, S);
+  DecodeValues(FEditBox.Text, H, M, S);
   Validate(H, M, S);
   Result := EncodeTime(H, M, S, 0);
 end;
 
-procedure TACLInnerTimeEdit.SetTime(AValue: TTime);
+procedure TACLTimeEdit.Increase(AStep: Integer);
 var
-  H, M, S, X: Word;
+  LCursor: Integer;
+  H, M, S: Integer;
 begin
-  if Time <> AValue then
-  begin
-    DecodeTime(AValue, H, M, S, X);
-    Encode(H, M, S);
+  LCursor := FEditBox.SelStart;
+  try
+    DecodeValues(FEditBox.Text, H, M, S);
+    case LCursor of
+      0..2: Inc(H, AStep);
+      3..5: Inc(M, AStep);
+      6..8: Inc(S, AStep);
+    else;
+    end;
+    Validate(H, M, S);
+    FEditBox.Text := EncodeValues(H, M, S);
+  finally
+    FEditBox.SelStart := LCursor;
   end;
-end;
-
-{ TACLTimeEdit }
-
-function TACLTimeEdit.CreateEditor: TWinControl;
-var
-  AEdit: TACLInnerTimeEdit;
-begin
-  AEdit := TACLInnerTimeEdit.Create(Self);
-  AEdit.Parent := Self;
-  AEdit.OnChange := DoEditChange;
-  Result := AEdit;
-end;
-
-procedure TACLTimeEdit.DoEditChange(Sender: TObject);
-begin
-  if Assigned(OnChange) then OnChange(Self);
-end;
-
-function TACLTimeEdit.MouseWheel;
-begin
-  if not inherited then
-    ButtonClick(TACLMouseWheel.DirectionToInteger[Direction]);
-  Result := True;
-end;
-
-procedure TACLTimeEdit.ButtonClick(AStep: Integer);
-begin
-  Edit.Increase(AStep > 0);
-end;
-
-function TACLTimeEdit.GetDateTime: TDateTime;
-begin
-  Result := Edit.DateTime;
-end;
-
-function TACLTimeEdit.GetEdit: TACLInnerTimeEdit;
-begin
-  Result := FEditor as TACLInnerTimeEdit;
-end;
-
-function TACLTimeEdit.GetTime: TTime;
-begin
-  Result := Edit.Time;
 end;
 
 function TACLTimeEdit.IsTimeStored: Boolean;
@@ -330,8 +175,35 @@ begin
 end;
 
 procedure TACLTimeEdit.SetTime(AValue: TTime);
+var
+  H, M, S, X: Word;
 begin
-  Edit.Time := AValue;
+  if Time <> AValue then
+  begin
+    DecodeTime(AValue, H, M, S, X);
+    FEditBox.Text := EncodeValues(H, M, S);
+  end;
+end;
+
+procedure TACLTimeEdit.Validate(var AText: string);
+var
+  H, M, S: Integer;
+begin
+  DecodeValues(AText, H, M, S);
+  Validate(H, M, S);
+  AText := EncodeValues(H, M, S);
+end;
+
+procedure TACLTimeEdit.Validate(var H, M, S: Integer);
+var
+  LValue: Int64;
+begin
+  LValue := Max(H * 3600 + M * 60 + S, 0);
+  S := LValue mod 60;
+  LValue := LValue div 60;
+  M := LValue mod 60;
+  LValue := LValue div 60;
+  H := Min(LValue, 24);
 end;
 
 end.

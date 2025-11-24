@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Authorization Dialogs
 //
@@ -98,15 +98,13 @@ begin
   SetBounds(Left, Top, 512, 160);
 
   FUrl := TACLEdit.Create(Self);
-  FUrl.AlignWithMargins := True;
   FUrl.Align := alBottom;
   FUrl.Margins.All := ContentIndent;
   FUrl.ReadOnly := True;
   FUrl.Parent := Self;
   FUrl.Visible := False;
 
-  FServer := TAuthServer.Create(TACLWebURL.ParseHttp(
-    acDefaultAuthRedirectURL).Port, OnReceive, AppHomeUrl);
+  FServer := TAuthServer.Create(TACLWebURL.Parse(acDefaultAuthRedirectURL).Port, OnReceive, AppHomeUrl);
 end;
 
 destructor TACLAuthDialog.Destroy;

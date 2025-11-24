@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Simple Inter-Process Communication
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -29,6 +29,7 @@ uses
   ACL.Hashes,
   ACL.Threading,
   ACL.Utils.Common,
+  ACL.Utils.Logger,
   ACL.Utils.FileSystem,
   ACL.Utils.Messaging,
   ACL.Utils.Strings,
@@ -116,15 +117,21 @@ function SendDataToIPC(const AIpcServerName: string;
 var
   LClient: IACLIPCClient;
 begin
-  repeat
-    LClient := TIPCServer.TryConnect(AIpcServerName);
-    if LClient <> nil then
-      Exit(LClient.Send(ACmd, AData) = irSucceeded);
-    if ATimeOut <= 0 then
-      Exit(False);
-    Sleep(Min(100, ATimeOut));
-    Dec(ATimeOut, 100);
-  until False;
+  Result := False;
+  try
+    repeat
+      LClient := TIPCServer.TryConnect(AIpcServerName);
+      if LClient <> nil then
+        Exit(LClient.Send(ACmd, AData) = irSucceeded);
+      if ATimeOut <= 0 then
+        Exit(False);
+      Sleep(Min(100, ATimeOut));
+      Dec(ATimeOut, 100);
+    until False;
+  finally
+    LogEntry(acGeneralLogFileName, 'IPC', 'SendData(%s, %d, %s) = %s',
+      [AIpcServerName, ACmd, AData, BoolToStr(Result)]);
+  end;
 end;
 
 { TACLIPCHub }
@@ -164,6 +171,7 @@ var
   I: Integer;
   LList: TACLListOf<TReceiver>;
 begin
+  LogEntry(acGeneralLogFileName, 'IPC', 'Receive(%d, %s)', [ACmd, AData]);
   if (ACmd <> 0) or (AData <> '') then
   begin
     LList := FReceivers.LockList;
@@ -195,6 +203,8 @@ var
   LClient: IACLIPCClient;
   LIndex: Integer;
 begin
+  LogEntry(acGeneralLogFileName, 'IPC', 'Send(%d, %s)', [ACmd, AData]);
+
   SendLocal(ACmd, AData);
   if FServer = nil then
     raise EInvalidOp.Create(ClassName + ' was not initialized');

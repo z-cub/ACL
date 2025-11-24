@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   SearchBox
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -66,25 +66,24 @@ type
 
   TACLSearchEdit = class(TACLCustomTextEdit)
   strict private
+    FDelayTimer: TACLTimer;
     FFocusControl: TWinControl;
-    FWaitTimer: TACLTimer;
 
     function CanSelectFocusControl: Boolean;
     function GetChangeDelay: Integer;
     procedure SetChangeDelay(AValue: Integer);
     procedure SetFocusControl(const Value: TWinControl);
     // Handlers
-    procedure CancelButtonHandler(Sender: TObject);
-    procedure WaitTimerHandler(Sender: TObject);
-  protected
-    function CreateStyleButton: TACLStyleButton; override;
-    procedure Changed; override;
-    procedure DoChange; override;
-    procedure DoMoveFocusToFirstSearchResult;
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure HandlerCancel(Sender: TObject);
+    procedure HandlerDelayTimer(Sender: TObject);
     //# Messages
     procedure CMWantSpecialKey(var Message: TCMWantSpecialKey); message CM_WANTSPECIALKEY;
+  protected
+    function CreateStyleButton: TACLStyleButton; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure MoveFocusToFirstSearchResult;
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure TextChanged; override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -108,19 +107,18 @@ implementation
 
 constructor TACLSearchEdit.Create(AOwner: TComponent);
 var
-  AButton: TACLEditButton;
+  LButton: TACLEditButton;
 begin
   inherited Create(AOwner);
-  FWaitTimer := TACLTimer.CreateEx(WaitTimerHandler, acSearchDelay);
-
-  AButton := Buttons.Add;
-  AButton.OnClick := CancelButtonHandler;
-  AButton.Visible := False;
+  FDelayTimer := TACLTimer.CreateEx(HandlerDelayTimer, acSearchDelay);
+  LButton := Buttons.Add;
+  LButton.OnClick := HandlerCancel;
+  LButton.Visible := False;
 end;
 
 destructor TACLSearchEdit.Destroy;
 begin
-  FreeAndNil(FWaitTimer);
+  FreeAndNil(FDelayTimer);
   inherited Destroy;
 end;
 
@@ -129,16 +127,24 @@ begin
   if Text <> '' then
   begin
     Text := '';
-    DoChange;
+    HandlerDelayTimer(nil);
   end;
 end;
 
-procedure TACLSearchEdit.Changed;
+function TACLSearchEdit.CanSelectFocusControl: Boolean;
 begin
-  Buttons[0].Visible := Text <> '';
-  if not (csLoading in ComponentState) then
-    FWaitTimer.Restart;
-  Invalidate;
+  Result := Focused and (FocusControl <> nil) and FocusControl.CanFocus;
+end;
+
+procedure TACLSearchEdit.CMWantSpecialKey(var Message: TCMWantSpecialKey);
+begin
+  if Message.CharCode = vkEscape then
+  begin
+    if (Text <> '') or CanSelectFocusControl then
+      Message.Result := 1;
+  end;
+  if Message.Result = 0 then
+    inherited;
 end;
 
 function TACLSearchEdit.CreateStyleButton: TACLStyleButton;
@@ -146,60 +152,46 @@ begin
   Result := TACLSearchEditStyleButton.Create(Self);
 end;
 
-procedure TACLSearchEdit.DoChange;
-begin
-  FWaitTimer.Enabled := False;
-  inherited DoChange;
-end;
-
-procedure TACLSearchEdit.DoMoveFocusToFirstSearchResult;
-var
-  AIntf: IACLFocusableControl2;
-begin
-  if CanSelectFocusControl then
-  begin
-    if Supports(FocusControl, IACLFocusableControl2, AIntf) then
-      AIntf.SetFocusOnSearchResult
-    else
-      FocusControl.SetFocus;
-  end;
-end;
-
 procedure TACLSearchEdit.KeyDown(var Key: Word; Shift: TShiftState);
 begin
   case Key of
-    VK_DOWN:
-      DoMoveFocusToFirstSearchResult;
+    vkDown:
+      MoveFocusToFirstSearchResult;
 
-    VK_RETURN:
-      begin
-        if FWaitTimer.Enabled then
-          DoChange
-        else
-          if CanSelectFocusControl then
-            DoMoveFocusToFirstSearchResult
-          else
-            inherited KeyDown(Key, Shift);
+    vkReturn:
+      if FDelayTimer.Enabled then
+        HandlerDelayTimer(nil)
+      else if CanSelectFocusControl then
+        MoveFocusToFirstSearchResult
+      else
+        inherited;
 
-        Key := 0;
-      end;
+    vkEscape:
+      if Text <> '' then
+        CancelSearch
+      else if CanSelectFocusControl then
+        FocusControl.SetFocus
+      else
+        inherited;
 
-    VK_ESCAPE:
-      begin
-        if Text <> '' then
-          CancelSearch
-        else
-          if CanSelectFocusControl then
-            FocusControl.SetFocus
-          else
-            inherited;
-
-        Key := 0;
-      end;
+  else
+    inherited;
+    Exit;
   end;
+  Key := 0;
+end;
 
-  if Key <> 0 then
-    inherited KeyDown(Key, Shift);
+procedure TACLSearchEdit.MoveFocusToFirstSearchResult;
+var
+  LIntf: IACLFocusableControl2;
+begin
+  if CanSelectFocusControl then
+  begin
+    if Supports(FocusControl, IACLFocusableControl2, LIntf) then
+      LIntf.SetFocusOnSearchResult
+    else
+      FocusControl.SetFocus;
+  end;
 end;
 
 procedure TACLSearchEdit.Notification(AComponent: TComponent; Operation: TOperation);
@@ -209,30 +201,25 @@ begin
     FocusControl := nil;
 end;
 
-procedure TACLSearchEdit.CMWantSpecialKey(var Message: TCMWantSpecialKey);
-begin
-  if Message.CharCode = VK_ESCAPE then
-  begin
-    if (Text <> '') or CanSelectFocusControl then
-      Message.Result := 1;
-  end;
-  if Message.Result = 0 then
-    inherited;
-end;
-
-function TACLSearchEdit.CanSelectFocusControl: Boolean;
-begin
-  Result := Focused and (FocusControl <> nil) and FocusControl.CanFocus;
-end;
-
 function TACLSearchEdit.GetChangeDelay: Integer;
 begin
-  Result := FWaitTimer.Interval;
+  Result := FDelayTimer.Interval;
+end;
+
+procedure TACLSearchEdit.HandlerCancel(Sender: TObject);
+begin
+  CancelSearch;
+end;
+
+procedure TACLSearchEdit.HandlerDelayTimer(Sender: TObject);
+begin
+  FDelayTimer.Enabled := False;
+  inherited TextChanged;
 end;
 
 procedure TACLSearchEdit.SetChangeDelay(AValue: Integer);
 begin
-  FWaitTimer.Interval := EnsureRange(AValue, 0, 5000);
+  FDelayTimer.Interval := EnsureRange(AValue, 0, 5000);
 end;
 
 procedure TACLSearchEdit.SetFocusControl(const Value: TWinControl);
@@ -240,14 +227,11 @@ begin
   acComponentFieldSet(FFocusControl, Self, Value);
 end;
 
-procedure TACLSearchEdit.CancelButtonHandler(Sender: TObject);
+procedure TACLSearchEdit.TextChanged;
 begin
-  CancelSearch;
-end;
-
-procedure TACLSearchEdit.WaitTimerHandler(Sender: TObject);
-begin
-  DoChange;
+  Buttons[0].Visible := Text <> '';
+  if not (csLoading in ComponentState) then
+    FDelayTimer.Restart;
 end;
 
 { TACLSearchEditStyleButton }

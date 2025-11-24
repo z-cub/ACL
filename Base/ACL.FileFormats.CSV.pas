@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   CSV Reader/Writer
 //
@@ -324,7 +324,7 @@ class procedure TACLCSVDocument.Read(const AFileName: string;
 var
   AStream: TACLFileStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     Read(AStream, ASettings, OnRow, OnValue);
   finally

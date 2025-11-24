@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TextEdit
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -25,86 +25,166 @@ uses
   {Winapi.}Messages,
   {Winapi.}Windows,
 {$ENDIF}
-  // System
-  {System.}Classes,
-  {System.}Math,
-  {System.}SysUtils,
-  {System.}Types,
-  System.UITypes,
   // Vcl
   {Vcl.}Controls,
   {Vcl.}Graphics,
+  {Vcl.}ImgList,
+  {Vcl.}Forms,
+  // System
+  {System.}Classes,
+  {System.}Math,
+  {System.}Variants,
+  {System.}SysUtils,
+  {System.}Types,
+  System.UITypes,
   // ACL
+  ACL.Classes,
   ACL.Geometry,
   ACL.Graphics,
   ACL.MUI,
   ACL.ObjectLinks,
   ACL.UI.Controls.Base,
   ACL.UI.Controls.BaseEditors,
+  ACL.UI.Controls.Buttons,
+  ACL.UI.ImageList,
   ACL.UI.Resources,
   ACL.Utils.Common,
   ACL.Utils.DPIAware,
   ACL.Utils.Strings;
 
 type
+  TACLEditButtons = class;
+  TACLEditInputMask = (eimText, eimInteger, eimFloat);
+  TACLCustomTextEdit = class;
 
-  { TACLCustomTextEdit }
+  { IACLTextEdit }
 
-  TACLTextEditCustomDrawEvent = procedure (Sender: TObject;
-    ACanvas: TCanvas; const R: TRect; var AHandled: Boolean) of object;
-
-  TACLCustomTextEdit = class(TACLCustomEdit, IACLInplaceControl)
-  strict private
-    FInputMask: TACLEditInputMask;
-    FMaxLength: Integer;
-    FPasswordChar: Boolean;
-    FReadOnly: Boolean;
-    FTextHint: string;
-
-    FOnCustomDraw: TACLTextEditCustomDrawEvent;
-
-    procedure HandlerInnerEditChanged(Sender: TObject);
-    function GetInnerEdit: TACLInnerEdit;
+  IACLTextEdit = interface(IACLEditActions)
+  ['{254D369B-2B0F-4D04-AD4F-136F5B93F338}']
+    // Get/Set
     function GetSelLength: Integer;
     function GetSelStart: Integer;
     function GetSelText: string;
+    function GetText: string;
+    procedure SetSelLength(AValue: Integer);
+    procedure SetSelStart(AValue: Integer);
+    procedure SetSelText(const AValue: string);
+    procedure SetText(const AValue: string);
+    // Properties
+    property SelLength: Integer read GetSelLength write SetSelLength;
+    property SelStart: Integer read GetSelStart write SetSelStart;
+    property SelText: string read GetSelText write SetSelText;
+    property Text: string read GetText write SetText;
+  end;
+
+  { TACLEditButton }
+
+  TACLEditButton = class(TACLCollectionItem)
+  strict private
+    FCaption: string;
+    FHint: string;
+    FSubClass: TACLButtonSubClass;
+    FVisible: Boolean;
+    FWidth: Integer;
+
+    function GetCollection: TACLEditButtons;
+    function GetEnabled: Boolean;
+    function GetImageIndex: TImageIndex;
+    function GetOnClick: TNotifyEvent;
+    procedure SetCaption(const AValue: string);
+    procedure SetEnabled(AValue: Boolean);
+    procedure SetImageIndex(AValue: TImageIndex);
+    procedure SetOnClick(AValue: TNotifyEvent);
+    procedure SetVisible(AValue: Boolean);
+    procedure SetWidth(AValue: Integer);
+    procedure UpdateCaption;
+  protected
+    procedure AssignTo(Target: TPersistent); override;
+    procedure Calculate(var R: TRect);
+    procedure SetCollection(Value: TCollection); override;
+    //# Properties
+    property SubClass: TACLButtonSubClass read FSubClass;
+  public
+    constructor Create(ACollection: TCollection); override;
+    //# Properties
+    property Collection: TACLEditButtons read GetCollection;
+  published
+    property Caption: string read FCaption write SetCaption;
+    property Enabled: Boolean read GetEnabled write SetEnabled default True;
+    property Hint: string read FHint write FHint;
+    property ImageIndex: TImageIndex read GetImageIndex write SetImageIndex default -1;
+    property Index stored False;
+    property Visible: Boolean read FVisible write SetVisible default True;
+    property Width: Integer read FWidth write SetWidth default 0;
+    //# Events
+    property OnClick: TNotifyEvent read GetOnClick write SetOnClick;
+  end;
+
+  { TACLEditButtons }
+
+  TACLEditButtons = class(TCollection)
+  strict private
+    FEdit: TACLCustomTextEdit;
+    function GetItem(AIndex: Integer): TACLEditButton;
+  protected
+    function GetOwner: TPersistent; override;
+    procedure Update(Item: TCollectionItem); override;
+    //# Properties
+    property Edit: TACLCustomTextEdit read FEdit;
+  public
+    constructor Create(AEdit: TACLCustomTextEdit);
+    function Add(const ACaption: string = ''): TACLEditButton;
+    function Find(const P: TPoint; out AButton: TACLEditButton): Boolean;
+    //# Properties
+    property Items[Index: Integer]: TACLEditButton read GetItem; default;
+  end;
+
+  { TACLCustomTextEdit }
+
+  TACLCustomTextEdit = class(TACLCustomEdit,
+    IACLInplaceControl,
+    IACLTextEdit)
+  strict private
+    FButtons: TACLEditButtons;
+    FButtonsImages: TCustomImageList;
+    FButtonsImagesLink: TChangeLink;
+    FInputMask: TACLEditInputMask;
+
+    function GetMaxLength: Integer;
+    function GetPasswordChar: Boolean;
+    function GetReadOnly: Boolean;
+    function GetSelLength: Integer;
+    function GetSelStart: Integer;
+    function GetSelText: string;
+    function GetText: string;
+    function GetTextHint: string;
     function GetValue: Variant;
+    procedure SetButtons(AValue: TACLEditButtons);
+    procedure SetButtonsImages(const AValue: TCustomImageList);
     procedure SetInputMask(AValue: TACLEditInputMask);
     procedure SetMaxLength(AValue: Integer);
     procedure SetPasswordChar(AValue: Boolean);
     procedure SetReadOnly(AValue: Boolean);
     procedure SetSelLength(AValue: Integer);
     procedure SetSelStart(AValue: Integer);
-    procedure SetSelText(const Value: string);
-    procedure SetText(AValue: string);
+    procedure SetSelText(const AValue: string);
+    procedure SetText(const AValue: string);
     procedure SetTextHint(const AValue: string);
     procedure SetValue(const AValue: Variant);
+    //# Messages
+    procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
   protected
-    FContentRect: TRect;
-    FText: string;
-    FTextChangeLockCount: Integer;
-    FTextRect: TRect;
-
-    procedure CalculateContent(const R: TRect); override;
-    function CalculateEditorPosition: TRect; override;
-    procedure DrawEditorContent(ACanvas: TCanvas); virtual;
-    procedure DrawText(ACanvas: TCanvas; const R: TRect);
+    procedure CalculateButtons(var ARect: TRect; AIndent: Integer); override;
+    function GetCursor(const P: TPoint): TCursor; override;
     procedure Loaded; override;
-    procedure Paint; override;
-    procedure SetFocusToInnerEdit; override;
-    procedure SetTextCore(const AValue: string); virtual;
+    procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
+    procedure HandlerImageChange(Sender: TObject); virtual;
 
-    // Validation
-    function TextToDisplayText(const AText: string): string; virtual;
+    // Input
+    procedure CheckInput(var AText, APart1, APart2: string; var AAccept: Boolean); virtual;
     function TextToValue(const AText: string): Variant; virtual;
     function ValueToText(const AValue: Variant): string; virtual;
-
-    // InnerEdit
-    function CanOpenEditor: Boolean; override;
-    function CreateEditor: TWinControl; override;
-    procedure EditorUpdateParamsCore; override;
-    procedure EditorValidateText;
-    procedure RetriveValueFromInnerEdit;
+    procedure SetTextCore(const AValue: string); virtual;
 
     // IACLInplaceControl
     function IACLInplaceControl.InplaceIsFocused = Focused;
@@ -112,30 +192,30 @@ type
     procedure InplaceSetFocus;
     procedure InplaceSetValue(const AValue: string);
 
-    // Events
-    function DoCustomDraw(ACanvas: TCanvas): Boolean; virtual;
-
-    property InputMask: TACLEditInputMask read FInputMask write SetInputMask default eimText;
-    property MaxLength: Integer read FMaxLength write SetMaxLength default 0;
-    property PasswordChar: Boolean read FPasswordChar write SetPasswordChar default False;
-    property ReadOnly: Boolean read FReadOnly write SetReadOnly default False;
-    property Text: string read FText write SetText;
-    property TextHint: string read FTextHint write SetTextHint;
-    property Value: Variant read GetValue write SetValue;
-    //# Events
-    property OnCustomDraw: TACLTextEditCustomDrawEvent read FOnCustomDraw write FOnCustomDraw;
-  public
-    procedure Localize(const ASection, AName: string); override;
-    procedure SelectAll;
     //# Properties
-    property InnerEdit: TACLInnerEdit read GetInnerEdit;
+    property Buttons: TACLEditButtons read FButtons write SetButtons;
+    property ButtonsImages: TCustomImageList read FButtonsImages write SetButtonsImages;
+    property InputMask: TACLEditInputMask read FInputMask write SetInputMask default eimText;
+    property MaxLength: Integer read GetMaxLength write SetMaxLength default 0;
+    property PasswordChar: Boolean read GetPasswordChar write SetPasswordChar default False;
+    property ReadOnly: Boolean read GetReadOnly write SetReadOnly default False;
+    property TextHint: string read GetTextHint write SetTextHint;
+    property Value: Variant read GetValue write SetValue;
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+    function CanExecute(AAction: TACLEditAction): Boolean;
+    procedure Execute(AAction: TACLEditAction);
+    procedure Localize(const ASection, AName: string); override;
+    procedure Select(AStart, ALength: Integer; AGoForward: Boolean = True);
+    //# Properties
     property SelLength: Integer read GetSelLength write SetSelLength;
     property SelStart: Integer read GetSelStart write SetSelStart;
     property SelText: string read GetSelText write SetSelText;
-    property ContentRect: TRect read FContentRect;
-    property TextRect: TRect read FTextRect;
+    property Text: string read GetText write SetText;
   published
     property Color;
+    //# Events
     property OnChange;
   end;
 
@@ -163,163 +243,338 @@ type
 
 implementation
 
+{ TACLEditButton }
+
+constructor TACLEditButton.Create(ACollection: TCollection);
+begin
+  FVisible := True; // before set collection
+  inherited Create(ACollection);
+end;
+
+procedure TACLEditButton.AssignTo(Target: TPersistent);
+begin
+  if Target is TACLEditButton then
+  begin
+    TACLEditButton(Target).Caption := Caption;
+    TACLEditButton(Target).Hint := Hint;
+    TACLEditButton(Target).ImageIndex := ImageIndex;
+    TACLEditButton(Target).Visible := Visible;
+    TACLEditButton(Target).Width := Width;
+  end;
+end;
+
+procedure TACLEditButton.Calculate(var R: TRect);
+var
+  LWidth: Integer;
+begin
+  if SubClass <> nil then
+  begin
+    if Width > 0 then
+      LWidth := dpiApply(Width, SubClass.CurrentDpi)
+    else
+      LWidth := R.Height;
+
+    SubClass.Calculate(R.Split(srRight, IfThen(Visible, LWidth)));
+    R.Right := SubClass.Bounds.Left;
+  end;
+end;
+
+function TACLEditButton.GetCollection: TACLEditButtons;
+begin
+  Result := TACLEditButtons(inherited Collection);
+end;
+
+function TACLEditButton.GetEnabled: Boolean;
+begin
+  Result := SubClass.IsEnabled;
+end;
+
+function TACLEditButton.GetImageIndex: TImageIndex;
+begin
+  Result := SubClass.ImageIndex;
+end;
+
+function TACLEditButton.GetOnClick: TNotifyEvent;
+begin
+  Result := SubClass.OnClick;
+end;
+
+procedure TACLEditButton.SetCaption(const AValue: string);
+begin
+  if FCaption <> AValue then
+  begin
+    FCaption := AValue;
+    UpdateCaption;
+    Changed(False);
+  end;
+end;
+
+procedure TACLEditButton.SetCollection(Value: TCollection);
+var
+  LEdit: TACLCustomTextEdit;
+begin
+  if (Value <> nil) and not (Value is TACLEditButtons) then
+    raise EInvalidArgument.Create('TACLEditButton cannot be placed on ' + Value.ClassName);
+
+  if SubClass <> nil then
+  begin
+    LEdit := Collection.Edit;
+    if not (csDestroying in LEdit.ComponentState) then
+      LEdit.SubClasses.Remove(FSubClass);
+    FSubClass := nil;
+  end;
+  if Value <> nil then // destroying
+  begin
+    LEdit := TACLEditButtons(Value).Edit;
+    LEdit.RegisterSubClass(FSubClass, TACLButtonSubClass.Create(LEdit, LEdit.StyleButton));
+  end;
+  inherited; // last (for design-time)
+end;
+
+procedure TACLEditButton.SetEnabled(AValue: Boolean);
+begin
+  if AValue <> Enabled then
+  begin
+    SubClass.IsEnabled := AValue;
+    Changed(False);
+  end;
+end;
+
+procedure TACLEditButton.SetImageIndex(AValue: TImageIndex);
+begin
+  if ImageIndex <> AValue then
+  begin
+    SubClass.ImageIndex := AValue;
+    UpdateCaption;
+    Changed(False);
+  end;
+end;
+
+procedure TACLEditButton.SetOnClick(AValue: TNotifyEvent);
+begin
+  SubClass.OnClick := AValue;
+end;
+
+procedure TACLEditButton.SetVisible(AValue: Boolean);
+begin
+  if Visible <> AValue then
+  begin
+    FVisible := AValue;
+    Changed(True);
+  end;
+end;
+
+procedure TACLEditButton.SetWidth(AValue: Integer);
+begin
+  if FWidth <> AValue then
+  begin
+    FWidth := AValue;
+    Changed(True);
+  end;
+end;
+
+procedure TACLEditButton.UpdateCaption;
+begin
+  SubClass.Caption := IfThenW(SubClass.ImageIndex < 0, Caption);
+end;
+
+{ TACLEditButtons }
+
+constructor TACLEditButtons.Create(AEdit: TACLCustomTextEdit);
+begin
+  FEdit := AEdit;
+  inherited Create(TACLEditButton);
+end;
+
+function TACLEditButtons.Add(const ACaption: string = ''): TACLEditButton;
+begin
+  BeginUpdate;
+  try
+    Result := TACLEditButton(inherited Add);
+    Result.Caption := ACaption;
+  finally
+    EndUpdate;
+  end;
+end;
+
+function TACLEditButtons.GetItem(AIndex: Integer): TACLEditButton;
+begin
+  Result := TACLEditButton(inherited Items[AIndex]);
+end;
+
+function TACLEditButtons.GetOwner: TPersistent;
+begin
+  if Edit <> nil then
+    Result := Edit
+  else
+    Result := inherited GetOwner;
+end;
+
+function TACLEditButtons.Find(const P: TPoint; out AButton: TACLEditButton): Boolean;
+var
+  I: Integer;
+begin
+  for I := Count - 1 downto 0 do
+    if PtInRect(Items[I].SubClass.Bounds, P) then
+    begin
+      AButton := Items[I];
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TACLEditButtons.Update(Item: TCollectionItem);
+begin
+  inherited Update(Item);
+  if Edit <> nil then
+    Edit.HandlerImageChange(nil);
+end;
+
 { TACLCustomTextEdit }
 
-procedure TACLCustomTextEdit.CalculateContent(const R: TRect);
-begin
-  FContentRect := R;
-  FTextRect := R;
-  FTextRect.Inflate(-dpiApply(acTextIndent, FCurrentPPI));
-end;
-
-function TACLCustomTextEdit.CalculateEditorPosition: TRect;
-begin
-  Result := FTextRect;
-end;
-
-procedure TACLCustomTextEdit.DrawEditorContent(ACanvas: TCanvas);
-begin
-  DrawText(ACanvas, TextRect);
-end;
-
-procedure TACLCustomTextEdit.DrawText(ACanvas: TCanvas; const R: TRect);
-begin
-  AssignTextDrawParams(ACanvas);
-  if Focused or (Text <> '') then
-    acTextDraw(ACanvas, TextToDisplayText(Text), R, taLeftJustify, taVerticalCenter)
-  else
-  begin
-    ACanvas.Font.Color := Style.ColorTextDisabled.AsColor;
-    acTextDraw(ACanvas, TextHint, R, taLeftJustify, taVerticalCenter);
-  end;
-end;
-
-procedure TACLCustomTextEdit.Loaded;
-begin
-  inherited Loaded;
-  if Text <> '' then
-    Changed;
-end;
-
-procedure TACLCustomTextEdit.Localize(const ASection, AName: string);
+constructor TACLCustomTextEdit.Create(AOwner: TComponent);
 begin
   inherited;
-  TextHint := LangGet(ASection, 'th', TextHint);
+  FEditBox.OnInput := CheckInput;
+  FButtons := TACLEditButtons.Create(Self);
+  FButtonsImagesLink := TChangeLink.Create;
+  FButtonsImagesLink.OnChange := HandlerImageChange;
 end;
 
-procedure TACLCustomTextEdit.Paint;
+destructor TACLCustomTextEdit.Destroy;
 begin
-  inherited Paint;
-
-  if InnerEdit = nil then
-  begin
-    if not DoCustomDraw(Canvas) then
-      DrawEditorContent(Canvas);
-  end;
+  ButtonsImages := nil;
+  FreeAndNil(FButtonsImagesLink);
+  FreeAndNil(FButtons);
+  inherited;
 end;
 
-procedure TACLCustomTextEdit.RetriveValueFromInnerEdit;
-begin
-  if FTextChangeLockCount = 0 then
-  begin
-    SetTextCore(InnerEdit.Text);
-    EditorUpdateParams;
-    Changed;
-  end;
-end;
-
-procedure TACLCustomTextEdit.SelectAll;
-begin
-  if InnerEdit <> nil then
-    InnerEdit.SelectAll;
-end;
-
-procedure TACLCustomTextEdit.SetFocusToInnerEdit;
+procedure TACLCustomTextEdit.CalculateButtons(var ARect: TRect; AIndent: Integer);
 var
-  LSelection: TPoint;
+  I: Integer;
+  LButton: TACLEditButton;
+  LRect: TRect;
 begin
-  LSelection := Point(SelStart, SelLength);
-  InnerEdit.SetFocus;
-  if LSelection.Y > 0 then
+  LRect := ARect;
+  LRect.Inflate(-AIndent);
+  for I := Buttons.Count - 1 downto 0 do
   begin
-    SelStart := LSelection.X;
-    SelLength := LSelection.Y;
+    LButton := Buttons.Items[I];
+    LButton.Calculate(LRect);
+    if LButton.Visible then
+      Dec(LRect.Right, AIndent);
   end;
-  Invalidate;
+  ARect.Right := LRect.Right + AIndent;
 end;
 
-procedure TACLCustomTextEdit.SetTextCore(const AValue: string);
+function TACLCustomTextEdit.CanExecute(AAction: TACLEditAction): Boolean;
 begin
-  FText := AValue;
+  Result := FEditBox.CanExecute(AAction);
 end;
 
-function TACLCustomTextEdit.TextToDisplayText(const AText: string): string;
+procedure TACLCustomTextEdit.CheckInput(
+  var AText, APart1, APart2: string; var AAccept: Boolean);
+var
+  LUnused1: Integer;
+  LUnused2: Double;
+  LValue: string;
 begin
-  if PasswordChar then
-    Result := acDupeString('x', Length(AText))
-  else
-    Result := AText;
-end;
-
-function TACLCustomTextEdit.TextToValue(const AText: string): Variant;
-begin
+  {.$MESSAGE 'TODO - возможно это стоит сделать подключаемым по опции'}
   case InputMask of
-    eimInteger:
-      Result := StrToIntDef(AText, 0);
     eimFloat:
-      Result := StrToFloatDef(AText, 0);
-    eimDateAndTime:
-      Result := StrToDateTimeDef(AText, 0, EditDateTimeFormat);
-  else
-    Result := AText;
+      begin
+        AText := acReplaceChar(AText, '.', FormatSettings.DecimalSeparator);
+        LValue := APart1 + AText + APart2;
+        AAccept := acContains(LValue, ['-', '+']) or
+          TryStrToFloat(LValue, LUnused2) or
+          TryStrToFloat(LValue, LUnused2, InvariantFormatSettings);
+      end;
+
+    eimInteger:
+      begin
+        LValue := APart1 + AText + APart2;
+        AAccept := acContains(LValue, ['-', '+']) or TryStrToInt(LValue, LUnused1);
+      end;
   end;
 end;
 
-function TACLCustomTextEdit.ValueToText(const AValue: Variant): string;
+procedure TACLCustomTextEdit.CMHintShow(var Message: TCMHintShow);
+var
+  LItem: TACLEditButton;
 begin
-  if InputMask = eimDateAndTime then
-    Result := FormatDateTime(EditDateTimeFormatToString, AValue, EditDateTimeFormat)
+  if Buttons.Find(Message.HintInfo^.CursorPos, LItem) and (LItem.Hint <> '') then
+    Message.HintInfo^.HintStr := LItem.Hint
   else
-    Result := AValue;
-end;
-
-function TACLCustomTextEdit.CanOpenEditor: Boolean;
-begin
-  Result := not (csDestroying in ComponentState);
-end;
-
-function TACLCustomTextEdit.CreateEditor: TWinControl;
-var
-  AEdit: TACLInnerEdit;
-begin
-  AEdit := TACLInnerEdit.Create(Self);
-  AEdit.OnChange := HandlerInnerEditChanged;
-  AEdit.OnValidate := EditorValidateText;
-  Result := AEdit;
-end;
-
-procedure TACLCustomTextEdit.EditorUpdateParamsCore;
-var
-  LInnerEdit: TACLInnerEdit;
-begin
-  Inc(FTextChangeLockCount);
-  try
     inherited;
-    LInnerEdit := InnerEdit;
-    LInnerEdit.PasswordChar := Char(IfThen(PasswordChar, Ord('x'), 0));
-    LInnerEdit.InputMask := InputMask;
-    LInnerEdit.MaxLength := MaxLength;
-    LInnerEdit.ReadOnly := ReadOnly;
-    LInnerEdit.Text := Text;
-    LInnerEdit.TextHint := TextHint;
-  finally
-    Dec(FTextChangeLockCount);
-  end;
 end;
 
-procedure TACLCustomTextEdit.EditorValidateText;
+procedure TACLCustomTextEdit.Execute(AAction: TACLEditAction);
 begin
-  SetText(ValueToText(TextToValue(Text)));
+  FEditBox.Execute(AAction)
+end;
+
+function TACLCustomTextEdit.GetCursor(const P: TPoint): TCursor;
+var
+  LButton: TACLButtonSubClass;
+begin
+  if Safe.Cast(SubClasses.HitTest(P), TACLButtonSubClass, LButton) and LButton.IsEnabled then
+    Result := crHandPoint
+  else
+    Result := inherited;
+end;
+
+function TACLCustomTextEdit.GetMaxLength: Integer;
+begin
+  Result := FEditBox.MaxLength;
+end;
+
+function TACLCustomTextEdit.GetPasswordChar: Boolean;
+begin
+  Result := FEditBox.PasswordChar <> #0;
+end;
+
+function TACLCustomTextEdit.GetReadOnly: Boolean;
+begin
+  Result := FEditBox.ReadOnly;
+end;
+
+function TACLCustomTextEdit.GetSelLength: Integer;
+begin
+  Result := FEditBox.SelLength;
+end;
+
+function TACLCustomTextEdit.GetSelStart: Integer;
+begin
+  Result := FEditBox.SelStart;
+end;
+
+function TACLCustomTextEdit.GetSelText: string;
+begin
+  Result := FEditBox.SelText;
+end;
+
+function TACLCustomTextEdit.GetText: string;
+begin
+  Result := FEditBox.Text;
+end;
+
+function TACLCustomTextEdit.GetTextHint: string;
+begin
+  Result := FEditBox.TextHint;
+end;
+
+function TACLCustomTextEdit.GetValue: Variant;
+begin
+  Result := TextToValue(Text);
+end;
+
+procedure TACLCustomTextEdit.HandlerImageChange(Sender: TObject);
+var
+  I: Integer;
+begin
+  for I := 0 to Buttons.Count - 1 do
+    Buttons[I].SubClass.ImageList := ButtonsImages;
+  FullRefresh;
 end;
 
 function TACLCustomTextEdit.InplaceGetValue: string;
@@ -330,7 +585,7 @@ end;
 procedure TACLCustomTextEdit.InplaceSetFocus;
 begin
   SetFocus;
-  SelectAll;
+  Execute(eaSelectAll);
 end;
 
 procedure TACLCustomTextEdit.InplaceSetValue(const AValue: string);
@@ -338,130 +593,150 @@ begin
   Value := AValue;
 end;
 
-function TACLCustomTextEdit.DoCustomDraw(ACanvas: TCanvas): Boolean;
+procedure TACLCustomTextEdit.Loaded;
 begin
-  Result := False;
-  if Assigned(OnCustomDraw) then
-    OnCustomDraw(Self, ACanvas, FContentRect, Result);
+  inherited;
+  if Text <> '' then
+    Changed;
 end;
 
-procedure TACLCustomTextEdit.HandlerInnerEditChanged(Sender: TObject);
+procedure TACLCustomTextEdit.Localize(const ASection, AName: string);
+var
+  LButton: TACLEditButton;
+  LSection: string;
+  I: Integer;
 begin
-  RetriveValueFromInnerEdit;
-end;
-
-function TACLCustomTextEdit.GetInnerEdit: TACLInnerEdit;
-begin
-  Result := TACLInnerEdit(FEditor);
-end;
-
-function TACLCustomTextEdit.GetSelLength: Integer;
-begin
-  Result := InnerEdit.SelLength;
-end;
-
-function TACLCustomTextEdit.GetSelStart: Integer;
-begin
-  Result := InnerEdit.SelStart;
-end;
-
-function TACLCustomTextEdit.GetSelText: string;
-begin
-  Result := InnerEdit.SelText;
-end;
-
-function TACLCustomTextEdit.GetValue: Variant;
-begin
-  Result := TextToValue(Text);
-end;
-
-procedure TACLCustomTextEdit.SetMaxLength(AValue: Integer);
-begin
-  if AValue <> FMaxLength then
+  inherited;
+  TextHint := LangGet(ASection, 'th', TextHint);
+  if Buttons.Count > 0 then
   begin
-    FMaxLength := AValue;
-    EditorUpdateParams;
+    LSection := LangSubSection(ASection, AName);
+    if LangFile.ExistsSection(LSection) then
+    begin
+      Buttons.BeginUpdate;
+      try
+        for I := 0 to Buttons.Count - 1 do
+        begin
+          LButton := Buttons[I];
+          LButton.Caption := LangGet(LSection, 'b[' + IntToStr(I) + ']', LButton.Caption);
+        end;
+      finally
+        Buttons.EndUpdate;
+      end;
+    end;
   end;
+end;
+
+procedure TACLCustomTextEdit.Notification(AComponent: TComponent; AOperation: TOperation);
+begin
+  inherited;
+  if AOperation = opRemove then
+  begin
+    if AComponent = ButtonsImages then
+      ButtonsImages := nil;
+  end;
+end;
+
+procedure TACLCustomTextEdit.Select(AStart, ALength: Integer; AGoForward: Boolean);
+begin
+  FEditBox.Select(AStart, ALength, AGoForward);
+end;
+
+procedure TACLCustomTextEdit.SetButtons(AValue: TACLEditButtons);
+begin
+  Buttons.Assign(AValue);
+end;
+
+procedure TACLCustomTextEdit.SetButtonsImages(const AValue: TCustomImageList);
+begin
+  acSetImageList(AValue, FButtonsImages, FButtonsImagesLink, Self);
 end;
 
 procedure TACLCustomTextEdit.SetInputMask(AValue: TACLEditInputMask);
 begin
-  if AValue <> FInputMask then
+  if FInputMask <> AValue then
   begin
     FInputMask := AValue;
-    Inc(FTextChangeLockCount);
-    try
-      EditorUpdateParams;
-      EditorValidateText;
-    finally
-      Dec(FTextChangeLockCount);
-    end;
+    SetTextCore(ValueToText(TextToValue(Text)));
   end;
+end;
+
+procedure TACLCustomTextEdit.SetMaxLength(AValue: Integer);
+begin
+  FEditBox.MaxLength := AValue;
 end;
 
 procedure TACLCustomTextEdit.SetPasswordChar(AValue: Boolean);
 begin
-  if FPasswordChar <> AValue then
-  begin
-    FPasswordChar := AValue;
-    EditorUpdateParams;
-  end;
+  if AValue then
+    FEditBox.PasswordChar := {$IFDEF UNICODE}#$25CF{$ELSE}'*'{$ENDIF}
+  else
+    FEditBox.PasswordChar := #0;
 end;
 
 procedure TACLCustomTextEdit.SetReadOnly(AValue: Boolean);
 begin
-  if AValue <> FReadOnly then
-  begin
-    FReadOnly := AValue;
-    EditorUpdateParams;
-  end;
+  FEditBox.ReadOnly := AValue;
 end;
 
 procedure TACLCustomTextEdit.SetSelLength(AValue: Integer);
 begin
-{$IFDEF FPC}
-  AValue := Min(AValue, Length(Text));
-{$ENDIF}
-  InnerEdit.SelLength := AValue;
+  FEditBox.SelLength := AValue;
 end;
 
 procedure TACLCustomTextEdit.SetSelStart(AValue: Integer);
 begin
-  InnerEdit.SelStart := AValue;
+  FEditBox.SelStart := AValue;
 end;
 
-procedure TACLCustomTextEdit.SetSelText(const Value: string);
+procedure TACLCustomTextEdit.SetSelText(const AValue: string);
 begin
-  InnerEdit.SelText := Value;
-  Text := Text;
+  FEditBox.SelText := AValue;
 end;
 
-procedure TACLCustomTextEdit.SetText(AValue: string);
+procedure TACLCustomTextEdit.SetText(const AValue: string);
 begin
   if AValue <> Text then
-  begin
-    AValue := ValueToText(TextToValue(AValue));
-    if AValue <> Text then
-    begin
-      SetTextCore(AValue);
-      EditorUpdateParams;
-      Changed;
-    end;
-  end;
+    SetTextCore(ValueToText(TextToValue(AValue)));
+end;
+
+procedure TACLCustomTextEdit.SetTextCore(const AValue: string);
+begin
+  FEditBox.Text := AValue;
 end;
 
 procedure TACLCustomTextEdit.SetTextHint(const AValue: string);
 begin
-  if AValue <> FTextHint then
-  begin
-    FTextHint := AValue;
-    EditorUpdateParams;
-  end;
+  FEditBox.TextHint := AValue;
 end;
 
 procedure TACLCustomTextEdit.SetValue(const AValue: Variant);
 begin
   Text := ValueToText(AValue);
+end;
+
+function TACLCustomTextEdit.TextToValue(const AText: string): Variant;
+var
+  LValue: Double;
+begin
+  case InputMask of
+    eimInteger:
+      Result := StrToIntDef(AText, 0);
+    eimFloat:
+      if TryStrToFloat(AText, LValue) or
+         TryStrToFloat(AText, LValue, InvariantFormatSettings)
+      then
+        Result := LValue
+      else
+        Result := 0;
+  else
+    Result := AText;
+  end;
+end;
+
+function TACLCustomTextEdit.ValueToText(const AValue: Variant): string;
+begin
+  Result := VarToStr(AValue);
 end;
 
 end.

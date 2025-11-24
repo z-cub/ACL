@@ -2,12 +2,12 @@
 //
 //  Project:   Artem's Components Library aka ACL
 //             Extended Graphics Library
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Gdi+ Wrappers
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -46,6 +46,7 @@ uses
   ACL.Graphics.FontCache,
   ACL.Graphics.Images,
   ACL.Math,
+  ACL.Threading,
   ACL.Utils.Common,
   ACL.Utils.FileSystem,
   ACL.Utils.Stream;
@@ -1454,10 +1455,21 @@ begin
 end;
 
 procedure TACLGdiplusPaintCanvas.BeginPaint(DC: HDC);
+var
+  LHandle: GpGraphics;
+  LResult: GpStatus;
 begin
+  if DC = 0 then
+    raise EInvalidArgument.Create('TACLGdiplusPaintCanvas.BeginPaint(0)');
+
+  LResult := GdipCreateFromHDC(DC, LHandle);
+  if LResult <> GpStatus.Ok then
+    raise EGdipException.Create(LResult);
+
+  FLock.Enter;
   if NativeHandle <> nil then
     FSavedHandles.Push(NativeHandle);
-  GdipCheck(GdipCreateFromHDC(DC, FGraphics));
+  FGraphics := LHandle;
 end;
 
 procedure TACLGdiplusPaintCanvas.BeginPaint(DC: HDC; const Unused1, Unused2: TRect);
@@ -1468,12 +1480,16 @@ end;
 procedure TACLGdiplusPaintCanvas.EndPaint;
 begin
   try
-    GdipDeleteGraphics(NativeHandle);
+    try
+      GdipDeleteGraphics(NativeHandle);
+    finally
+      if FSavedHandles.Count > 0 then
+        FGraphics := FSavedHandles.Pop
+      else
+        FGraphics := nil;
+    end;
   finally
-    if FSavedHandles.Count > 0 then
-      FGraphics := FSavedHandles.Pop
-    else
-      FGraphics := nil;
+    FLock.Leave;
   end;
 end;
 

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   DpiAware utilities
 //
@@ -46,8 +46,8 @@ uses
 
 const
   acDefaultDpi = 96;
+  acMinDpi = 48; // don't forget to change cMinVCLPPIValue (Vcl.Forms)
   acMaxDpi = 480;
-  acMinDpi = 96;
 
   acDefaultDpiValues: array[0..7] of Integer = (96, 120, 144, 168, 192, 216, 240, 288);
 

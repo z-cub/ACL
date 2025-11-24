@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ProgressBox
 //
@@ -104,7 +104,7 @@ type
     procedure SetStyleProgress(const Value: TACLStyleProgress);
     procedure SetText(Index: Integer; const AValue: string);
   protected
-    procedure CalculateControlsPosition;
+    procedure AlignControls(AControl: TControl; var Rect: TRect); override;
     procedure CalculateLineRects(const R: TRect; const S1, S2: string; out L1, L2: TRect);
     procedure CreateControls;
     procedure SetTargetDPI(AValue: Integer); override;
@@ -120,7 +120,7 @@ type
     procedure ParentUnLock;
     procedure ResourceCollectionChanged; override;
     procedure ShowProgressBox;
-    //
+    // Properties
     property BoxRect: TRect read FBoxRect;
     property ProgressTitle: string read GetProgressTitle;
   public
@@ -129,7 +129,6 @@ type
     procedure Cancel(AWaitForStop: Boolean);
     function Progress(AProgress: Single): Boolean; overload;
     function Progress(ACurrentIndex, ATotalIndexCount: Integer): Boolean; overload;
-    procedure SetBounds(ALeft, ATop, AWidth, AHeight: Integer); override;
     procedure StartProgress(AShowBoxNow: Boolean; AOptions: TACLProgressBoxOptions); overload;
     procedure StartProgress(AShowBoxNow: Boolean = False); overload;
     procedure StopProgress;
@@ -195,6 +194,7 @@ begin
   FOptions := [pboAllowCancel];
   FDelayShow := 1000;
   DoubleBuffered := True;
+  Transparent := True;
   Visible := False;
   TabStop := True;
   CreateControls;
@@ -205,7 +205,28 @@ begin
   FreeAndNil(FEnabledControls);
   FreeAndNil(FDelayTimer);
   FreeAndNil(FStyle);
-  inherited Destroy;;
+  inherited Destroy;
+end;
+
+procedure TACLProgressBox.AlignControls(AControl: TControl; var Rect: TRect);
+begin
+  FBoxRect := ClientRect;
+  FBoxRect.CenterHorz(dpiApply(330, FCurrentPPI));
+  FBoxRect.CenterVert(dpiApply(140, FCurrentPPI));
+  if Assigned(FProgress) then
+  begin
+    FProgress.SetBounds(
+      BoxRect.Left + dpiApply(10, FCurrentPPI),
+      BoxRect.Top + dpiApply(76, FCurrentPPI),
+      dpiApply(311, FCurrentPPI), dpiApply(18, FCurrentPPI));
+  end;
+  if Assigned(FCancelButton) then
+  begin
+    FCancelButton.SetBounds(
+      BoxRect.Left + dpiApply(108, FCurrentPPI),
+      BoxRect.Top + dpiApply(104, FCurrentPPI),
+      dpiApply(120, FCurrentPPI), dpiApply(25, FCurrentPPI));
+  end;
 end;
 
 procedure TACLProgressBox.CreateControls;
@@ -213,9 +234,11 @@ begin
   FDelayTimer := TACLTimer.CreateEx(DoDelayTimer);
 
   FProgress := TACLProgressBar.Create(Self);
+  FProgress.Align := alCustom;
   FProgress.Parent := Self;
 
   FCancelButton := TACLButton.Create(Self);
+  FCancelButton.Align := alCustom;
   FCancelButton.Parent := Self;
   FCancelButton.OnClick := DoCancelClick;
   FCancelButton.Caption := TextButtonCancel;
@@ -236,27 +259,6 @@ procedure TACLProgressBox.DoDelayTimer(Sender: TObject);
 begin
   FDelayTimer.Enabled := False;
   ShowProgressBox;
-end;
-
-procedure TACLProgressBox.CalculateControlsPosition;
-begin
-  FBoxRect := ClientRect;
-  FBoxRect.CenterHorz(dpiApply(330, FCurrentPPI));
-  FBoxRect.CenterVert(dpiApply(140, FCurrentPPI));
-  if Assigned(FProgress) then
-  begin
-    FProgress.SetBounds(
-      BoxRect.Left + dpiApply(10, FCurrentPPI),
-      BoxRect.Top + dpiApply(76, FCurrentPPI),
-      dpiApply(311, FCurrentPPI), dpiApply(18, FCurrentPPI));
-  end;
-  if Assigned(FCancelButton) then
-  begin
-    FCancelButton.SetBounds(
-      BoxRect.Left + dpiApply(108, FCurrentPPI),
-      BoxRect.Top + dpiApply(104, FCurrentPPI),
-      dpiApply(120, FCurrentPPI), dpiApply(25, FCurrentPPI));
-  end;
 end;
 
 procedure TACLProgressBox.CalculateLineRects(const R: TRect; const S1, S2: string; out L1, L2: TRect);
@@ -290,14 +292,10 @@ end;
 
 procedure TACLProgressBox.Paint;
 begin
+  if Transparent then
+    acFillRect(Canvas, ClientRect, GetActualCoverColor);
   Style.Draw(Canvas, BoxRect);
   DrawTextArea(Canvas, GetTextArea);
-  acExcludeFromClipRegion(Canvas.Handle, BoxRect);
-  if acRectVisible(Canvas, ClientRect) then
-  begin
-    acDrawTransparentControlBackground(Self, Canvas.Handle, ClientRect);
-    acFillRect(Canvas, ClientRect, GetActualCoverColor);
-  end;
 end;
 
 procedure TACLProgressBox.ParentLock;
@@ -504,12 +502,6 @@ end;
 function TACLProgressBox.GetStyleProgress: TACLStyleProgress;
 begin
   Result := FProgress.Style;
-end;
-
-procedure TACLProgressBox.SetBounds(ALeft, ATop, AWidth, AHeight: Integer);
-begin
-  inherited SetBounds(ALeft, ATop, AWidth, AHeight);
-  CalculateControlsPosition;
 end;
 
 procedure TACLProgressBox.SetStyle(const Value: TACLStyleProgressBox);

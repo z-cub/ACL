@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Color Picker Dialog
 //
@@ -54,11 +54,11 @@ type
   strict private
     FColorAllowEditAlpha: Boolean;
     function GetColor: TAlphaColor;
-    procedure SetColor(AValue: TAlphaColor);
+    procedure SetColor(AValue: TAlphaColor); reintroduce;
   protected
     procedure Click; override;
     function CreateStyle: TACLStyleButton; override;
-    function CreateSubClass: TACLCustomButtonSubClass; override;
+    function CreateSubClass: TACLSimpleButtonSubClass; override;
   public
     constructor Create(AOwner: TComponent); override;
   published
@@ -76,6 +76,7 @@ type
   protected
     procedure CalculateImageRect(var R: TRect); override;
     procedure DrawContent(ACanvas: TCanvas); override;
+    function GetHasImage: Boolean; override;
   public
     property Color: TAlphaColor read FColor write SetColor;
   end;
@@ -140,9 +141,9 @@ begin
   Result := TACLStyleButton.Create(Self);
 end;
 
-function TACLColorButton.CreateSubClass: TACLCustomButtonSubClass;
+function TACLColorButton.CreateSubClass: TACLSimpleButtonSubClass;
 begin
-  Result := TACLColorButtonSubClass.Create(Self);
+  Result := TACLColorButtonSubClass.Create(Self, Style);
 end;
 
 function TACLColorButton.GetColor: TAlphaColor;
@@ -173,6 +174,11 @@ procedure TACLColorButtonSubClass.DrawContent(ACanvas: TCanvas);
 begin
   inherited;
   acDrawColorPreview(ACanvas, FImageRect, Color);
+end;
+
+function TACLColorButtonSubClass.GetHasImage: Boolean;
+begin
+  Result := True;
 end;
 
 procedure TACLColorButtonSubClass.SetColor(AValue: TAlphaColor);
@@ -263,9 +269,9 @@ begin
   FPicker.OnColorChanged := ColorChangeHandler;
 
   CreateControl(FPalette, TACLColorPalette, FPanel, Rect(0, MaxWord, 0, 0), alTop);
+  FPalette.Margins.All := TACLMargins.Default;
   FPalette.Margins.Left := 8;
   FPalette.Margins.Scalable := False;
-  FPalette.AlignWithMargins := True;
   FPalette.FocusOnClick := True;
   FPalette.OptionsView.CellSize := 24;
   FPalette.OptionsView.CellSpacing := 2;

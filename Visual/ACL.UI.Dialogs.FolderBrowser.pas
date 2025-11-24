@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Folder Browser Dialog
 //
@@ -374,7 +374,7 @@ begin
   TACLCustomControl(AControl) := AClass.Create(Self);
   TACLCustomControl(AControl).Align := AAlign;
   TACLCustomControl(AControl).AlignOrder := AParent.ControlCount;
-  TACLCustomControl(AControl).AlignWithMargins := True;
+  TACLCustomControl(AControl).Margins.All := TACLMargins.Default;
   TACLCustomControl(AControl).Parent := AParent;
 end;
 
@@ -454,7 +454,7 @@ begin
   ActiveControl := ControlShellTree;
 
   CreateControl(APanel, TACLCustomControl, alBottom);
-  APanel.AlignWithMargins := False;
+  APanel.Margins.All := 0;
   APanel.Height := dpiApply(ButtonHeight, FCurrentPPI) + 2 * dpiApply(3, FCurrentPPI);
 
   CreateControl(FControlCreateNew, TACLButton, alLeft, APanel);

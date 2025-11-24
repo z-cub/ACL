@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Design Time Routines
 //
@@ -300,7 +300,6 @@ begin
   LMenuItem.MenuIndex := miCreateSubItem.MenuIndex + FCommands.Count;
   LButton := TACLButton.Create(Self);
   LButton.Margins.Assign(btnCreateItem.Margins);
-  LButton.AlignWithMargins := True;
   LButton.Align := btnCreateItem.Align;
   LButton.Parent := pnlRight;
   LButton.Caption := LMenuItem.Caption;
@@ -369,7 +368,12 @@ begin
     dtimAfter, dtimBefore:
       begin
         AIndex := ATargetMenu.MenuIndex;
-        ASourceMenu.SetParentComponent(ATargetMenu.Parent);
+        if ASourceMenu.Parent <> ATargetMenu.Parent then
+          ASourceMenu.SetParentComponent(ATargetMenu.Parent)
+        else
+          if AIndex > ASourceMenu.MenuIndex then
+            Dec(AIndex);
+
         ASourceMenu.MenuIndex := AIndex + IfThen(AMode = dtimAfter, 1);
       end;
   else

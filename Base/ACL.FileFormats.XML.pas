@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   XML Document-Object-Model
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -27,6 +27,11 @@ uses
   ACL.Classes,
   ACL.Classes.Collections,
   ACL.FastCode,
+  ACL.FileFormats.INI,
+  // FPC: must be defined in Interface section!
+  ACL.FileFormats.XML.Types,
+  ACL.FileFormats.XML.Reader,
+  ACL.FileFormats.XML.Writer,
   ACL.Parsers,
   ACL.Utils.Common,
   ACL.Utils.Date,
@@ -82,7 +87,7 @@ type
   public
     procedure Assign(ASource: TACLXMLAttribute);
     function GetValueAsInteger(ADefaultValue: Integer = 0): Integer;
-    //
+    // Properties
     property Name: string read FName;
     property Value: string read FValue write FValue;
   end;
@@ -102,6 +107,7 @@ type
     function GetItem(Index: Integer): TACLXMLAttribute; inline;
   public
     function Add: TACLXMLAttribute; overload;
+    function Add(const AName: string; const AValue: Boolean): TACLXMLAttribute; overload;
     function Add(const AName: string; const AValue: Integer): TACLXMLAttribute; overload;
     function Add(const AName: string; const AValue: string): TACLXMLAttribute; overload;
     procedure Assign(ASource: TACLXMLAttributes);
@@ -114,30 +120,30 @@ type
     function Remove(const AName: string): Boolean; overload;
     function Rename(const AOldName, ANewName: string): Boolean;
     // Get
-    function GetValue(const AName: string): string; overload;
-    function GetValue(const AName: string; out AValue: string): Boolean; overload;
-    function GetValueDef(const AName: string; const ADefault: string): string; overload;
-    function GetValueAsBoolean(const AName: string; ADefault: Boolean = False): Boolean;
-    function GetValueAsBooleanEx(const AName: string): TACLBoolean;
-    function GetValueAsDateTime(const AName: string; const ADefault: TDateTime = 0): TDateTime;
-    function GetValueAsDouble(const AName: string; const ADefault: Double = 0): Double;
-    function GetValueAsInt64(const AName: string; const ADefault: Int64 = 0): Int64;
-    function GetValueAsInteger(const AName: string; const ADefault: Integer = 0): Integer;
-    function GetValueAsRect(const AName: string): TRect;
-    function GetValueAsSize(const AName: string): TSize;
-    function GetValueAsVariant(const AName: string): Variant;
+    function Get(const AName: string; const ADefault: string = ''): string;
+    function GetAsBool(const AName: string; ADefault: Boolean = False): Boolean;
+    function GetAsBoolEx(const AName: string): TACLBoolean;
+    function GetAsDateTime(const AName: string; ADefault: TDateTime = 0): TDateTime;
+    function GetAsDouble(const AName: string; ADefault: Double = 0): Double;
+    function GetAsEnum<T>(const AKey: string; ADefault: T): T;
+    function GetAsInt32(const AName: string; ADefault: Integer = 0): Integer;
+    function GetAsInt64(const AName: string; ADefault: Int64 = 0): Int64;
+    function GetAsRect(const AName: string): TRect;
+    function GetAsSize(const AName: string): TSize;
+    function GetAsVariant(const AName: string): Variant;
     // Set
-    procedure SetValue(const AName: string; const AValue: string);
-    procedure SetValueAsBoolean(const AName: string; AValue: Boolean);
-    procedure SetValueAsBooleanEx(const AName: string; AValue: TACLBoolean);
-    procedure SetValueAsDateTime(const AName: string; AValue: TDateTime);
-    procedure SetValueAsDouble(const AName: string; const AValue: Double);
-    procedure SetValueAsInt64(const AName: string; const AValue: Int64);
-    procedure SetValueAsInteger(const AName: string; const AValue: Integer);
-    procedure SetValueAsRect(const AName: string; const AValue: TRect);
-    procedure SetValueAsSize(const AName: string; const AValue: TSize);
-    procedure SetValueAsVariant(const AName: string; const AValue: Variant);
-    //
+    procedure SetAs(const AName: string; const AValue: string);
+    procedure SetAsBool(const AName: string; AValue: Boolean);
+    procedure SetAsBoolEx(const AName: string; AValue: TACLBoolean);
+    procedure SetAsDateTime(const AName: string; AValue: TDateTime);
+    procedure SetAsDouble(const AName: string; const AValue: Double);
+    procedure SetAsEnum<T>(const AKey: string; const AValue: T);
+    procedure SetAsInt32(const AName: string; const AValue: Integer);
+    procedure SetAsInt64(const AName: string; const AValue: Int64);
+    procedure SetAsRect(const AName: string; const AValue: TRect);
+    procedure SetAsSize(const AName: string; const AValue: TSize);
+    procedure SetAsVariant(const AName: string; const AValue: Variant);
+    // Properties
     property Items[Index: Integer]: TACLXMLAttribute read GetItem; default;
   end;
 
@@ -158,7 +164,7 @@ type
     function GetCount: Integer;
     function GetEmpty: Boolean;
     function GetIndex: Integer;
-    function GetNode(AIndex: Integer): TACLXMLNode;
+    function GetNode(AIndex: Integer): TACLXMLNode; inline;
     function GetNodeValueAsInteger: Integer;
     procedure SetIndex(AValue: Integer);
     procedure SetNodeValueAsInteger(const Value: Integer);
@@ -171,16 +177,22 @@ type
     constructor Create(AParent: TACLXMLNode);
     destructor Destroy; override;
     function Add(const AName: string): TACLXMLNode; virtual;
-    procedure Assign(ANode: TACLXMLNode); virtual;
+    procedure Assign(ASource: TACLXMLNode); overload;
+    procedure Assign(ASource: TACLIniFileSection); overload;
+    procedure AssignTo(ATarget: TACLIniFileSection);
     procedure Clear; virtual;
     procedure Enum(AProc: TACLXMLNodeEnumProc; ARecursive: Boolean = False); overload;
     procedure Enum(const ANodesNames: array of string; AProc: TACLXMLNodeEnumProc); overload;
     function Equals(Obj: TObject): Boolean; override;
     function FindNode(const ANodeName: string): TACLXMLNode; overload;
-    function FindNode(const ANodeName: string; out ANode: TACLXMLNode): Boolean; overload;
-    function FindNode(const ANodesNames: array of string; ACanCreate: Boolean = False): TACLXMLNode; overload;
-    function FindNode(const ANodesNames: array of string; out ANode: TACLXMLNode; ACanCreate: Boolean = False): Boolean; overload;
-    function FindNode(out ANode: TACLXMLNode; AFindProc: TACLXMLNodeFindProc; ARecursive: Boolean = True): Boolean; overload;
+    function FindNode(const ANodeName: string;
+      out ANode: TACLXMLNode): Boolean; overload;
+    function FindNode(const ANodesNames: array of string;
+      ACanCreate: Boolean = False): TACLXMLNode; overload;
+    function FindNode(const ANodesNames: array of string;
+      out ANode: TACLXMLNode; ACanCreate: Boolean = False): Boolean; overload;
+    function FindNode(out ANode: TACLXMLNode; AFindProc: TACLXMLNodeFindProc;
+      ARecursive: Boolean = True): Boolean; overload;
     function NodeValueByName(const ANodeName: string): string; overload;
     function NodeValueByName(const ANodesNames: array of string): string; overload;
     function NodeValueByNameAsInteger(const ANodeName: string): Integer;
@@ -188,7 +200,7 @@ type
     function PrevSibling: TACLXMLNode;
     procedure Sort(ASortProc: TListSortCompare);
     //# Properties
-    property Attributes: TACLXMLAttributes read FAttributes;
+    property Attrs: TACLXMLAttributes read FAttributes;
     property Count: Integer read GetCount;
     property Empty: Boolean read GetEmpty;
     property Index: Integer read GetIndex write SetIndex;
@@ -244,11 +256,7 @@ implementation
 
 uses
   {System.}Math,
-  {System.}StrUtils,
-  // ACL
-  ACL.FileFormats.XML.Types,
-  ACL.FileFormats.XML.Reader,
-  ACL.FileFormats.XML.Writer;
+  {System.}StrUtils;
 
 type
 
@@ -488,6 +496,11 @@ begin
   Result.Value := AValue;
 end;
 
+function TACLXMLAttributes.Add(const AName: string; const AValue: Boolean): TACLXMLAttribute;
+begin
+  Result := Add(AName, Ord(AValue));
+end;
+
 procedure TACLXMLAttributes.Assign(ASource: TACLXMLAttributes);
 var
   I: Integer;
@@ -532,6 +545,118 @@ begin
   Result := False;
 end;
 
+function TACLXMLAttributes.Get(const AName, ADefault: string): string;
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    Result := LAttr.Value
+  else
+    Result := ADefault;
+end;
+
+function TACLXMLAttributes.GetAsDouble(const AName: string; ADefault: Double = 0): Double;
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    Result := StrToFloat(LAttr.Value, InvariantFormatSettings)
+  else
+    Result := ADefault;
+end;
+
+function TACLXMLAttributes.GetAsEnum<T>(const AKey: string; ADefault: T): T;
+var
+  LAttr: TACLXMLAttribute;
+  LValue: Integer;
+begin
+  if Find(AKey, LAttr) and TryStrToInt(LAttr.Value, LValue) then
+    Result := TACLEnumHelper.SetValue<T>(LValue)
+  else
+    Result := ADefault;
+end;
+
+function TACLXMLAttributes.GetAsBool(const AName: string; ADefault: Boolean = False): Boolean;
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    Result := TACLXMLConvert.DecodeBoolean(LAttr.Value)
+  else
+    Result := ADefault;
+end;
+
+function TACLXMLAttributes.GetAsBoolEx(const AName: string): TACLBoolean;
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    Result := TACLBoolean.From(TACLXMLConvert.DecodeBoolean(LAttr.Value))
+  else
+    Result := TACLBoolean.Default;
+end;
+
+function TACLXMLAttributes.GetAsDateTime(const AName: string; ADefault: TDateTime = 0): TDateTime;
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    Result := TACLXMLDateTime.Create(LAttr.Value).ToDateTime
+  else
+    Result := ADefault;
+end;
+
+function TACLXMLAttributes.GetAsInt32(const AName: string; ADefault: Integer = 0): Integer;
+begin
+  Result := StrToIntDef(Get(AName), ADefault);
+end;
+
+function TACLXMLAttributes.GetAsInt64(const AName: string; ADefault: Int64 = 0): Int64;
+begin
+  Result := StrToInt64Def(Get(AName), ADefault);
+end;
+
+function TACLXMLAttributes.GetAsRect(const AName: string): TRect;
+begin
+  Result := acStringToRect(Get(AName));
+end;
+
+function TACLXMLAttributes.GetAsSize(const AName: string): TSize;
+begin
+  Result := acStringToSize(Get(AName));
+end;
+
+function TACLXMLAttributes.GetAsVariant(const AName: string): Variant;
+var
+  AType: string;
+begin
+  AType := Get(AName + sVariantTypeSuffix);
+  if AType = sVariantTypeInt32 then
+    Result := GetAsInt32(AName)
+  else if AType = sVariantTypeFloat then
+    Result := GetAsDouble(AName)
+  else if AType = sVariantTypeString then
+    Result := Get(AName)
+  else if AType = sVariantTypeInt64 then
+    Result := GetAsInt64(AName)
+  else if AType = sVariantTypeBoolean then
+    Result := GetAsBool(AName)
+  else if AType = sVariantTypeDate then
+    Result := GetAsDateTime(AName)
+  else if AType = 'Int34' then // for backward compatibility
+    Result := GetAsInt64(AName)
+  else
+    Result := Null;
+end;
+
+function TACLXMLAttributes.GetItem(Index: Integer): TACLXMLAttribute;
+begin
+  if IsValid(Index) then
+    Result := TACLXMLAttribute(List[Index])
+  else
+    Result := nil;
+end;
+
 function TACLXMLAttributes.Last: TACLXMLAttribute;
 begin
   Result := TACLXMLAttribute(inherited Last);
@@ -544,7 +669,7 @@ begin
   for I := 0 to ASource.Count - 1 do
   begin
     if not Contains(ASource[I].Name) then
-      SetValue(ASource[I].Name, ASource[I].Value);
+      SetAs(ASource[I].Name, ASource[I].Value);
   end;
 end;
 
@@ -572,188 +697,91 @@ begin
     AAttr.FName := ANewName;
 end;
 
-function TACLXMLAttributes.GetValue(const AName: string): string;
+procedure TACLXMLAttributes.SetAsBool(const AName: string; AValue: Boolean);
 begin
-  if not GetValue(AName, Result) then
-    Result := acEmptyStr;
+  SetAsInt32(AName, Ord(AValue));
 end;
 
-function TACLXMLAttributes.GetValue(const AName: string; out AValue: string): Boolean;
-var
-  AAttr: TACLXMLAttribute;
-begin
-  Result := Find(AName, AAttr);
-  if Result then
-    AValue := AAttr.Value;
-end;
-
-function TACLXMLAttributes.GetValueDef(const AName: string; const ADefault: string): string;
-begin
-  if not GetValue(AName, Result) then
-    Result := ADefault;
-end;
-
-function TACLXMLAttributes.GetValueAsDouble(const AName: string; const ADefault: Double = 0): Double;
-var
-  AValue: string;
-begin
-  if GetValue(AName, AValue) then
-    Result := StrToFloat(AValue, InvariantFormatSettings)
-  else
-    Result := ADefault;
-end;
-
-function TACLXMLAttributes.GetValueAsBoolean(const AName: string; ADefault: Boolean = False): Boolean;
-var
-  AValue: string;
-begin
-  if GetValue(AName, AValue) then
-    Result := TACLXMLConvert.DecodeBoolean(AValue)
-  else
-    Result := ADefault;
-end;
-
-function TACLXMLAttributes.GetValueAsBooleanEx(const AName: string): TACLBoolean;
-var
-  AValue: string;
-begin
-  if GetValue(AName, AValue) then
-    Result := TACLBoolean.From(TACLXMLConvert.DecodeBoolean(AValue))
-  else
-    Result := TACLBoolean.Default;
-end;
-
-function TACLXMLAttributes.GetValueAsDateTime(const AName: string; const ADefault: TDateTime = 0): TDateTime;
-var
-  AValue: string;
-begin
-  if GetValue(AName, AValue) then
-    Result := TACLXMLDateTime.Create(AValue).ToDateTime
-  else
-    Result := ADefault;
-end;
-
-function TACLXMLAttributes.GetValueAsInt64(const AName: string; const ADefault: Int64 = 0): Int64;
-begin
-  Result := StrToInt64Def(GetValue(AName), ADefault);
-end;
-
-function TACLXMLAttributes.GetValueAsInteger(const AName: string; const ADefault: Integer = 0): Integer;
-begin
-  Result := StrToIntDef(GetValue(AName), ADefault);
-end;
-
-function TACLXMLAttributes.GetValueAsRect(const AName: string): TRect;
-begin
-  Result := acStringToRect(GetValue(AName));
-end;
-
-function TACLXMLAttributes.GetValueAsSize(const AName: string): TSize;
-begin
-  Result := acStringToSize(GetValue(AName));
-end;
-
-function TACLXMLAttributes.GetValueAsVariant(const AName: string): Variant;
-var
-  AType: string;
-begin
-  AType := GetValue(AName + sVariantTypeSuffix);
-  if AType = sVariantTypeInt32 then
-    Result := GetValueAsInteger(AName)
-  else if AType = sVariantTypeFloat then
-    Result := GetValueAsDouble(AName)
-  else if AType = sVariantTypeString then
-    Result := GetValue(AName)
-  else if AType = sVariantTypeInt64 then
-    Result := GetValueAsInt64(AName)
-  else if AType = sVariantTypeBoolean then
-    Result := GetValueAsBoolean(AName)
-  else if AType = sVariantTypeDate then
-    Result := GetValueAsDateTime(AName)
-  else if AType = 'Int34' then // for backward compatibility
-    Result := GetValueAsInt64(AName)
-  else
-    Result := Null;
-end;
-
-function TACLXMLAttributes.GetItem(Index: Integer): TACLXMLAttribute;
-begin
-  if IsValid(Index) then
-    Result := TACLXMLAttribute(List[Index])
-  else
-    Result := nil;
-end;
-
-procedure TACLXMLAttributes.SetValue(const AName: string; const AValue: string);
-var
-  AAttr: TACLXMLAttribute;
-begin
-  if Find(AName, AAttr) then
-    AAttr.Value := AValue
-  else
-    Add(AName, AValue);
-end;
-
-procedure TACLXMLAttributes.SetValueAsBoolean(const AName: string; AValue: Boolean);
-begin
-  SetValueAsInteger(AName, Ord(AValue));
-end;
-
-procedure TACLXMLAttributes.SetValueAsBooleanEx(const AName: string; AValue: TACLBoolean);
+procedure TACLXMLAttributes.SetAsBoolEx(const AName: string; AValue: TACLBoolean);
 begin
   if AValue = TACLBoolean.Default then
     Remove(AName)
   else
-    SetValueAsBoolean(AName, AValue = TACLBoolean.True);
+    SetAsBool(AName, AValue = TACLBoolean.True);
 end;
 
-procedure TACLXMLAttributes.SetValueAsDateTime(const AName: string; AValue: TDateTime);
+procedure TACLXMLAttributes.SetAsDateTime(const AName: string; AValue: TDateTime);
+var
+  LValue: TACLXMLDateTime;
 begin
-  AValue := LocalDateTimeToUTC(AValue);
   if AValue > 0 then
-    SetValue(AName, TACLXMLDateTime.Create(AValue, True).ToString)
+  begin
+    try
+      LValue := TACLXMLDateTime.Create(LocalDateTimeToUTC(AValue), True);
+    except
+      // Может возникать, если AValue находится на рубеже перехода на летнее время
+      // The given "30/03/2025 02:00:00" local time is invalid (situated within the missing period prior to DST).
+      LValue := TACLXMLDateTime.Create(AValue, False);
+    end;
+    SetAs(AName, LValue.ToString)
+  end
   else
     Remove(AName);
 end;
 
-procedure TACLXMLAttributes.SetValueAsDouble(const AName: string; const AValue: Double);
+procedure TACLXMLAttributes.SetAsDouble(const AName: string; const AValue: Double);
 begin
-  SetValue(AName, FloatToStr(AValue, InvariantFormatSettings));
+  SetAs(AName, FloatToStr(AValue, InvariantFormatSettings));
 end;
 
-procedure TACLXMLAttributes.SetValueAsInt64(const AName: string; const AValue: Int64);
+procedure TACLXMLAttributes.SetAsEnum<T>(const AKey: string; const AValue: T);
 begin
-  SetValue(AName, IntToStr(AValue));
+  SetAs(AKey, IntToStr(TACLEnumHelper.GetValue<T>(AValue)));
 end;
 
-procedure TACLXMLAttributes.SetValueAsInteger(const AName: string; const AValue: Integer);
+procedure TACLXMLAttributes.SetAsInt64(const AName: string; const AValue: Int64);
 begin
-  SetValue(AName, IntToStr(AValue));
+  SetAs(AName, IntToStr(AValue));
 end;
 
-procedure TACLXMLAttributes.SetValueAsRect(const AName: string; const AValue: TRect);
+procedure TACLXMLAttributes.SetAsInt32(const AName: string; const AValue: Integer);
 begin
-  SetValue(AName, acRectToString(AValue));
+  SetAs(AName, IntToStr(AValue));
 end;
 
-procedure TACLXMLAttributes.SetValueAsSize(const AName: string; const AValue: TSize);
+procedure TACLXMLAttributes.SetAsRect(const AName: string; const AValue: TRect);
 begin
-  SetValue(AName, acSizeToString(AValue));
+  SetAs(AName, acRectToString(AValue));
 end;
 
-procedure TACLXMLAttributes.SetValueAsVariant(const AName: string; const AValue: Variant);
+procedure TACLXMLAttributes.SetAsSize(const AName: string; const AValue: TSize);
+begin
+  SetAs(AName, acSizeToString(AValue));
+end;
+
+procedure TACLXMLAttributes.SetAs(const AName: string; const AValue: string);
+var
+  LAttr: TACLXMLAttribute;
+begin
+  if Find(AName, LAttr) then
+    LAttr.Value := AValue
+  else
+    Add(AName, AValue);
+end;
+
+procedure TACLXMLAttributes.SetAsVariant(const AName: string; const AValue: Variant);
 begin
   case VarType(AValue) and varTypeMask of
     varOleStr, varString, varUString:
       begin
-        SetValue(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeString);
+        SetAs(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeString);
       end;
 
     varDate:
       begin
-        SetValueAsDateTime(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeDate);
+        SetAsDateTime(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeDate);
       end;
 
     varEmpty, varNull:
@@ -764,26 +792,26 @@ begin
 
     varByte, varShortInt, varWord, varSmallInt, varInteger:
       begin
-        SetValueAsInteger(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeInt32);
+        SetAsInt32(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeInt32);
       end;
 
     varSingle, varDouble, varCurrency:
       begin
-        SetValueAsDouble(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeFloat);
+        SetAsDouble(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeFloat);
       end;
 
     varBoolean:
       begin
-        SetValueAsBoolean(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeBoolean);
+        SetAsBool(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeBoolean);
       end;
 
     varLongWord, varInt64:
       begin
-        SetValueAsInt64(AName, AValue);
-        SetValue(AName + sVariantTypeSuffix, sVariantTypeInt64);
+        SetAsInt64(AName, AValue);
+        SetAs(AName + sVariantTypeSuffix, sVariantTypeInt64);
       end;
 
   else
@@ -816,16 +844,39 @@ begin
   FSubNodes.Add(Result);
 end;
 
-procedure TACLXMLNode.Assign(ANode: TACLXMLNode);
+procedure TACLXMLNode.Assign(ASource: TACLXMLNode);
 var
   I: Integer;
 begin
   Clear;
-  Attributes.Assign(ANode.Attributes);
-  for I := 0 to ANode.Count - 1 do
-    Add(acEmptyStr).Assign(ANode[I]);
-  FNodeName := ANode.FNodeName;
-  FNodeValue := ANode.FNodeValue;
+  Attrs.Assign(ASource.Attrs);
+  for I := 0 to ASource.Count - 1 do
+    Add(acEmptyStr).Assign(ASource[I]);
+  FNodeName := ASource.FNodeName;
+  FNodeValue := ASource.FNodeValue;
+end;
+
+procedure TACLXMLNode.Assign(ASource: TACLIniFileSection);
+var
+  I: Integer;
+begin
+  Clear;
+  if ASource <> nil then
+  begin
+    Attrs.EnsureCapacity(ASource.Count);
+    for I := 0 to ASource.Count - 1 do
+      Attrs.Add(ASource.Names[I], ASource.ValueFromIndex[I]);
+  end;
+end;
+
+procedure TACLXMLNode.AssignTo(ATarget: TACLIniFileSection);
+var
+  I: Integer;
+begin
+  ATarget.Clear;
+  ATarget.EnsureCapacity(Attrs.Count);
+  for I := 0 to Attrs.Count - 1 do
+    ATarget.AddPair(Attrs.Items[I].Name, Attrs.Items[I].Value);
 end;
 
 procedure TACLXMLNode.Clear;
@@ -843,7 +894,7 @@ var
 begin
   try
     for I := 0 to Count - 1 do
-      AProc(Nodes[I]);
+      AProc(FSubNodes.List[I]);
     if ARecursive then
     begin
       for I := 0 to Count - 1 do
@@ -859,17 +910,26 @@ end;
 
 procedure TACLXMLNode.Enum(const ANodesNames: array of string; AProc: TACLXMLNodeEnumProc);
 var
-  ANode: TACLXMLNode;
+  I: Integer;
+  LNode: TACLXMLNode;
 begin
-  if FindNode(ANodesNames, ANode) then
-    ANode.Enum(AProc);
+  if FindNode(ANodesNames, LNode) then
+  try
+    for I := 0 to LNode.Count - 1 do
+      AProc(LNode.FSubNodes.List[I]);
+  except
+    on E: EAbort do
+      {nothing}
+    else
+      raise;
+  end;
 end;
 
 function TACLXMLNode.Equals(Obj: TObject): Boolean;
 var
   I: Integer;
 begin
-  Result := (ClassType = Obj.ClassType) and Attributes.Equals(TACLXMLNode(Obj).Attributes) and
+  Result := (ClassType = Obj.ClassType) and Attrs.Equals(TACLXMLNode(Obj).Attrs) and
     (NodeName = TACLXMLNode(Obj).NodeName) and (NodeValue = TACLXMLNode(Obj).NodeValue) and
     (Count = TACLXMLNode(Obj).Count);
   if Result then
@@ -1044,7 +1104,7 @@ end;
 
 function TACLXMLNode.GetEmpty: Boolean;
 begin
-  Result := (Attributes.Count = 0) and (Count = 0) and (NodeValue = acEmptyStr);
+  Result := (Attrs.Count = 0) and (Count = 0) and (NodeValue = acEmptyStr);
 end;
 
 function TACLXMLNode.GetIndex: Integer;
@@ -1057,10 +1117,10 @@ end;
 
 function TACLXMLNode.GetNode(AIndex: Integer): TACLXMLNode;
 begin
-  if (FSubNodes = nil) or (AIndex < 0) or (AIndex >= FSubNodes.Count) then
-    Result := nil
+  if (FSubNodes <> nil) and (AIndex >= 0) and (AIndex < FSubNodes.Count) then
+    Result := FSubNodes.List[AIndex]
   else
-    Result := TACLXMLNode(FSubNodes.Items[AIndex]);
+    Result := nil
 end;
 
 function TACLXMLNode.GetNodeValueAsInteger: Integer;
@@ -1231,7 +1291,7 @@ begin
               AIsEmptyElement := AReader.IsEmptyElement;
               ACurrentNode := ACurrentNode.Add(AReader.Name);
               while AReader.MoveToNextAttribute do
-                ACurrentNode.Attributes.Add(AReader.Name, AReader.Value);
+                ACurrentNode.Attrs.Add(AReader.Name, AReader.Value);
               if AIsEmptyElement then
                 ACurrentNode := ACurrentNode.Parent;
             end;
@@ -1325,10 +1385,10 @@ begin
   if AFlags and TACLBinaryXML.FlagsHasAttributes <> 0 then
   begin
     ACount := ReadValue(AStream);
-    ANode.Attributes.Capacity := ACount;
+    ANode.Attrs.Capacity := ACount;
     while ACount > 0 do
     begin
-      AAttr := ANode.Attributes.Add;
+      AAttr := ANode.Attrs.Add;
       AAttr.FName := AStringTable[ReadValue(AStream)];
       AAttr.Value := AStream.ReadString(ReadValue(AStream));
       Dec(ACount);
@@ -1391,42 +1451,29 @@ begin
 end;
 
 class procedure TACLLegacyBinaryXMLParser.ReadNode(AStream: TStream; ANode: TACLXMLNode);
-
-  function ReadLargeString(AStream: TStream): string;
-  var
-    ALength: Integer;
-  begin
-    ALength := AStream.ReadInt32;
-    if ALength > 0 then
-    begin
-      SetLength(Result{%H-}, ALength);
-      AStream.ReadBuffer(Result[1], 2 * ALength);
-    end;
-  end;
-
 var
-  AAttr: TACLXMLAttribute;
-  ACount: Integer;
-  AFlags: Byte;
+  LAttr: TACLXMLAttribute;
+  LSize: Integer;
+  LFlags: Byte;
 begin
-  AFlags := AStream.ReadByte;
-  if AFlags and TACLBinaryXML.FlagsHasValue <> 0 then
-    ANode.NodeValue := ReadLargeString(AStream);
+  LFlags := AStream.ReadByte;
+  if LFlags and TACLBinaryXML.FlagsHasValue <> 0 then
+    ANode.NodeValue := acString(AStream.ReadStringU(AStream.ReadInt32));
 
-  if AFlags and TACLBinaryXML.FlagsHasAttributes <> 0 then
+  if LFlags and TACLBinaryXML.FlagsHasAttributes <> 0 then
   begin
-    ACount := AStream.ReadInt32;
-    ANode.Attributes.Capacity := ACount;
-    while ACount > 0 do
+    LSize := AStream.ReadInt32;
+    ANode.Attrs.Capacity := LSize;
+    while LSize > 0 do
     begin
-      AAttr := ANode.Attributes.Add;
-      AAttr.FName := acString(AStream.ReadStringWithLengthA);
-      AAttr.Value := acString(AStream.ReadStringWithLength);
-      Dec(ACount);
+      LAttr := ANode.Attrs.Add;
+      LAttr.FName := acString(AStream.ReadStringWithLengthA);
+      LAttr.Value := acString(AStream.ReadStringWithLength);
+      Dec(LSize);
     end;
   end;
 
-  if AFlags and TACLBinaryXML.FlagsHasChildren <> 0 then
+  if LFlags and TACLBinaryXML.FlagsHasChildren <> 0 then
     ReadSubNodes(AStream, ANode);
 end;
 
@@ -1498,36 +1545,36 @@ end;
 
 procedure TACLBinaryXMLBuilder.WriteNode(ANode: TACLXMLNode);
 var
-  AAttr: TACLXMLAttribute;
-  AFlags: Byte;
+  LAttr: TACLXMLAttribute;
+  LFlags: Byte;
   I: Integer;
 begin
   WriteValue(Share(ANode.NodeName));
 
-  AFlags := 0;
+  LFlags := 0;
   if ANode.Count > 0 then
-    AFlags := AFlags or TACLBinaryXML.FlagsHasChildren;
-  if ANode.Attributes.Count > 0 then
-    AFlags := AFlags or TACLBinaryXML.FlagsHasAttributes;
+    LFlags := LFlags or TACLBinaryXML.FlagsHasChildren;
+  if ANode.Attrs.Count > 0 then
+    LFlags := LFlags or TACLBinaryXML.FlagsHasAttributes;
   if ANode.NodeValue <> acEmptyStr then
-    AFlags := AFlags or TACLBinaryXML.FlagsHasValue;
+    LFlags := LFlags or TACLBinaryXML.FlagsHasValue;
 
-  Stream.WriteByte(AFlags);
-  if AFlags and TACLBinaryXML.FlagsHasValue <> 0 then
+  Stream.WriteByte(LFlags);
+  if LFlags and TACLBinaryXML.FlagsHasValue <> 0 then
     WriteString(ANode.NodeValue);
 
-  if AFlags and TACLBinaryXML.FlagsHasAttributes <> 0 then
+  if LFlags and TACLBinaryXML.FlagsHasAttributes <> 0 then
   begin
-    WriteValue(ANode.Attributes.Count);
-    for I := 0 to ANode.Attributes.Count - 1 do
+    WriteValue(ANode.Attrs.Count);
+    for I := 0 to ANode.Attrs.Count - 1 do
     begin
-      AAttr := ANode.Attributes[I];
-      WriteValue(Share(AAttr.Name));
-      WriteString(AAttr.Value);
+      LAttr := ANode.Attrs[I];
+      WriteValue(Share(LAttr.Name));
+      WriteString(LAttr.Value);
     end;
   end;
 
-  if AFlags and TACLBinaryXML.FlagsHasChildren <> 0 then
+  if LFlags and TACLBinaryXML.FlagsHasChildren <> 0 then
     WriteSubNodes(ANode);
 end;
 
@@ -1622,8 +1669,8 @@ var
   I: Integer;
 begin
   FWriter.WriteStartElement(ANode.NodeName);
-  for I := 0 to ANode.Attributes.Count - 1 do
-    FWriter.WriteAttributeString(ANode.Attributes[I].Name, ANode.Attributes[I].Value);
+  for I := 0 to ANode.Attrs.Count - 1 do
+    FWriter.WriteAttributeString(ANode.Attrs[I].Name, ANode.Attrs[I].Value);
   if ANode.NodeValue <> acEmptyStr then
     FWriter.WriteString(ANode.NodeValue);
   for I := 0 to ANode.Count - 1 do

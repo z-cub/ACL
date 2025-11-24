@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Mathematics routines
 //
@@ -21,6 +21,10 @@ uses
   {System.}Math;
 
 {$IFDEF FPC}
+type
+  TArithmeticException = TFPUException;
+  TArithmeticExceptions = TFPUExceptionMask;
+
 const
   exAllArithmeticExceptions = [
     exInvalidOp, exDenormalized, exZeroDivide,
@@ -36,6 +40,9 @@ type
     class procedure ExchangePtr(var L, R); inline;
   end;
 
+procedure InitFPUforCLibs;
+procedure InitFPUforDelphi;
+
 // MinMax, MaxMin
 function MaxMin(const AValue, AMinValue, AMaxValue: Double): Double; overload; inline;
 function MaxMin(const AValue, AMinValue, AMaxValue: Int64): Int64; overload; inline;
@@ -45,6 +52,10 @@ function MinMax(const AValue, AMinValue, AMaxValue: Double): Double; overload; i
 function MinMax(const AValue, AMinValue, AMaxValue: Int64): Int64; overload; inline;
 function MinMax(const AValue, AMinValue, AMaxValue: Integer): Integer; overload; inline;
 function MinMax(const AValue, AMinValue, AMaxValue: Single): Single; overload; inline;
+
+// Random
+function acRandom(ACount: Integer): Integer; inline;
+function acRandomRange(AMin, AMax: Integer): Integer; inline;
 
 // Swapping
 function Swap16(const AValue: Word): Word;
@@ -65,6 +76,19 @@ uses
 {$ELSE}
   Windows;
 {$ENDIF}
+
+procedure InitFPUforCLibs;
+begin
+  SetExceptionMask(exAllArithmeticExceptions);
+end;
+
+procedure InitFPUforDelphi;
+begin
+  // Delphi 11.3 and newer operates with floating point errors like C++
+  // https://docwiki.embarcadero.com/RADStudio/Athens/en/Floating_Point_Operation_Exception_Masks
+  // Restoring the old behavior:
+  SetExceptionMask([exPrecision, exUnderflow, exDenormalized]);
+end;
 
 { MinMax / MaxMin }
 
@@ -106,6 +130,24 @@ end;
 function MinMax(const AValue, AMinValue, AMaxValue: Single): Single; overload;
 begin
   Result := Min(Max(AValue, AMinValue), AMaxValue);
+end;
+
+{ Random }
+
+function acRandom(ACount: Integer): Integer;
+begin
+  if ACount <= 0 then Exit(0);
+{$IFDEF FPC}
+  Result := Round((ACount - 1) * Random);
+  Result := MinMax(Result, 0, ACount - 1);
+{$ELSE}
+  Result := Random(ACount);
+{$ENDIF}
+end;
+
+function acRandomRange(AMin, AMax: Integer): Integer;
+begin
+  Result := AMin + acRandom(AMax - AMin);
 end;
 
 { Swapping }

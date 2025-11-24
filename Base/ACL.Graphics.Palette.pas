@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Material Design like Palette
 //  Based on:
@@ -236,7 +236,7 @@ begin
       SetStretchBltMode(AWorkLayer.Handle, HALFTONE);
     {$ENDIF}
       acStretchBlt(AWorkLayer.Handle, DC, AWorkLayer.ClientRect, R);
-      GenerateCore(@AWorkLayer.Colors^[0], AWorkLayer.ColorCount);
+      GenerateCore(AWorkLayer.Colors, AWorkLayer.ColorCount);
 
     {$IFDEF DEBUG_DUMP_ACCENT_PALETTE_QUANTANIZER}
       with TACLBitmap.CreateEx(AWorkLayer.Width, AWorkLayer.Height) do

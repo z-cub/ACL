@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Basic Form things
 //
@@ -22,6 +22,7 @@ uses
   LCLIntf,
   LCLType,
   LMessages,
+  WSLCLClasses,
 {$ELSE}
   Winapi.ActiveX,
   Winapi.CommDlg,
@@ -66,11 +67,31 @@ uses
   ACL.Utils.RTTI,
   ACL.Utils.Strings;
 
-{$IFDEF FPC}
 const
+{$IFDEF FPC}
   WM_ENTERMENULOOP = $0211;
   WM_EXITMENULOOP  = $0212;
   WM_NCACTIVATE    = LM_NCACTIVATE;
+  WS_EX_LAYERED    = $0080000;
+  WS_EX_NOACTIVATE = $8000000;
+
+  HTNOWHERE     = 0;
+  HTCLIENT      = 1;
+  HTCAPTION     = 2;
+  HTSYSMENU     = 3;
+  HTMINBUTTON   = 8;
+  HTMAXBUTTON   = 9;
+  HTLEFT        = 10;
+  HTRIGHT       = 11;
+  HTTOP         = 12;
+  HTTOPLEFT     = 13;
+  HTTOPRIGHT    = 14;
+  HTBOTTOM      = 15;
+  HTBOTTOMLEFT  = 16;
+  HTBOTTOMRIGHT = 17;
+  HTCLOSE       = 20;
+{$ELSE}
+  fsAllStayOnTop = [fsStayOnTop];
 {$ENDIF}
 
 type
@@ -99,11 +120,11 @@ type
     procedure ApplyColorSchema;
     procedure SetParentFont(Value: Boolean);
     procedure TakeParentFontIfNecessary;
-    // IACLCurrentDpi
-    function GetCurrentDpi: Integer;
     //# Messages
   {$IFDEF FPC}
     procedure WMEraseBkgnd(var Message: TMessage); message WM_ERASEBKGND;
+    procedure WMLButtonDown(var Message: TLMLButtonDown); message LM_LBUTTONDOWN;
+    procedure WMNCHitTest(var Message: TMessage); message WM_NCHITTEST;
   {$ELSE}
     procedure CMDialogKey(var Message: TCMDialogKey); message CM_DIALOGKEY;
     procedure CMParentFontChanged(var Message: TCMParentFontChanged); message CM_PARENTFONTCHANGED;
@@ -112,6 +133,7 @@ type
     procedure WMDPIChanged(var Message: TWMDpi); message WM_DPICHANGED;
     procedure WMSettingsChanged(var Message: TWMSettingChange); message WM_SETTINGCHANGE;
     procedure WMSysColorChanged(var Message: TMessage); message WM_SYSCOLORCHANGE;
+    procedure WMSysUp(var Message: TWMKeyUp); message WM_SYSKEYUP;
   {$ENDIF}
   {$IFDEF FPC}
   protected type
@@ -123,6 +145,8 @@ type
 
     function DoAlignChildControls(AAlign: TAlign; AControl: TControl;
       AList: TTabOrderList; var ARect: TRect): Boolean; override;
+    procedure InitializeWnd; override;
+    class procedure WSRegisterClass; override;
   public
     procedure AutoAdjustLayout(AMode: TLayoutAdjustmentPolicy;
       const AFromPPI, AToPPI, AOldFormWidth, ANewFormWidth: Integer); override;
@@ -146,6 +170,8 @@ type
     // IACLApplicationListener
     procedure IACLApplicationListener.Changed = ApplicationSettingsChanged;
     procedure ApplicationSettingsChanged(AChanges: TACLApplicationChanges); virtual;
+    // IACLCurrentDpi
+    function GetCurrentDpi: Integer;
 
     // Properties
     property LoadedClientHeight: Integer read FLoadedClientHeight;
@@ -164,6 +190,7 @@ type
     procedure ScaleForPPI(ATargetPPI: Integer; AWindowRect: PRect); reintroduce; overload; virtual;
     function SetFocusedControl(Control: TWinControl): Boolean; override;
     procedure Show(AMode: TShowMode = smDefault);
+    procedure UpdateCursor;
     //# Properties
     property CurrentDpi: Integer read FCurrentPPI;
   published
@@ -176,15 +203,6 @@ type
 {$ENDREGION}
 
 {$REGION ' Custom Form '}
-
-  TACLWindowHookMode = (whmPreprocess, whmPostprocess);
-
-  { TACLWindowHooks }
-
-  TACLWindowHooks = class(TACLListOf<TWindowHook>)
-  public
-    function Process(var Message: TMessage): Boolean;
-  end;
 
   { TACLStyleForm }
 
@@ -219,7 +237,6 @@ type
     FShowInTaskBar: TShowInTaskbar;
     FStayOnTop: Boolean;
     FStyle: TACLStyleForm;
-    FWndProcHooks: array[TACLWindowHookMode] of TACLWindowHooks;
 
     procedure SetPadding(AValue: TACLPadding);
     procedure SetShowInTaskBar(AValue: TShowInTaskbar);
@@ -229,7 +246,7 @@ type
     procedure UpdateNonClientColors;
   protected
     FOwnerWnd: TWndHandle;
-    FRecreateWndLockCount: Integer;
+    FRecreateWndLock: Integer;
 
     procedure AdjustClientRect(var Rect: TRect); override;
     procedure AfterFormCreate; virtual;
@@ -239,6 +256,7 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
     function DialogChar(var Message: TWMKey): Boolean; override;
     procedure DpiChanged; override;
+    procedure InitializeNewForm; override;
     procedure UpdateImageLists; virtual;
 
     // Config
@@ -277,19 +295,19 @@ type
     constructor CreateNew(AOwner: TComponent; Dummy: Integer = 0); override;
     destructor Destroy; override;
     procedure AfterConstruction; override;
-    //# Hooks
-    procedure HookWndProc(AHook: TWindowHook; AMode: TACLWindowHookMode = whmPreprocess);
-    procedure UnhookWndProc(AHook: TWindowHook);
     //# Placement
     procedure LoadPosition(AConfig: TACLIniFile); virtual;
     procedure SavePosition(AConfig: TACLIniFile); virtual;
     //# Properties
-    property Color stored False; // Color synchronizes with resources (ref. to ResourceChanged)
-    property DoubleBuffered default True;
     property Padding: TACLPadding read FPadding write SetPadding;
     property ShowInTaskBar: TShowInTaskbar read FShowInTaskBar write SetShowInTaskBar default stDefault;
     property StayOnTop: Boolean read FStayOnTop write SetStayOnTop default False;
     property Style: TACLStyleForm read FStyle write SetStyle;
+  published
+    property Color stored False; // Color synchronizes with resources (ref. to ResourceChanged)
+    property DoubleBuffered default True;
+    property ParentColor stored False;
+    property PopupMode default pmAuto;
   end;
 
 {$ENDREGION}
@@ -303,12 +321,10 @@ type
     class var FEvents: TObject;
     class procedure AppEventsModalHandler(Sender: TObject);
     class procedure CheckForApplicationEvents;
-    class function StayOnTopAvailable: Boolean;
   public
     class destructor Destroy;
-    class function ExecuteCommonDialog(ADialog: TCommonDialog; AHandleWnd: TWndHandle): Boolean;
-    class function IsStayOnTop(AHandle: TWndHandle): Boolean;
-    class function ShouldBeStayOnTop(AHandle: TWndHandle): Boolean;
+    class function ExecuteCommonDialog(ADialog: TCommonDialog; AOwnerWnd: TWndHandle): Boolean;
+    class function ShouldBeStayOnTop(AWnd: TWndHandle): Boolean;
     class procedure Refresh(AForm: TACLCustomForm); overload;
     class procedure Refresh; overload;
   end;
@@ -322,10 +338,8 @@ function acFormSetCorners(AHandle: TWndHandle; ACorners: TACLFormCorners): Boole
 procedure acSwitchToWindow(AHandle: TWndHandle);
 implementation
 
-{$IFDEF LCLGtk2}
 uses
-  ACL.UI.Core.Impl.Gtk2;
-{$ENDIF}
+{$I ACL.UI.Core.Impl.inc};
 
 type
   TCustomFormAccess = class(TCustomForm);
@@ -390,43 +404,31 @@ begin
 end;
 
 class procedure TACLStayOnTopHelper.Refresh(AForm: TACLCustomForm);
-const
-  StyleMap: array[Boolean] of TWndHandle = (HWND_NOTOPMOST, HWND_TOPMOST);
 var
   LStayOnTop: Boolean;
 begin
-  if (AForm <> nil) and AForm.HandleAllocated and IsWindowVisible(AForm.Handle) then
+  if acMenuLoopCount > 0 then
+    Exit;
+  if (AForm <> nil) and not (csDesigning in AForm.ComponentState) and
+    AForm.HandleAllocated and IsWindowVisible(AForm.Handle) then
   begin
-    if csDesigning in AForm.ComponentState then
-      Exit;
-    if acMenuLoopCount > 0 then
-      Exit;
-
-    LStayOnTop := (AForm.FormStyle = fsStayOnTop) or StayOnTopAvailable and AForm.ShouldBeStayOnTop;
-    if IsStayOnTop(AForm.Handle) <> LStayOnTop then
-    begin
-      if LStayOnTop then
-        CheckForApplicationEvents;
-      SetWindowPos(AForm.Handle, StyleMap[LStayOnTop], 0, 0, 0, 0,
-        SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE or SWP_NOOWNERZORDER);
-    end;
+    LStayOnTop := (AForm.FormStyle in fsAllStayOnTop) or
+      (Application.ModalLevel = 0) and AForm.ShouldBeStayOnTop;
+    if LStayOnTop then
+      CheckForApplicationEvents;
+    SetWindowStayOnTop(AForm.Handle, LStayOnTop);
   end;
 end;
 
 class function TACLStayOnTopHelper.ExecuteCommonDialog(
-  ADialog: TCommonDialog; AHandleWnd: TWndHandle): Boolean;
+  ADialog: TCommonDialog; AOwnerWnd: TWndHandle): Boolean;
 begin
   Application.ModalStarted;
   try
-    Result := ADialog.Execute{$IFNDEF FPC}(AHandleWnd){$ENDIF};
+    Result := ADialog.Execute{$IFNDEF FPC}(AOwnerWnd){$ENDIF};
   finally
     Application.ModalFinished;
   end;
-end;
-
-class function TACLStayOnTopHelper.IsStayOnTop(AHandle: TWndHandle): Boolean;
-begin
-  Result := (AHandle <> 0) and (GetWindowLong(AHandle, GWL_EXSTYLE) and WS_EX_TOPMOST <> 0);
 end;
 
 class procedure TACLStayOnTopHelper.Refresh;
@@ -437,17 +439,11 @@ begin
     Refresh(Safe.CastOrNil<TACLCustomForm>(Screen.Forms[I]));
 end;
 
-class function TACLStayOnTopHelper.ShouldBeStayOnTop(AHandle: TWndHandle): Boolean;
+class function TACLStayOnTopHelper.ShouldBeStayOnTop(AWnd: TWndHandle): Boolean;
 var
-  AControl: TWinControl;
+  LForm: TACLCustomForm;
 begin
-  AControl := FindControl(AHandle);
-  Result := (AControl is TACLCustomForm) and TACLCustomForm(AControl).ShouldBeStayOnTop;
-end;
-
-class function TACLStayOnTopHelper.StayOnTopAvailable: Boolean;
-begin
-  Result := Application.ModalLevel = 0;
+  Result := Safe.Cast(FindControl(AWnd), TACLCustomForm, LForm) and LForm.ShouldBeStayOnTop;
 end;
 
 { TACLFormScaling }
@@ -668,10 +664,13 @@ begin
 {$IFDEF MSWINDOWS}
   // When a top level window is maximized the call to SetWindowPos
   // isn't needed unless the size of the window has changed.
-  if IsZoomed(Handle) and (GetParent(Handle) = 0) and not AutoSize then
+  if HandleAllocated then
   begin
-    RequestAlign;
-    Exit;
+    if IsZoomed(Handle) and (GetParent(Handle) = 0) and not AutoSize then
+    begin
+      RequestAlign;
+      Exit;
+    end;
   end;
 {$ENDIF}
   inherited;
@@ -823,7 +822,7 @@ begin
   else
   begin
     LForm := GetParentForm(AControl);
-    if LForm = nil then
+    if (LForm = nil) or (LForm = Self) then
       PopupMode := pmAuto
     else
     {$IFDEF LCLGtk2}
@@ -882,6 +881,20 @@ begin
   Font.PixelsPerInch := PixelsPerInch;
 {$ENDIF}
 end;
+
+{$IFDEF FPC}
+procedure TACLBasicForm.InitializeWnd;
+begin
+  inherited InitializeWnd;
+  Perform(WM_CREATE, 0, 0); // especially for TACLDropTarget
+end;
+
+class procedure TACLBasicForm.WSRegisterClass;
+begin
+  inherited;
+  RegisterWSComponent(TACLBasicForm, TACLWSForm);
+end;
+{$ENDIF}
 
 procedure TACLBasicForm.Loaded;
 begin
@@ -1003,12 +1016,15 @@ begin
   end
   else
   begin
-    if (AMode = smActivate) and (Application.MainForm = Self) then
-      TACLApplication.RestoreIfMinimized;
+    if AMode = smActivate then
+    begin
+      if Application.MainForm = Self then
+        TACLApplication.RestoreIfMinimized
+      else if WindowState = wsMinimized then
+        WindowState := wsNormal;
+    end;
 
   {$IFDEF MSWINDOWS}
-    //  if TACLApplication.IsMinimized then
-    //    Visible := False;
     if Visible and HandleAllocated and not IsWindowVisible(WindowHandle) then
       Perform(CM_SHOWINGCHANGED, 0, 0)
     else
@@ -1057,6 +1073,12 @@ begin
 {$ENDIF}
 end;
 
+procedure TACLBasicForm.UpdateCursor;
+begin
+  if MouseInClient and HandleAllocated then
+    Perform(WM_SETCURSOR, Handle, HTCLIENT);
+end;
+
 {$IFDEF FPC}
 procedure TACLBasicForm.WMEraseBkgnd(var Message: TMessage);
 begin
@@ -1071,6 +1093,17 @@ begin
   end
   else
     inherited;
+end;
+
+procedure TACLBasicForm.WMLButtonDown(var Message: TLMLButtonDown);
+begin
+  if not GtkNCProcessMessage(Self, Message) then
+    inherited;
+end;
+
+procedure TACLBasicForm.WMNCHitTest(var Message: TMessage);
+begin
+  Message.Result := HTCLIENT;
 end;
 {$ELSE}
 procedure TACLBasicForm.CMDialogKey(var Message: TCMDialogChar);
@@ -1146,25 +1179,25 @@ begin
   inherited;
   TACLApplication.UpdateColorSet;
 end;
+
+procedure TACLBasicForm.WMSysUp(var Message: TWMKeyUp);
+begin
+  // Блокируем отправку нажатия Alt-а в систему. А суть такая:
+  // Alt+Wheel скроллирует список с определенной скоростью.
+  // После отпускания Alt-а фокус с контрола уходит и вызывается системное меню окна.
+  if Message.CharCode = VK_MENU then
+  begin
+    DoKeyUp(Message);
+    Message.CharCode := 0;
+  end
+  else
+    inherited;
+end;
 {$ENDIF}
 
 {$ENDREGION}
 
 {$REGION ' Custom Form '}
-
-{ TACLWindowHooks }
-
-function TACLWindowHooks.Process(var Message: TMessage): Boolean;
-var
-  I: Integer;
-begin
-  if Self = nil then
-    Exit(False);
-  for I := Count - 1 downto 0 do
-    if List[I](Message) then
-      Exit(True);
-  Result := False;
-end;
 
 { TACLStyleForm }
 
@@ -1245,8 +1278,6 @@ end;
 destructor TACLCustomForm.Destroy;
 begin
   inherited Destroy;
-  FreeAndNil(FWndProcHooks[whmPostprocess]);
-  FreeAndNil(FWndProcHooks[whmPreprocess]);
   FreeAndNil(FPadding);
   FreeAndNil(FStyle);
   MinimizeMemoryUsage;
@@ -1289,13 +1320,7 @@ begin
     if ShowInTaskBar = stAlways then
       Params.ExStyle := Params.ExStyle or WS_EX_APPWINDOW;
     if FOwnerWnd <> 0 then
-      Params.WndParent := FOwnerWnd
-    else
-      if (Params.WndParent = Application.Handle) and
-         (Application.MainForm <> nil) and
-         (Application.MainForm.HandleAllocated) {and Application.MainForm.StayOnTop}
-      then
-        Params.WndParent := Application.MainFormHandle;
+      Params.WndParent := FOwnerWnd;
   end;
 end;
 
@@ -1308,19 +1333,10 @@ begin
   UpdateImageLists;
 end;
 
-procedure TACLCustomForm.HookWndProc(AHook: TWindowHook; AMode: TACLWindowHookMode = whmPreprocess);
+procedure TACLCustomForm.InitializeNewForm;
 begin
-  if FWndProcHooks[AMode] = nil then
-    FWndProcHooks[AMode] := TACLWindowHooks.Create;
-  FWndProcHooks[AMode].Add(AHook);
-end;
-
-procedure TACLCustomForm.UnhookWndProc(AHook: TWindowHook);
-begin
-  if FWndProcHooks[whmPostprocess] <> nil then
-    FWndProcHooks[whmPostprocess].Remove(AHook);
-  if FWndProcHooks[whmPreprocess] <> nil then
-    FWndProcHooks[whmPreprocess].Remove(AHook);
+  inherited InitializeNewForm;
+  PopupMode := pmAuto;
 end;
 
 procedure TACLCustomForm.LoadPosition(AConfig: TACLIniFile);
@@ -1351,7 +1367,7 @@ procedure TACLCustomForm.LoadPosition(AConfig: TACLIniFile);
 var
   LCfgSection: string;
 begin
-  Inc(FRecreateWndLockCount);
+  Inc(FRecreateWndLock);
   try
     LCfgSection := GetConfigSection;
     if AConfig.ExistsKey(LCfgSection, 'WindowRect') then
@@ -1359,13 +1375,13 @@ begin
       RestoreBounds(AConfig.ReadRect(LCfgSection, 'WindowRect'));
       Position := poDesigned;
       DefaultMonitor := dmDesktop;
-      if not MonitorGetBounds(BoundsRect.TopLeft).Contains(BoundsRect) then
+      if not MonitorGet(BoundsRect.TopLeft).BoundsRect.Contains(BoundsRect) then
         MakeFullyVisible;
     end;
     if IsFormResizable and AConfig.ReadBool(LCfgSection, 'WindowMaximized') then
       WindowState := wsMaximized;
   finally
-    Dec(FRecreateWndLockCount);
+    Dec(FRecreateWndLock);
   end;
 end;
 
@@ -1518,7 +1534,7 @@ end;
 
 procedure TACLCustomForm.CMRecreateWnd(var Message: TMessage);
 begin
-  if FRecreateWndLockCount = 0 then
+  if FRecreateWndLock = 0 then
     inherited;
 end;
 
@@ -1562,19 +1578,14 @@ end;
 
 procedure TACLCustomForm.WndProc(var Message: TMessage);
 begin
-  if not FWndProcHooks[whmPreprocess].Process(Message) then
-  begin
-    inherited WndProc(Message);
-  {$IFDEF MSWINDOWS}
-    if (Message.Msg = WM_ACTIVATE) or
-       (Message.Msg = WM_SHOWWINDOW) or
-       (Message.Msg = WM_WINDOWPOSCHANGED) and Visible
-    then
-      TACLStayOnTopHelper.Refresh;
-  {$ENDIF}
-    if Message.Msg <> CM_RELEASE then
-      FWndProcHooks[whmPostprocess].Process(Message);
-  end;
+  inherited WndProc(Message);
+{$IFDEF MSWINDOWS}
+  if (Message.Msg = WM_ACTIVATE) or
+     (Message.Msg = WM_SHOWWINDOW) or
+     (Message.Msg = WM_WINDOWPOSCHANGED) and Visible
+  then
+    TACLStayOnTopHelper.Refresh;
+{$ENDIF}
 end;
 
 function TACLCustomForm.GetConfigSection: string;

@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Web Utilities
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -64,7 +64,7 @@ type
     FInfo: TACLWebErrorInfo;
   public
     constructor Create(const AInfo: TACLWebErrorInfo); overload;
-    constructor Create(const AText: string; ACode: Integer); overload;
+    constructor Create(const AText: string; ACode: Integer = acWebErrorUnknown); overload;
     //# Properties
     property Info: TACLWebErrorInfo read FInfo;
   end;
@@ -77,7 +77,9 @@ type
     UserName: string;
     UserPass: string;
 
-    class function Create(const Server, ServerPort, UserName, UserPass: string): TACLWebProxyInfo; static;
+    class function Create(
+      const Server, ServerPort: string;
+      const UserName, UserPass: string): TACLWebProxyInfo; static;
     procedure Reset;
   end;
 
@@ -88,12 +90,11 @@ type
     Host: string;
     Path: string;
     Port: Integer;
-    PortIsDefault: Boolean;
     Protocol: string;
     Secured: Boolean;
 
-    class function Parse(S: string; const AProtocol: string): TACLWebURL; static;
-    class function ParseHttp(S: string): TACLWebURL; static;
+    class function Parse(S: string): TACLWebURL; overload; static;
+    class function Parse(S, DefaultProto: string): TACLWebURL; overload; static;
     function ToString: string;
   end;
 
@@ -146,6 +147,7 @@ type
     class procedure SetUserAgent(const AValue: string); static;
   public
     class constructor Create;
+    class function ActualConnectionMode: TACLWebConnectionMode;
     class procedure ConfigLoad(AConfig: TACLIniFile);
     class procedure ConfigSave(AConfig: TACLIniFile);
     //# Properties
@@ -159,10 +161,7 @@ type
   TACLDateTimeFormat = (RFC822, ISO8601);
 
 function acDecodeDateTime(const Value: string; AFormat: TACLDateTimeFormat): TDateTime;
-
-function acURLDecode(const S: string): string;
-function acURLEncode(const S: string): string;
-function acURLEscape(const S: string): string;
+function acIsEmail(Text: PChar; TextLength: Integer): Boolean;
 implementation
 
 uses
@@ -171,6 +170,7 @@ uses
   ACL.Parsers,
   ACL.Utils.Common,
   ACL.Utils.Date,
+  ACL.Utils.FileSystem,
   ACL.Utils.Stream,
   ACL.Utils.Strings;
 
@@ -272,117 +272,88 @@ begin
   end;
 end;
 
-function acURLDecode(const S: string): string;
-var
-  LAsumeUtf8: TACLBoolean;
-  LBuffer: TACLStringBuilder;
-  LCode: Byte;
-  LLen: Integer;
-  LSrc: PChar;
-begin
-  LSrc := PChar(S);
-  LLen := Length(S);
-  LAsumeUtf8 := TACLBoolean.Default;
-  LBuffer := TACLStringBuilder.Get(LLen);
-  try
-    while LLen > 0 do
-    begin
-      if (LSrc^ = '%') and (LLen > 2) and TACLHexcode.Decode((LSrc + 1)^, (LSrc + 2)^, LCode) then
-      begin
-        if (LCode > $7F) and (LAsumeUtf8 = TACLBoolean.Default) then
-          LAsumeUtf8 := TACLBoolean.True;
-        LBuffer.Append(AnsiChar(LCode));
-        Dec(LLen, 3);
-        Inc(LSrc, 3);
-      end
-      else
-      begin
-      {$IFDEF UNICODE}
-        if Ord(LSrc^) > $FF then
-          LAsumeUtf8 := TACLBoolean.False;
-      {$ENDIF}
-        LBuffer.Append(LSrc^);
-        Dec(LLen);
-        Inc(LSrc);
-      end;
-    end;
-  {$IFDEF UNICODE}
-    if LAsumeUtf8 = TACLBoolean.True then
-    begin
-      Result := acDecodeUtf8(acUStringToBytes(@LBuffer.Chars[0], LBuffer.Length));
-      if Result <> '' then Exit;
-    end;
-  {$ENDIF}
-    Result := LBuffer.ToString;
-  finally
-    LBuffer.Release;
-  end;
-end;
-
-function acURLEncode(const S: string): string;
-var
-  A: AnsiString;
-  B: TACLStringBuilder;
-  C: AnsiChar;
-begin
-  A := acStringToUtf8(S);
-  B := TACLStringBuilder.Get(Length(A) * 3);
-  try
-    for C in A do
-    begin
-      if (Ord(C) > $20) and (Ord(C) < $7F) then
-        B.Append(C)
-      else
-        B.Append('%').Append(TACLHexcode.Encode(C));
-    end;
-    Result := B.ToString;
-  finally
-    B.Release;
-  end;
-end;
-
-function acURLEscape(const S: string): string;
+function acIsEmail(Text: PChar; TextLength: Integer): Boolean;
 const
-  ReservedChars = '% <>#{}|\^~'#13#10'[]`;/?:@=&$';
+  LetterOrDigit = ['0'..'9', 'a'..'z', 'A'..'Z'];
+  HostNameChars = LetterOrDigit + ['.', '-'];
+  UserNameChars = LetterOrDigit + ['!', '#', '$', '%',
+    '&', '*', '+', '-', '/', '=', '?', '^', '_', '`', '{', '|', '}', '~', '.'];
 var
-  B: TACLStringBuilder;
-  C: Char;
+  LCounter: PInteger;
+  LHostNameLen: Integer;
+  LPrev: Char;
+  LUserNameLen: Integer;
+  LValidChars: TSysCharSet;
 begin
-	B := TACLStringBuilder.Get(Length(S));
-  try
-    for C in S do
+  LPrev := #0;
+  LHostNameLen := 0;
+  LUserNameLen := 0;
+  LCounter := @LUserNameLen;
+  LValidChars := UserNameChars;
+  while TextLength > 0 do
+  begin
+    if Text^ = '@' then
     begin
-      if acContains(C, ReservedChars) then
-        B.Append('%').Append(TACLHexcode.Encode(Byte(C)))
-      else
-        B.Append(C);
-    end;
-    Result := B.ToString;
-  finally
-    B.Release;
+      if LCounter <> @LUserNameLen then
+        Exit(False); // два @
+      if LPrev = '.' then
+        Exit(False); // не должно кончаться на точку
+      if (TextLength < 2) or not CharInSet((Text + 1)^, LetterOrDigit) then
+        Exit(False); // должно начинаться с буквы или цифры
+      LCounter := @LHostNameLen;
+      LValidChars := HostNameChars;
+    end
+    else
+
+    if Text^ = '.' then
+    begin
+      if LPrev = '@' then
+        Exit(False); // не должно начинаться с точки
+      if LPrev = #0 then
+        Exit(False); // не должно начинаться с точки
+      if LPrev = '.' then
+        Exit(False); // точка не может повторяться
+    end
+    else
+
+    if not CharInSet(Text^, LValidChars) then
+      Exit(False);
+
+    LPrev := Text^;
+    Inc(LCounter^);
+    Dec(TextLength);
+    Inc(Text);
   end;
+
+  if LPrev = '-' then
+    Exit(False); // не должно кончаться на точку
+  if not InRange(LHostNameLen, 1, 63) then
+    Exit(False);
+  if not InRange(LUserNameLen, 1, 63) then
+    Exit(False);
+  Result := True;
 end;
 
 { TACLWebURL }
 
-class function TACLWebURL.Parse(S: string; const AProtocol: string): TACLWebURL;
+class function TACLWebURL.Parse(S, DefaultProto: string): TACLWebURL;
 var
-  ADelimPos: Integer;
+  LPos: Integer;
 begin
-  ADelimPos := acPos(sLineBreak, S);
-  if ADelimPos > 0 then
+  LPos := acPos(sLineBreak, S);
+  if LPos > 0 then
   begin
-    Result.CustomHeaders := Copy(S, ADelimPos + Length(sLineBreak), MaxInt);
-    S := Copy(S, 1, ADelimPos - 1);
+    Result.CustomHeaders := Copy(S, LPos + Length(sLineBreak), MaxInt);
+    S := Copy(S, 1, LPos - 1);
   end
   else
   begin
   {$IFNDEF MSWINDOWS} // backward compatibility
-    ADelimPos := acPos(acCRLF, S);
-    if ADelimPos > 0 then
+    LPos := acPos(acCRLF, S);
+    if LPos > 0 then
     begin
-      Result.CustomHeaders := Copy(S, ADelimPos + Length(acCRLF), MaxInt);
-      S := Copy(S, 1, ADelimPos - 1);
+      Result.CustomHeaders := Copy(S, LPos + Length(acCRLF), MaxInt);
+      S := Copy(S, 1, LPos - 1);
     end
     else
   {$ENDIF}
@@ -390,25 +361,25 @@ begin
   end;
 
   // Protocol
-  ADelimPos := acPos(acProtocolDelimiter, S);
-  if ADelimPos > 0 then
+  LPos := acPos(acProtocolDelimiter, S);
+  if LPos > 0 then
   begin
-    Result.Protocol := Copy(S, 1, ADelimPos - 1);
-    Result.Secured := SameText(Result.Protocol, AProtocol + 's');
-    Delete(S, 1, ADelimPos + 2);
+    Result.Protocol := Copy(S, 1, LPos - 1);
+    Result.Secured := SameText(Result.Protocol, DefaultProto + 's');
+    Delete(S, 1, LPos + 2);
   end
   else
   begin
-    Result.Protocol := AProtocol;
+    Result.Protocol := DefaultProto;
     Result.Secured := False;
   end;
 
   // Host & Path
-  ADelimPos := acPos('/', S);
-  if ADelimPos > 0 then
+  LPos := acPos('/', S);
+  if LPos > 0 then
   begin
-    Result.Host := Copy(S, 1, ADelimPos - 1);
-    Result.Path := Copy(S, ADelimPos, MaxInt);
+    Result.Host := Copy(S, 1, LPos - 1);
+    Result.Path := Copy(S, LPos, MaxInt);
   end
   else
   begin
@@ -417,25 +388,26 @@ begin
   end;
 
   // Port
-  ADelimPos := acPos(acPortDelimiter, S);
-  if (ADelimPos > 0) and (ADelimPos < acPos('/', S)) then
+  LPos := acPos(acPortDelimiter, S);
+  if (LPos > 0) and (LPos < acPos('/', S)) then
   begin
-    Result.Port := StrToIntDef(Copy(Result.Host, ADelimPos + 1, MaxInt), -1);
-    Result.PortIsDefault := False;
-    Delete(Result.Host, ADelimPos, MaxInt);
+    Result.Port := StrToIntDef(Copy(Result.Host, LPos + 1), 0);
+    Delete(Result.Host, LPos, MaxInt);
   end
   else
-  begin
-    Result.Port := -1;
-    Result.PortIsDefault := True;
-  end;
+    Result.Port := 0;
 end;
 
-class function TACLWebURL.ParseHttp(S: string): TACLWebURL;
+class function TACLWebURL.Parse(S: string): TACLWebURL;
 begin
-  Result := Parse(S, 'http');
-  if Result.Port <= 0 then
-    Result.Port := IfThen(Result.Secured, 443, 80);
+  if acExtractFileDrive(S) <> '' then
+    Result := Parse(S, '')
+  else
+  begin
+    Result := Parse(S, 'http');
+    if Result.Port = 0 then
+      Result.Port := IfThen(Result.Secured, 443, 80);
+  end;
 end;
 
 function TACLWebURL.ToString: string;
@@ -450,7 +422,7 @@ begin
     if Protocol <> '' then
       B.Append(Protocol).Append(acProtocolDelimiter);
     B.Append(Host);
-    if not PortIsDefault then
+    if Port > 0 then
       B.Append(acPortDelimiter).Append(Port);
     if Path <> '' then
       B.Append(Path);
@@ -526,6 +498,13 @@ class constructor TACLWebSettings.Create;
 begin
   ConnectionMode := acWebDefaultConnectionMode;
   ConnectionTimeOut := acWebTimeOutDefault;
+end;
+
+class function TACLWebSettings.ActualConnectionMode: TACLWebConnectionMode;
+begin
+  Result := ConnectionMode;
+  if (Result = ncmUserDefined) and (acTrim(Proxy.Server) = '') then
+    Result := ncmDirect;
 end;
 
 class function TACLWebSettings.BuildUserAgent: string;
@@ -684,19 +663,19 @@ end;
 
 constructor EACLWebError.Create(const AInfo: TACLWebErrorInfo);
 begin
-  FInfo := AInfo;
-  Create(Info.ToString);
+  Create(AInfo.ErrorMessage, AInfo.ErrorCode);
 end;
 
 constructor EACLWebError.Create(const AText: string; ACode: Integer);
 begin
   Info.Initialize(ACode, AText);
-  Create(Info.ToString);
+  inherited Create(Info.ToString);
 end;
 
 { TACLWebProxyInfo }
 
-class function TACLWebProxyInfo.Create(const Server, ServerPort, UserName, UserPass: string): TACLWebProxyInfo;
+class function TACLWebProxyInfo.Create(
+  const Server, ServerPort, UserName, UserPass: string): TACLWebProxyInfo;
 begin
   Result.Server := Server;
   Result.ServerPort := ServerPort;

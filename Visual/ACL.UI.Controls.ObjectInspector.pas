@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ObjectInspector
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -127,12 +127,17 @@ type
   TACLObjectInspectorOptionsView = class(TACLTreeListCustomOptions)
   strict private
     FHighlightNonStorableProperties: Boolean;
+    function GetGridlines: TACLTreeListGridLines;
+    function GetOptionsView: TACLTreeListOptionsView;
+    procedure SetGridlines(AValue: TACLTreeListGridLines);
     procedure SetHighlightNonStorableProperties(AValue: Boolean);
   protected
     procedure DoAssign(Source: TPersistent); override;
   public
     procedure AfterConstruction; override;
   published
+    property Gridlines: TACLTreeListGridLines
+      read GetGridlines write SetGridlines default [tlglHorzontal, tlglVertical];
     property HighlightNonStorableProperties: Boolean
       read FHighlightNonStorableProperties write SetHighlightNonStorableProperties default True;
   end;
@@ -172,11 +177,8 @@ type
     function CreateViewInfo: TACLCompoundControlCustomViewInfo; override;
     procedure DoSortReset; override;
 
-    function CanStartEditingByMouse(AButton: TMouseButton): Boolean;
     procedure ProcessKeyDown(var AKey: Word; AShift: TShiftState); override;
-    procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); override;
-    procedure ProcessMouseClickAtNodeButton(ANode: TACLTreeListNode);
-    procedure ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState); override;
+    procedure ProcessMouseClickAtNode(AShift: TShiftState; ANode: TACLTreeListNode); override;
 
     // IACLObjectInspector
     function GetInspectedObject: TPersistent;
@@ -195,7 +197,7 @@ type
 
     procedure Notification(AComponent: TComponent; AOperation: TOperation); override;
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     function FindItem(const AProperyName: string): TACLObjectInspectorNode;
     procedure ExecutePropertyEditor(const AProperyName: string);
@@ -224,8 +226,8 @@ type
   strict private
     FIsKeyboardAction: Boolean;
   protected
-    procedure EditApplyHandler(Sender: TObject); override;
-    procedure EditKeyDownHandler(Sender: TObject; var Key: Word; Shift: TShiftState); override;
+    procedure HandlerApply(Sender: TObject; AChanges: TIntegerSet); override;
+    procedure HandlerKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState); override;
   end;
 
   { TACLObjectInspectorContentViewInfo }
@@ -245,10 +247,10 @@ type
     function GetNode: TACLObjectInspectorNode;
     function GetOptionsView: TACLObjectInspectorOptionsView;
   protected
+    procedure CalculateHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo); override;
     procedure DoDraw(ACanvas: TCanvas); override;
     procedure DoDrawCellContent(ACanvas: TCanvas; const R: TRect;
       AColumnViewInfo: TACLTreeListColumnViewInfo); override;
-    procedure DoGetHitTest(const P: TPoint; const AOrigin: TPoint; AInfo: TACLHitTestInfo); override;
     function GetCellTextExtends(AColumn: TACLTreeListColumnViewInfo): TRect; override;
     function HasButton: Boolean; virtual;
   public
@@ -284,7 +286,7 @@ type
     function Evaluate(const AText: string): Variant;
     function IsExpressionMode: Boolean;
   protected
-    procedure EditorUpdateParamsCore; override;
+    procedure CheckInput(var AText, APart1, APart2: string; var AAccept: Boolean); override;
     function TextToValue(const AText: string): Variant; override;
     function ValueToText(const AValue: Variant): string; override;
   end;
@@ -352,6 +354,7 @@ type
     procedure SearchBoxChangeHandler(Sender: TObject);
   protected
     procedure AlignControls(AControl: TControl; var Rect: TRect); override;
+    procedure CreateParams(var Params: TCreateParams); override;
     procedure ResourceCollectionChanged; override;
     //# Messages
     procedure CMChildKey(var Message: TCMChildKey); message CM_CHILDKEY;
@@ -526,7 +529,25 @@ procedure TACLObjectInspectorOptionsView.DoAssign(Source: TPersistent);
 begin
   inherited;
   if Source is TACLObjectInspectorOptionsView then
+  begin
+    Gridlines := TACLObjectInspectorOptionsView(Source).Gridlines;
     HighlightNonStorableProperties := TACLObjectInspectorOptionsView(Source).HighlightNonStorableProperties;
+  end;
+end;
+
+function TACLObjectInspectorOptionsView.GetGridlines: TACLTreeListGridLines;
+begin
+  Result := GetOptionsView.Nodes.GridLines;
+end;
+
+function TACLObjectInspectorOptionsView.GetOptionsView: TACLTreeListOptionsView;
+begin
+  Result := (TreeList as TACLTreeListSubClass).OptionsView;
+end;
+
+procedure TACLObjectInspectorOptionsView.SetGridlines(AValue: TACLTreeListGridLines);
+begin
+  GetOptionsView.Nodes.GridLines := AValue;
 end;
 
 procedure TACLObjectInspectorOptionsView.SetHighlightNonStorableProperties(AValue: Boolean);
@@ -536,7 +557,7 @@ end;
 
 { TACLObjectInspectorSubClass }
 
-constructor TACLObjectInspectorSubClass.Create(AOwner: TComponent);
+constructor TACLObjectInspectorSubClass.Create(AOwner: IACLCompoundControlSubClassContainer);
 begin
   inherited Create(AOwner);
   FStyleHatch := TACLStyleHatch.Create(Self);
@@ -572,8 +593,7 @@ var
   ALast: TACLTreeListNode;
   I: Integer;
 begin
-  acExplodeString(AProperyName, '.', AArr);
-  if Length(AArr) = 0 then
+  if acSplitString(AProperyName, '.', AArr) = 0 then
     Exit(nil);
 
   ALast := RootNode;
@@ -939,11 +959,6 @@ begin
   end;
 end;
 
-function TACLObjectInspectorSubClass.CanStartEditingByMouse(AButton: TMouseButton): Boolean;
-begin
-  Result := (AButton = mbLeft) and HitTest.HitAtNode and not HitTest.HasAction;
-end;
-
 procedure TACLObjectInspectorSubClass.ProcessKeyDown(var AKey: Word; AShift: TShiftState);
 begin
   inherited ProcessKeyDown(AKey, AShift);
@@ -958,51 +973,46 @@ begin
     end;
 end;
 
-procedure TACLObjectInspectorSubClass.ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState);
+procedure TACLObjectInspectorSubClass.ProcessMouseClickAtNode(
+  AShift: TShiftState; ANode: TACLTreeListNode);
 var
-  AInplaceControl: TWinControl;
-  AInplaceControlPoint: TPoint;
-  AKeys: Integer;
-  AParam: LPARAM;
+  LInplace: TWinControl;
+  LInplacePoint: TPoint;
 begin
-  if HitTest.HitObjectFlags[obhtButton] then
-    ProcessMouseClickAtNodeButton(HitTest.Node)
+  if HitTest.Flags[obhtButton] then
+    TACLObjectInspectorNode(HitTest.Node).Edit
   else
-    if CanStartEditingByMouse(AButton) then
+    if HitTest.HasAction then
+      inherited
+    else
     begin
       EditingController.StartEditing(HitTest.Node, Columns[1]);
       if EditingController.Edit is TWinControl then
       begin
-        AInplaceControl := TWinControl(EditingController.Edit);
-        AInplaceControlPoint := AInplaceControl.ScreenToClient(Mouse.CursorPos);
-        if PtInRect(AInplaceControl.ClientRect, AInplaceControlPoint) then
+        LInplace := TWinControl(EditingController.Edit);
+        LInplacePoint := LInplace.ScreenToClient(Mouse.CursorPos);
+        if LInplace.ClientRect.Contains(LInplacePoint) then
         begin
-          AKeys := acShiftStateToKeys(AShift);
-          AParam := PointToLParam(AInplaceControlPoint);
-          PostMessage(AInplaceControl.Handle, WM_LBUTTONDOWN, AKeys, AParam);
-          PostMessage(AInplaceControl.Handle, WM_LBUTTONUP, AKeys, AParam);
+          PostMessage(LInplace.Handle, WM_LBUTTONDOWN,
+            acShiftStateToKeys(AShift), PointToLParam(LInplacePoint));
+          PostMessage(LInplace.Handle, WM_LBUTTONUP,
+            acShiftStateToKeys(AShift), PointToLParam(LInplacePoint));
         end;
-      end;
-    end
-    else
-      inherited ProcessMouseClick(AButton, AShift);
-end;
-
-procedure TACLObjectInspectorSubClass.ProcessMouseClickAtNodeButton(ANode: TACLTreeListNode);
-begin
-  TACLObjectInspectorNode(ANode).Edit;
-end;
-
-procedure TACLObjectInspectorSubClass.ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState);
-begin
-  inherited ProcessMouseDblClick(AButton, AShift);
-  if CanStartEditingByMouse(AButton) and not EditingController.IsEditing and (HitTest.Node.ChildrenCount = 0) then
-    ProcessMouseClickAtNodeButton(HitTest.Node)
+      end
+      else
+        if (LastClickCount > 1) and not EditingController.IsEditing then
+        begin
+          if HitTest.Node.ChildrenCount = 0 then
+            TACLObjectInspectorNode(HitTest.Node).Edit
+          else
+            inherited;
+        end;
+    end;
 end;
 
 { TACLObjectInspectorEditingController }
 
-procedure TACLObjectInspectorEditingController.EditApplyHandler(Sender: TObject);
+procedure TACLObjectInspectorEditingController.HandlerApply(Sender: TObject; AChanges: TIntegerSet);
 begin
   if not IsLocked and (Sender = Edit) then
   begin
@@ -1011,12 +1021,12 @@ begin
     begin
       EditIntf.InplaceSetValue(Value);
       if FIsKeyboardAction or not SubClass.Focused then
-        Close;
+        Close(AChanges);
     end;
   end;
 end;
 
-procedure TACLObjectInspectorEditingController.EditKeyDownHandler(
+procedure TACLObjectInspectorEditingController.HandlerKeyDown(
   Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
   FIsKeyboardAction := True;
@@ -1047,12 +1057,11 @@ end;
 
 procedure TACLObjectInspectorNodeViewInfo.DoDraw(ACanvas: TCanvas);
 begin
-  inherited DoDraw(ACanvas);
-
+  inherited;
   if HasButton then
   begin
     SubClass.StylePrepareFont(ACanvas);
-    ACanvas.Font.Color := SubClass.StyleGetNodeTextColor(Node);
+    ACanvas.Font.Color := SubClass.Style.RowColorText.AsColor;
     SubClass.StyleInplaceEditButton.Draw(ACanvas, ButtonRect, absNormal);
     acTextDraw(ACanvas, acEndEllipsis, ButtonRect, taCenter, taVerticalCenter);
   end;
@@ -1084,12 +1093,12 @@ begin
   inherited DoDrawCellContent(ACanvas, R, AColumnViewInfo);
 end;
 
-procedure TACLObjectInspectorNodeViewInfo.DoGetHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo);
+procedure TACLObjectInspectorNodeViewInfo.CalculateHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo);
 begin
-  inherited DoGetHitTest(P, AOrigin, AInfo);
+  inherited;
   if HasButton and PtInRect(ButtonRect, P) then
   begin
-    AInfo.HitObjectFlags[obhtButton] := True;
+    AInfo.Flags[obhtButton] := True;
     AInfo.Cursor := crHandPoint;
   end;
 end;
@@ -1138,16 +1147,11 @@ end;
 
 { TACLObjectInspectorExpressionEdit }
 
-procedure TACLObjectInspectorExpressionEdit.EditorUpdateParamsCore;
+procedure TACLObjectInspectorExpressionEdit.CheckInput(
+  var AText, APart1, APart2: string; var AAccept: Boolean);
 begin
-  Inc(FTextChangeLockCount);
-  try
+  if not IsExpressionMode then
     inherited;
-    if IsExpressionMode then
-      InnerEdit.InputMask := eimText;
-  finally
-    Dec(FTextChangeLockCount);
-  end;
 end;
 
 function TACLObjectInspectorExpressionEdit.Evaluate(const AText: string): Variant;
@@ -1195,19 +1199,24 @@ begin
   FInnerControl.OnKeyDown := InnerControlKeyDownHandler;
 
   FSearchEdit := TACLSearchEdit.Create(Self);
-  FSearchEdit.ControlStyle := FSearchEdit.ControlStyle + [csNoDesignVisible];
   FSearchEdit.Align := alTop;
-  FSearchEdit.AlignWithMargins := True;
   FSearchEdit.Margins.All := 0;
   FSearchEdit.Margins.Bottom := 6;
   FSearchEdit.Parent := Self;
   FSearchEdit.FocusControl := FInnerControl;
   FSearchEdit.TabOrder := 0;
   FSearchEdit.OnChange := SearchBoxChangeHandler;
+  FSearchEdit.SetDesignVisible(False);
   FSearchEdit.Visible := False;
 
   FDefaultSize := TSize.Create(200, 400);
   Borders := [];
+end;
+
+procedure TACLObjectInspector.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.Style := Params.Style or WS_CLIPCHILDREN;
 end;
 
 procedure TACLObjectInspector.ResourceCollectionChanged;
@@ -1469,13 +1478,7 @@ begin
   if SearchBox <> Value then
   begin
     SearchString := '';
-    if csDesigning in ComponentState then
-    begin
-      if Value then
-        FSearchEdit.ControlStyle := FSearchEdit.ControlStyle - [csNoDesignVisible]
-      else
-        FSearchEdit.ControlStyle := FSearchEdit.ControlStyle + [csNoDesignVisible];
-    end;
+    FSearchEdit.SetDesignVisible(Value);
     FSearchEdit.Visible := Value;
   end;
 end;

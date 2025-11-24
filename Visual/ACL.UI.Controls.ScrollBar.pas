@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ScrollBars
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -65,15 +65,10 @@ type
 
   IACLScrollBarAppearance = interface
   ['{2B8F4E80-397B-434C-82F6-F163FCA18CD7}']
-    function GetButtonDownSize(Kind: TScrollBarKind): Integer;
-    function GetButtonUpSize(Kind: TScrollBarKind): Integer;
-    function GetScrollBarSize(Kind: TScrollBarKind): Integer;
-    function GetThumbExtends(Kind: TScrollBarKind): TRect;
-    function GetThumbNominalSize(Kind: TScrollBarKind): Integer;
-    function IsThumbResizable(Kind: TScrollBarKind): Boolean;
-    procedure DrawBackground(ACanvas: TCanvas; const R: TRect; Kind: TScrollBarKind);
-    procedure DrawPart(ACanvas: TCanvas; const R: TRect;
-      APart: TACLScrollBarPart; AState: TACLButtonState; AKind: TScrollBarKind);
+    procedure Draw(ACanvas: TCanvas; const ABounds: TRect;
+      AKind: TScrollBarKind; APart: TACLScrollBarPart; AState: TACLButtonState);
+    function IsThumbResizable(AKind: TScrollBarKind): Boolean;
+    function GetSkin(AKind: TScrollBarKind; APart: TACLScrollBarPart): TACLResourceTexture;
   end;
 
   { IACLScrollBar }
@@ -98,28 +93,15 @@ type
   { TACLStyleScrollBox }
 
   TACLStyleScrollBox = class(TACLStyle, IACLScrollBarAppearance)
-  strict private
-    function GetTextureBackground(Kind: TScrollBarKind): TACLResourceTexture;
-    function GetTextureButtons(Kind: TScrollBarKind): TACLResourceTexture;
-    function GetTextureThumb(Kind: TScrollBarKind): TACLResourceTexture;
   protected
     procedure InitializeResources; override;
-    // IACLScrollBarAppearance
-    function GetButtonDownSize(Kind: TScrollBarKind): Integer;
-    function GetButtonUpSize(Kind: TScrollBarKind): Integer;
-    function GetThumbExtends(Kind: TScrollBarKind): TRect;
-    function GetThumbNominalSize(Kind: TScrollBarKind): Integer;
   public
-    procedure DrawBackground(ACanvas: TCanvas; const R: TRect; Kind: TScrollBarKind);
-    procedure DrawPart(ACanvas: TCanvas; const R: TRect;
-      Part: TACLScrollBarPart; State: TACLButtonState; Kind: TScrollBarKind);
+    // IACLScrollBarAppearance
+    procedure Draw(ACanvas: TCanvas; const ABounds: TRect;
+      AKind: TScrollBarKind; APart: TACLScrollBarPart; AState: TACLButtonState);
     procedure DrawSizeGripArea(ACanvas: TCanvas; const R: TRect);
-    function GetScrollBarSize(Kind: TScrollBarKind): Integer;
+    function GetSkin(AKind: TScrollBarKind; APart: TACLScrollBarPart): TACLResourceTexture;
     function IsThumbResizable(AKind: TScrollBarKind): Boolean;
-    //# Properties
-    property TextureBackground[Kind: TScrollBarKind]: TACLResourceTexture read GetTextureBackground;
-    property TextureButtons[Kind: TScrollBarKind]: TACLResourceTexture read GetTextureButtons;
-    property TextureThumb[Kind: TScrollBarKind]: TACLResourceTexture read GetTextureThumb;
   published
     property TextureBackgroundHorz: TACLResourceTexture index 0 read GetTexture write SetTexture stored IsTextureStored;
     property TextureBackgroundVert: TACLResourceTexture index 1 read GetTexture write SetTexture stored IsTextureStored;
@@ -132,6 +114,7 @@ type
 
   { TACLScrollBarViewItem }
 
+  TACLScrollBarViewInfoItemClass = class of TACLScrollBarViewInfoItem;
   TACLScrollBarViewInfoItem = class(TACLUnknownObject, IACLAnimateControl)
   strict private
     FBounds: TRect;
@@ -139,14 +122,16 @@ type
     FPart: TACLScrollBarPart;
     FState: TACLButtonState;
 
+    // IACLAnimateControl
+    procedure IACLAnimateControl.Animate = Invalidate;
+    procedure DrawCore(ACanvas: TCanvas; const R: TRect);
     function GetDisplayBounds: TRect;
     procedure SetState(AState: TACLButtonState);
   protected
-    procedure InternalDraw(ACanvas: TCanvas; const R: TRect);
-    // IACLAnimateControl
-    procedure IACLAnimateControl.Animate = Invalidate;
+    procedure AnimationInit1(out AAnimation: TACLAnimation); virtual;
+    procedure AnimationInit2(AAnimation: TACLAnimation); virtual;
   public
-    constructor Create(AOwner: TACLScrollBarSubClass; APart: TACLScrollBarPart); virtual;
+    constructor Create(AOwner: TACLScrollBarSubClass; APart: TACLScrollBarPart);
     destructor Destroy; override;
     procedure Draw(ACanvas: TCanvas);
     procedure Invalidate;
@@ -161,9 +146,8 @@ type
 
   { TACLScrollBarSubClass }
 
-  TACLScrollBarSubClass = class(TACLUnknownObject)
+  TACLScrollBarSubClass = class(TACLControlSubClass)
   strict private
-    FBounds: TRect;
     FButtonDown: TACLScrollBarViewInfoItem;
     FButtonUp: TACLScrollBarViewInfoItem;
     FHotPart: TACLScrollBarPart;
@@ -188,32 +172,32 @@ type
     function GetPageDownRect: TRect;
     function GetPageUpRect: TRect;
     function GetPositionFromThumbnail: Integer;
-    procedure MouseThumbTracking(X, Y: Integer);
+    procedure MouseThumbTracking(const P: TPoint);
     procedure ScrollTimerHandler(ASender: TObject);
     procedure SetHotPart(APart: TACLScrollBarPart);
     procedure UpdateParts(AHotPart, APressedPart: TACLScrollBarPart);
+    //# Messages
+    procedure CMCancelMode(var Message: TCMCancelMode); message CM_CANCELMODE;
   public
-    constructor Create(AOwner: IACLScrollBar;
-      AStyle: IACLScrollBarAppearance; AKind: TScrollBarKind);
+    constructor Create(const AOwner: IACLScrollBar;
+      const AStyle: IACLScrollBarAppearance;
+      const AClass: TACLScrollBarViewInfoItemClass; AKind: TScrollBarKind);
     destructor Destroy; override;
-    procedure Calculate(const ABounds: TRect);
+    procedure Calculate(ABounds: TRect); override;
     procedure CheckScrollBarSizes(var AWidth, AHeight: Integer);
-    procedure Draw(ACanvas: TCanvas);
-    procedure Invalidate(AUpdateNow: Boolean);
+    procedure Draw(ACanvas: TCanvas); override;
     function HitTest(const P: TPoint): TACLScrollBarPart;
     //# Controller
     procedure CancelDrag;
-    procedure MouseDown(AButton: TMouseButton; AShift: TShiftState; X, Y: Integer);
-    procedure MouseEnter;
-    procedure MouseLeave;
-    procedure MouseMove(X, Y: Integer);
-    procedure MouseUp(AButton: TMouseButton; X, Y: Integer);
+    procedure MouseDown(AButton: TMouseButton; AShift: TShiftState; const P: TPoint); override;
+    procedure MouseLeave; override;
+    procedure MouseMove(AShift: TShiftState; const P: TPoint); override;
+    procedure MouseUp(AButton: TMouseButton; AShift: TShiftState; const P: TPoint); override;
     procedure Scroll(AScrollCode: TScrollCode); overload;
     procedure Scroll(AScrollPart: TACLScrollBarPart); overload;
     function SetScrollParams(AMin, AMax, APosition, APageSize: Integer;
       ARedraw: Boolean = True): Boolean;
     //# Properties
-    property Bounds: TRect read FBounds;
     property ButtonDown: TACLScrollBarViewInfoItem read FButtonDown;
     property ButtonUp: TACLScrollBarViewInfoItem read FButtonUp;
     property HotPart: TACLScrollBarPart read FHotPart write SetHotPart;
@@ -248,27 +232,19 @@ type
     procedure SetSmallChange(AValue: Word);
     procedure SetStyle(AValue: TACLStyleScrollBox);
   protected
-    procedure SetTargetDPI(AValue: Integer); override;
-    procedure UpdateTransparency; override;
-
     // IACLScrollBar
     function AllowFading: Boolean;
     procedure Scroll(ScrollCode: TScrollCode; var ScrollPos: Integer); virtual;
 
     //# Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseEnter; override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
     function MouseWheel(Direction: TACLMouseWheelDirection;
       Shift: TShiftState; const MousePos: TPoint): Boolean; override;
-
     //# Paint
     procedure Paint; override;
+    procedure SetTargetDPI(AValue: Integer); override;
+    procedure UpdateTransparency; override;
 
     //# Messages
-    procedure CMCancelMode(var Message: TCMCancelMode); message CM_CANCELMODE;
     procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     procedure CMVisibleChanged(var Message: TMessage); message CM_VISIBLECHANGED;
     procedure CNHScroll(var Message: TWMHScroll); message CN_HSCROLL;
@@ -327,41 +303,25 @@ end;
 
 { TACLStyleScrollBox }
 
-procedure TACLStyleScrollBox.DrawBackground(
-  ACanvas: TCanvas; const R: TRect; Kind: TScrollBarKind);
+procedure TACLStyleScrollBox.Draw(ACanvas: TCanvas; const ABounds: TRect;
+  AKind: TScrollBarKind; APart: TACLScrollBarPart; AState: TACLButtonState);
+var
+  LFrame: Integer;
+  LSkin: TACLResourceTexture;
 begin
-  TextureBackground[Kind].Draw(ACanvas, R);
-end;
-
-procedure TACLStyleScrollBox.DrawPart(ACanvas: TCanvas; const R: TRect;
-  Part: TACLScrollBarPart; State: TACLButtonState; Kind: TScrollBarKind);
-begin
-  case Part of
-    sbpThumbnail:
-      TextureThumb[Kind].Draw(ACanvas, R, Ord(State));
-    sbpLineUp:
-      TextureButtons[Kind].Draw(ACanvas, R, Ord(State));
-    sbpLineDown:
-      TextureButtons[Kind].Draw(ACanvas, R, Ord(State) + 4);
-  else;
+  LSkin := GetSkin(AKind, APart);
+  if LSkin <> nil then
+  begin
+    LFrame := Ord(AState);
+    if APart = sbpLineDown then
+      Inc(LFrame, 4);
+    LSkin.Draw(ACanvas, ABounds, LFrame);
   end;
 end;
 
 procedure TACLStyleScrollBox.DrawSizeGripArea(ACanvas: TCanvas; const R: TRect);
 begin
   TextureSizeGripArea.Draw(ACanvas, R);
-end;
-
-function TACLStyleScrollBox.IsThumbResizable(AKind: TScrollBarKind): Boolean;
-var
-  ATexture: TACLResourceTexture;
-begin
-  if AKind = sbVertical then
-    ATexture := TextureThumbVert
-  else
-    ATexture := TextureThumbHorz;
-
-  Result := not ((ATexture.StretchMode = isCenter) and ATexture.Margins.IsZero);
 end;
 
 procedure TACLStyleScrollBox.InitializeResources;
@@ -375,62 +335,39 @@ begin
   TextureThumbVert.InitailizeDefaults('ScrollBox.Textures.Vert.Thumb');
 end;
 
-function TACLStyleScrollBox.GetButtonDownSize(Kind: TScrollBarKind): Integer;
+function TACLStyleScrollBox.GetSkin(
+  AKind: TScrollBarKind; APart: TACLScrollBarPart): TACLResourceTexture;
 begin
-  if Kind = sbHorizontal then
-    Result := TextureButtonsHorz.FrameWidth
+  case APart of
+    sbpNone:
+      if AKind = sbHorizontal then
+        Result := TextureBackgroundHorz
+      else
+        Result := TextureBackgroundVert;
+
+    sbpThumbnail:
+      if AKind = sbVertical then
+        Result := TextureThumbVert
+      else
+        Result := TextureThumbHorz;
+
+    sbpLineDown, sbpLineUp:
+      if AKind = sbHorizontal then
+        Result := TextureButtonsHorz
+      else
+        Result := TextureButtonsVert;
+
   else
-    Result := TextureButtonsVert.FrameHeight;
+    Result := nil;
+  end;
 end;
 
-function TACLStyleScrollBox.GetButtonUpSize(Kind: TScrollBarKind): Integer;
+function TACLStyleScrollBox.IsThumbResizable(AKind: TScrollBarKind): Boolean;
+var
+  LSkin: TACLResourceTexture;
 begin
-  Result := GetButtonDownSize(Kind);
-end;
-
-function TACLStyleScrollBox.GetScrollBarSize(Kind: TScrollBarKind): Integer;
-begin
-  if Kind = sbHorizontal then
-    Result := TextureBackgroundHorz.FrameHeight
-  else
-    Result := TextureBackgroundVert.FrameWidth;
-end;
-
-function TACLStyleScrollBox.GetThumbExtends(Kind: TScrollBarKind): TRect;
-begin
-  Result := NullRect;
-end;
-
-function TACLStyleScrollBox.GetThumbNominalSize(Kind: TScrollBarKind): Integer;
-begin
-  if Kind = sbHorizontal then
-    Result := TextureThumbHorz.FrameWidth
-  else
-    Result := TextureThumbVert.FrameHeight;
-end;
-
-function TACLStyleScrollBox.GetTextureBackground(Kind: TScrollBarKind): TACLResourceTexture;
-begin
-  if Kind = sbHorizontal then
-    Result := TextureBackgroundHorz
-  else
-    Result := TextureBackgroundVert;
-end;
-
-function TACLStyleScrollBox.GetTextureButtons(Kind: TScrollBarKind): TACLResourceTexture;
-begin
-  if Kind = sbHorizontal then
-    Result := TextureButtonsHorz
-  else
-    Result := TextureButtonsVert;
-end;
-
-function TACLStyleScrollBox.GetTextureThumb(Kind: TScrollBarKind): TACLResourceTexture;
-begin
-  if Kind = sbHorizontal then
-    Result := TextureThumbHorz
-  else
-    Result := TextureThumbVert;
+  LSkin := GetSkin(AKind, sbpThumbnail);
+  Result := not ((LSkin.StretchMode = isCenter) and LSkin.Margins.IsZero);
 end;
 
 { TACLScrollBarViewInfoItem }
@@ -449,10 +386,38 @@ begin
   inherited Destroy;
 end;
 
+procedure TACLScrollBarViewInfoItem.AnimationInit1(out AAnimation: TACLAnimation);
+var
+  LAnimation: TACLBitmapAnimation absolute AAnimation;
+begin
+  LAnimation := TACLBitmapAnimation.Create(Self, DisplayBounds, TACLAnimatorFadeOut.Create);
+  LAnimation.BuildFrame1(DrawCore);
+end;
+
+procedure TACLScrollBarViewInfoItem.AnimationInit2(AAnimation: TACLAnimation);
+var
+  LAnimation: TACLBitmapAnimation absolute AAnimation;
+begin
+  LAnimation.BuildFrame2(DrawCore);
+  LAnimation.Run;
+end;
+
 procedure TACLScrollBarViewInfoItem.Draw(ACanvas: TCanvas);
 begin
   if not AnimationManager.Draw(Self, ACanvas, DisplayBounds) then
-    InternalDraw(ACanvas, DisplayBounds);
+    DrawCore(ACanvas, DisplayBounds);
+end;
+
+procedure TACLScrollBarViewInfoItem.DrawCore(ACanvas: TCanvas; const R: TRect);
+begin
+  Owner.Style.Draw(ACanvas, R, Owner.Kind, Part, State);
+end;
+
+function TACLScrollBarViewInfoItem.GetDisplayBounds: TRect;
+begin
+  Result := Bounds;
+  if Part = sbpThumbnail then
+    Result.Inflate(Owner.Style.GetSkin(Owner.Kind, sbpThumbnail).ContentOffsets);
 end;
 
 procedure TACLScrollBarViewInfoItem.Invalidate;
@@ -460,70 +425,53 @@ begin
   Owner.Owner.InvalidateRect(Bounds);
 end;
 
-procedure TACLScrollBarViewInfoItem.InternalDraw(ACanvas: TCanvas; const R: TRect);
-begin
-  Owner.Style.DrawPart(ACanvas, R, Part, State, Owner.Kind);
-end;
-
-procedure TACLScrollBarViewInfoItem.UpdateState;
-
-  function GetPartState(APart: TACLScrollBarPart): TACLButtonState;
-  const
-    PartHotStateMap: array[Boolean] of TACLButtonState = (absNormal, absHover);
-  begin
-    if not Owner.Owner.GetEnabled then
-      Result := absDisabled
-    else
-      if Owner.PressedPart = APart then
-        Result := absPressed
-      else
-        Result := PartHotStateMap[Owner.HotPart = APart];
-  end;
-
-begin
-  State := GetPartState(Part);
-end;
-
-function TACLScrollBarViewInfoItem.GetDisplayBounds: TRect;
-begin
-  Result := Bounds;
-  if Part = sbpThumbnail then
-    Result.Inflate(Owner.Style.GetThumbExtends(Owner.Kind));
-end;
-
 procedure TACLScrollBarViewInfoItem.SetState(AState: TACLButtonState);
 var
-  LAnimation: TACLBitmapAnimation;
+  LAnimation: TACLAnimation;
 begin
   if AState <> FState then
   begin
     if (State = absHover) and (AState = absNormal) and Owner.Owner.AllowFading then
     begin
-      LAnimation := TACLBitmapAnimation.Create(Self, DisplayBounds, TACLAnimatorFadeOut.Create);
-      LAnimation.BuildFrame1(InternalDraw);
+      AnimationInit1(LAnimation);
       FState := AState;
-      LAnimation.BuildFrame2(InternalDraw);
-      LAnimation.Run;
-    end;
-    FState := AState;
+      AnimationInit2(LAnimation);
+    end
+    else
+      FState := AState;
+
     Invalidate;
   end;
 end;
 
+procedure TACLScrollBarViewInfoItem.UpdateState;
+begin
+  if not Owner.Owner.GetEnabled then
+    State := absDisabled
+  else if Owner.PressedPart = Part then
+    State := absPressed
+  else if Owner.HotPart = Part then
+    State := absHover
+  else
+    State := absNormal;
+end;
+
 { TACLScrollBarSubClass }
 
-constructor TACLScrollBarSubClass.Create(AOwner: IACLScrollBar;
-  AStyle: IACLScrollBarAppearance; AKind: TScrollBarKind);
+constructor TACLScrollBarSubClass.Create(
+  const AOwner: IACLScrollBar;
+  const AStyle: IACLScrollBarAppearance;
+  const AClass: TACLScrollBarViewInfoItemClass; AKind: TScrollBarKind);
 begin
-  inherited Create;
+  inherited Create(AOwner);
   FKind := AKind;
   FOwner := AOwner;
   FStyle := AStyle;
   FSmallChange := 1;
   FScrollInfo.Max := 100;
-  FButtonDown := TACLScrollBarViewInfoItem.Create(Self, sbpLineDown);
-  FThumbnail := TACLScrollBarViewInfoItem.Create(Self, sbpThumbnail);
-  FButtonUp := TACLScrollBarViewInfoItem.Create(Self, sbpLineUp);
+  FButtonDown := AClass.Create(Self, sbpLineDown);
+  FThumbnail := AClass.Create(Self, sbpThumbnail);
+  FButtonUp := AClass.Create(Self, sbpLineUp);
   FTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay);
 end;
 
@@ -536,10 +484,17 @@ begin
   inherited Destroy;
 end;
 
-procedure TACLScrollBarSubClass.Calculate(const ABounds: TRect);
+procedure TACLScrollBarSubClass.Calculate(ABounds: TRect);
+var
+  LSkin: TACLResourceTexture;
 begin
-  FBounds := ABounds;
-  FThumbnailSize := Style.GetThumbNominalSize(Kind);
+  inherited;
+  LSkin := Style.GetSkin(Kind, sbpThumbnail);
+  if Kind = sbVertical then
+    FThumbnailSize := LSkin.FrameHeight - LSkin.ContentOffsets.MarginsHeight
+  else
+    FThumbnailSize := LSkin.FrameWidth - LSkin.ContentOffsets.MarginsWidth;
+
   CalculateRects;
   CalculatePartStates;
 end;
@@ -552,14 +507,6 @@ begin
   else
     Result := MulDiv(ATotal, Thumbnail.Bounds.Top - ButtonUp.Bounds.Bottom,
       ButtonDown.Bounds.Top - ButtonUp.Bounds.Bottom - Thumbnail.Bounds.Height);
-end;
-
-procedure TACLScrollBarSubClass.CheckScrollBarSizes(var AWidth, AHeight: Integer);
-begin
-  if Kind = sbHorizontal then
-    AHeight := Style.GetScrollBarSize(Kind)
-  else
-    AWidth := Style.GetScrollBarSize(Kind);
 end;
 
 procedure TACLScrollBarSubClass.CalculatePartStates;
@@ -577,21 +524,37 @@ begin
 end;
 
 function TACLScrollBarSubClass.CalculateButtonDownRect: TRect;
+var
+  LSkin: TACLResourceTexture;
 begin
-  Result := Bounds;
+  LSkin := Style.GetSkin(Kind, sbpLineDown);
   if Kind = sbHorizontal then
-    Result.Left := Result.Right - Style.GetButtonDownSize(Kind)
+  begin
+    Result := Bounds;
+    Result.Left := Result.Right - LSkin.FrameWidth;
+  end
   else
-    Result.Top := Result.Bottom - Style.GetButtonDownSize(Kind);
+  begin
+    Result := Bounds;
+    Result.Top := Result.Bottom - LSkin.FrameHeight;
+  end;
 end;
 
 function TACLScrollBarSubClass.CalculateButtonUpRect: TRect;
+var
+  LSkin: TACLResourceTexture;
 begin
-  Result := Bounds;
+  LSkin := Style.GetSkin(Kind, sbpLineUp);
   if Kind = sbHorizontal then
-    Result.Width := Style.GetButtonUpSize(Kind)
+  begin
+    Result := Bounds;
+    Result.Width := LSkin.FrameWidth;
+  end
   else
-    Result.Height := Style.GetButtonUpSize(Kind);
+  begin
+    Result := Bounds;
+    Result.Height := LSkin.FrameHeight;
+  end;
 end;
 
 function TACLScrollBarSubClass.CalculateThumbnailRect: TRect;
@@ -606,7 +569,7 @@ begin
       ADelta := ButtonDown.Bounds.Left - ButtonUp.Bounds.Right;
       if ScrollInfo.Page = 0 then
       begin
-        ASize := Style.GetThumbNominalSize(Kind);
+        ASize := ThumbnailSize;
         if ASize > ADelta then Exit;
         Dec(ADelta, ASize);
         ATempValue := ButtonUp.Bounds.Right + ScrollInfo.CalculateProgressOffset(ADelta);
@@ -615,8 +578,8 @@ begin
       else
       begin
         ASize := Min(ADelta, MulDiv(ScrollInfo.Page, ADelta, ScrollInfo.Max - ScrollInfo.Min + 1));
-        if (ADelta < FThumbnailSize) or (ScrollInfo.Max = ScrollInfo.Min) then Exit;
-        ASize := Max(FThumbnailSize, ASize);
+        if (ADelta < ThumbnailSize) or (ScrollInfo.Max = ScrollInfo.Min) then Exit;
+        ASize := Max(ThumbnailSize, ASize);
         Dec(ADelta, ASize);
         Result := {System.}Classes.Bounds(ButtonUp.Bounds.Right, Bounds.Top, ASize, Bounds.Height);
         ASize := (ScrollInfo.Max - ScrollInfo.Min) - (ScrollInfo.Page - 1);
@@ -628,7 +591,7 @@ begin
       ADelta := ButtonDown.Bounds.Top - ButtonUp.Bounds.Bottom;
       if ScrollInfo.Page = 0 then
       begin
-        ASize := Style.GetThumbNominalSize(Kind);
+        ASize := ThumbnailSize;
         if ASize > ADelta then Exit;
         Dec(ADelta, ASize);
         ATempValue := ButtonUp.Bounds.Bottom + ScrollInfo.CalculateProgressOffset(ADelta);
@@ -637,8 +600,8 @@ begin
       else
       begin
         ASize := Min(ADelta, MulDiv(ScrollInfo.Page, ADelta, ScrollInfo.Max - ScrollInfo.Min + 1));
-        if (ADelta < FThumbnailSize) or (ScrollInfo.Max = ScrollInfo.Min) then Exit;
-        ASize := Max(ASize, FThumbnailSize);
+        if (ADelta < ThumbnailSize) or (ScrollInfo.Max = ScrollInfo.Min) then Exit;
+        ASize := Max(ASize, ThumbnailSize);
         Dec(ADelta, ASize);
         Result := {System.}Classes.Bounds(Bounds.Left, ButtonUp.Bounds.Bottom, Bounds.Width, ASize);
         ASize := (ScrollInfo.Max - ScrollInfo.Min) - (ScrollInfo.Page - 1);
@@ -661,23 +624,33 @@ begin
     UpdateParts(sbpNone, sbpNone);
     Scroll(scEndScroll);
     CalculateRects;
-    Invalidate(False);
+    Invalidate;
   end;
+end;
+
+procedure TACLScrollBarSubClass.CheckScrollBarSizes(var AWidth, AHeight: Integer);
+var
+  LSkin: TACLResourceTexture;
+begin
+  LSkin := Style.GetSkin(Kind, sbpNone);
+  if Kind = sbHorizontal then
+    AHeight := LSkin.FrameHeight
+  else
+    AWidth := LSkin.FrameWidth;
+end;
+
+procedure TACLScrollBarSubClass.CMCancelMode(var Message: TCMCancelMode);
+begin
+  CancelDrag;
+  inherited;
 end;
 
 procedure TACLScrollBarSubClass.Draw(ACanvas: TCanvas);
 begin
-  Style.DrawBackground(ACanvas, Bounds, Kind);
+  Style.Draw(ACanvas, Bounds, Kind, sbpNone, absNormal);
   ButtonUp.Draw(ACanvas);
   ButtonDown.Draw(ACanvas);
   Thumbnail.Draw(ACanvas);
-end;
-
-procedure TACLScrollBarSubClass.Invalidate(AUpdateNow: Boolean);
-begin
-  Owner.InvalidateRect(Bounds);
-  if AUpdateNow then
-    Owner.Update;
 end;
 
 function TACLScrollBarSubClass.GetPageDownRect: TRect;
@@ -722,7 +695,8 @@ begin
     Result := sbpNone;
 end;
 
-procedure TACLScrollBarSubClass.MouseDown(AButton: TMouseButton; AShift: TShiftState; X, Y: Integer);
+procedure TACLScrollBarSubClass.MouseDown(
+  AButton: TMouseButton; AShift: TShiftState; const P: TPoint);
 var
   APart: TACLScrollBarPart;
 begin
@@ -734,12 +708,12 @@ begin
 
   if AButton = mbLeft then
   begin
-    APart := HitTest(Point(X, Y));
+    APart := HitTest(P);
     if APart <> sbpNone then
     begin
       if APart = sbpThumbnail then
       begin
-        FPressedMousePos := Point(X, Y);
+        FPressedMousePos := P;
         FSaveThumbnailPos := Thumbnail.Bounds.TopLeft;
         Scroll(scTrack);
       end;
@@ -750,7 +724,7 @@ begin
           FSaveThumbnailPos := Thumbnail.Bounds.TopLeft;
           FPressedMousePos := Thumbnail.Bounds.CenterPoint;
           Scroll(scTrack);
-          MouseThumbTracking(X, Y);
+          MouseThumbTracking(P);
           APart := sbpThumbnail;
         end
         else
@@ -761,14 +735,10 @@ begin
         end;
       end;
       UpdateParts(APart, APart);
-      Invalidate(True);
+      Invalidate;
+      Owner.Update;
     end;
   end;
-end;
-
-procedure TACLScrollBarSubClass.MouseEnter;
-begin
-  Invalidate(False);
 end;
 
 procedure TACLScrollBarSubClass.MouseLeave;
@@ -777,31 +747,31 @@ begin
     HotPart := sbpNone;
 end;
 
-procedure TACLScrollBarSubClass.MouseMove(X, Y: Integer);
+procedure TACLScrollBarSubClass.MouseMove(AShift: TShiftState; const P: TPoint);
 var
   LPart: TACLScrollBarPart;
 begin
   if PressedPart = sbpThumbnail then
-    MouseThumbTracking(X, Y)
+    MouseThumbTracking(P)
   else
   begin
-    LPart := HitTest(Point(X, Y));
+    LPart := HitTest(P);
     if PressedPart <> sbpNone then
       FTimer.Enabled := PressedPart = LPart;
     HotPart := LPart;
   end;
 end;
 
-procedure TACLScrollBarSubClass.MouseThumbTracking(X, Y: Integer);
+procedure TACLScrollBarSubClass.MouseThumbTracking(const P: TPoint);
 var
   ADelta, ASize: Integer;
   ANewPos: Integer;
 begin
-  if PtInRect(Bounds.InflateTo(acScrollBarHitArea), Point(X, Y)) then
+  if PtInRect(Bounds.InflateTo(acScrollBarHitArea), P) then
   begin
     if Kind = sbHorizontal then
     begin
-      ADelta := X - FPressedMousePos.X;
+      ADelta := P.X - FPressedMousePos.X;
       if ADelta <> 0 then
       begin
         ASize := Thumbnail.Bounds.Width;
@@ -814,7 +784,7 @@ begin
     end
     else
     begin
-      ADelta := Y - FPressedMousePos.Y;
+      ADelta := P.Y - FPressedMousePos.Y;
       if ADelta <> 0 then
       begin
         ASize := Thumbnail.Bounds.Height;
@@ -835,13 +805,14 @@ begin
     FScrollInfo.Position := ANewPos;
     Scroll(sbpThumbnail);
   end;
-  Invalidate(False);
+  Invalidate;
 end;
 
-procedure TACLScrollBarSubClass.MouseUp(AButton: TMouseButton; X, Y: Integer);
+procedure TACLScrollBarSubClass.MouseUp(
+  AButton: TMouseButton; AShift: TShiftState; const P: TPoint);
 begin
   CancelDrag;
-  HotPart := HitTest(Point(X, Y));
+  HotPart := HitTest(P);
 end;
 
 procedure TACLScrollBarSubClass.Scroll(AScrollCode: TScrollCode);
@@ -913,7 +884,11 @@ begin
   if (PressedPart <> sbpThumbnail) or LBoundsChanged then
     Calculate(Bounds);
   if ARedraw and (LBoundsChanged or Result) then
-    Invalidate(PressedPart = sbpThumbnail);
+  begin
+    Invalidate;
+    if PressedPart = sbpThumbnail then
+      Owner.Update;
+  end;
 end;
 
 procedure TACLScrollBarSubClass.UpdateParts(AHotPart, APressedPart: TACLScrollBarPart);
@@ -956,49 +931,25 @@ constructor TACLScrollBar.CreateEx(AOwner: TComponent; AKind: TScrollBarKind;
 begin
   inherited Create(AOwner);
   ControlStyle := [csOpaque, csCaptureMouse];
-  FocusOnClick := False;
-  DoubleBuffered := True;
   FStyle := AStyle;
   FStyleOwnership := AStyleOwnership;
   FDefaultSize := TSize.Create(200, 20);
-  FSubClass := TACLScrollBarSubClass.Create(Self, Style, AKind);
+  RegisterSubClass(FSubClass,
+    TACLScrollBarSubClass.Create(Self, Style, TACLScrollBarViewInfoItem, AKind));
+  DoubleBuffered := True;
+  FocusOnClick := False;
 end;
 
 destructor TACLScrollBar.Destroy;
 begin
-  FreeAndNil(FSubClass);
+  inherited Destroy;
   if FStyleOwnership = soOwned then
     FreeAndNil(FStyle);
-  inherited Destroy;
 end;
 
 procedure TACLScrollBar.Paint;
 begin
-  SubClass.Draw(Canvas);
-end;
-
-procedure TACLScrollBar.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseDown(Button, Shift, X, Y);
-  SubClass.MouseDown(Button, Shift, X, Y);
-end;
-
-procedure TACLScrollBar.MouseEnter;
-begin
-  inherited MouseEnter;
-  SubClass.MouseEnter;
-end;
-
-procedure TACLScrollBar.MouseLeave;
-begin
-  SubClass.MouseLeave;
-  inherited MouseLeave;
-end;
-
-procedure TACLScrollBar.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseMove(Shift, X, Y);
-  SubClass.MouseMove(X, Y);
+  SubClasses.Draw(Canvas);
 end;
 
 function TACLScrollBar.MouseWheel(Direction: TACLMouseWheelDirection;
@@ -1009,21 +960,9 @@ begin
     SubClass.Scroll(TACLMouseWheel.DirectionToScrollCode[Direction]);
 end;
 
-procedure TACLScrollBar.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseUp(Button, Shift, X, Y);
-  SubClass.MouseUp(Button, X, Y);
-end;
-
 procedure TACLScrollBar.Scroll(ScrollCode: TScrollCode; var ScrollPos: Integer);
 begin
   if Assigned(OnScroll) then OnScroll(Self, ScrollCode, ScrollPos);
-end;
-
-procedure TACLScrollBar.CMCancelMode(var Message: TCMCancelMode);
-begin
-  SubClass.CancelDrag;
-  inherited;
 end;
 
 procedure TACLScrollBar.CMEnabledChanged(var Message: TMessage);
@@ -1100,7 +1039,8 @@ begin
   SubClass.SetScrollParams(AMin, AMax, APosition, APageSize, ARedraw);
 end;
 
-procedure TACLScrollBar.SetScrollParams(const AInfo: TScrollInfo; ARedraw: Boolean = True);
+procedure TACLScrollBar.SetScrollParams(
+  const AInfo: TScrollInfo; ARedraw: Boolean = True);
 begin
   SetScrollParams(AInfo.nMin, AInfo.nMax, AInfo.nPos, AInfo.nPage, ARedraw);
 end;
@@ -1136,7 +1076,7 @@ end;
 
 procedure TACLScrollBar.UpdateTransparency;
 begin
-  if Style.TextureBackground[Kind].HasAlpha then
+  if Style.GetSkin(Kind, sbpNone).HasAlpha then
     ControlStyle := ControlStyle - [csOpaque]
   else
     ControlStyle := ControlStyle + [csOpaque]

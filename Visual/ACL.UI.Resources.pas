@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Styling Engine
 //
@@ -347,9 +347,9 @@ type
     function ToStringCore: string; override;
   public
     destructor Destroy; override;
-
     procedure Assign(Source: TPersistent); override;
     procedure DrawPreview(ACanvas: TCanvas; const R: TRect); override;
+    function MeasureSize(const AText: string): TSize; virtual;
     // IACLColorSchema
     procedure ApplyColorSchema(const AValue: TACLColorSchema);
   published
@@ -423,10 +423,6 @@ type
 
     function EqualsValuesCore(AResource: TACLResource): Boolean; override;
     procedure Initialize; override;
-    procedure LoadFromBitmapResourceCore(AInstance: HINST;
-      const AName: string; const AMargins, AContentOffsets: TRect;
-      AFrameCount: Integer; ALayout: TACLSkinImageLayout = ilHorizontal;
-      AStretchMode: TACLStretchMode = isStretch);
 
     function GetActualImage(ATargetDPI: Integer;
       AAllowColoration: TACLBoolean): TACLSkinImageSetItem; virtual;
@@ -448,9 +444,9 @@ type
       AFrameIndex: Integer; AAlpha: Byte = MaxByte);
     function HasFrame(AIndex: Integer): Boolean; inline;
     function HitTest(const ABounds: TRect; X, Y: Integer): Boolean; virtual;
-    procedure InitailizeDefaults(const DefaultID: string;
-      AInstance: HINST; const AName: string; const AMargins, AContentOffsets: TRect;
-      AFrameCount: Integer; ALayout: TACLSkinImageLayout = ilHorizontal;
+    procedure InitailizeDefaults(AInstance: HINST;
+      const AName: string; const AMargins, AContentOffsets: TRect;
+      AFrameCount: Integer = 1; ALayout: TACLSkinImageLayout = ilVertical;
       AStretchMode: TACLStretchMode = isStretch); reintroduce; overload;
     procedure ImportFromImage(const AImage: TBitmap; DPI: Integer = acDefaultDPI);
     procedure ImportFromImageFile(const AFileName: string; DPI: Integer = acDefaultDPI);
@@ -706,12 +702,7 @@ type
     function AddColor(const ID: string; AColor: TColor): TACLResourceColor;
     function AddMargins(const ID: string; const AValue: TRect): TACLResourceMargins;
     function AddResource(AResource: TACLResource; ID: string = ''): TACLResource;
-    function AddTexture(const ID: string; ASkinImage: TACLSkinImageSet): TACLResourceTexture; overload;
-    function AddTexture(const ID: string;
-      const AResInstance: HINST; const AResName: string;
-      const AMargins, AContentOffsets: TRect; AFrameCount: Integer;
-      const ALayout: TACLSkinImageLayout = ilHorizontal;
-      const AStretchMode: TACLStretchMode = isStretch): TACLResourceTexture; overload;
+    function AddTexture(const ID: string; ASkinImage: TACLSkinImageSet): TACLResourceTexture;
     function AddRemap(const ID, MasterID: string; AClass: TACLResourceClass): TACLResource;
 
     procedure EnumResources(AProc: TACLResourceEnumProc); overload;
@@ -803,8 +794,10 @@ type
   public
     class destructor Destroy;
     class function GetInstance: TACLCustomResourceCollection;
-    class function GetResource(const ID: string; AResourceClass: TClass; ASender: TObject = nil): TObject; overload;
-    class function GetResource(const ID: string; AResourceClass: TClass; ASender: TObject; out AResource): Boolean; overload;
+    class function GetResource(const ID: string;
+      AResourceClass: TClass; ASender: TObject = nil): TObject; overload;
+    class function GetResource(const ID: string;
+      AResourceClass: TClass; ASender: TObject; out AResource): Boolean; overload;
     class function HasInstance: Boolean;
 
     class procedure ListenerAdd(AListener: IACLResourceChangeListener);
@@ -833,7 +826,6 @@ type
   TACLRootResourceCollectionImpl = class(TACLCustomResourceCollection,
     IACLApplicationListener)
   strict private
-    procedure InheritIfNecessary(const AResourceName, ASuffix: string);
     procedure InitializeResources;
   protected
     // IACLApplicationListener
@@ -903,39 +895,35 @@ end;
 { TACLResourceListenerList }
 
 procedure TACLResourceListenerList.NotifyBeginUpdate;
+var
+  LIntf: IACLUpdateLock;
 begin
-  Enum<IACLUpdateLock>(
-    procedure (const AIntf: IACLUpdateLock)
-    begin
-      AIntf.BeginUpdate;
-    end);
+  for LIntf in Enumerate<IACLUpdateLock> do
+    LIntf.BeginUpdate;
 end;
 
 procedure TACLResourceListenerList.NotifyEndUpdate;
+var
+  LIntf: IACLUpdateLock;
 begin
-  Enum<IACLUpdateLock>(
-    procedure (const AIntf: IACLUpdateLock)
-    begin
-      AIntf.EndUpdate;
-    end);
+  for LIntf in Enumerate<IACLUpdateLock> do
+    LIntf.EndUpdate;
 end;
 
 procedure TACLResourceListenerList.NotifyRemoving(AObject: TObject);
+var
+  LNotify: IACLObjectRemoveNotify;
 begin
-  Enum<IACLObjectRemoveNotify>(
-    procedure (const AIntf: IACLObjectRemoveNotify)
-    begin
-      AIntf.Removing(AObject);
-    end);
+  for LNotify in Enumerate<IACLObjectRemoveNotify> do
+    LNotify.Removing(AObject);
 end;
 
 procedure TACLResourceListenerList.NotifyResourceChanged(Sender: TObject; AResource: TACLResource);
+var
+  LIntf: IACLResourceChangeListener;
 begin
-  Enum<IACLResourceChangeListener>(
-    procedure (const AIntf: IACLResourceChangeListener)
-    begin
-      AIntf.ResourceChanged(Sender, AResource);
-    end);
+  for LIntf in Enumerate<IACLResourceChangeListener> do
+    LIntf.ResourceChanged(Sender, AResource);
 end;
 
 { TACLResource }
@@ -1756,6 +1744,12 @@ begin
   Result := IsHeightStored or IsStyleStored or IsNameStored or IsColorStored or IsColorIDStored;
 end;
 
+function TACLResourceFont.MeasureSize(const AText: string): TSize;
+begin
+  MeasureCanvas.Font.Assign(Self);
+  Result := acTextSize(MeasureCanvas, AText);
+end;
+
 function TACLResourceFont.ToStringCore: string;
 begin
   Result := Format('%s, %dpt', [Name, Abs(Size)])
@@ -1998,25 +1992,6 @@ begin
   DoMasterChanged;
 end;
 
-procedure TACLResourceTexture.LoadFromBitmapResourceCore(
-  AInstance: HINST; const AName: string; const AMargins, AContentOffsets: TRect;
-  AFrameCount: Integer; ALayout: TACLSkinImageLayout; AStretchMode: TACLStretchMode);
-begin
-  Overriden := True;
-  FImageSet.BeginUpdate;
-  try
-    FImageSet.Clear;
-    FImageSet[0].LoadFromResource(AInstance, AName, RT_BITMAP);
-    FImageSet[0].Layout := ALayout;
-    FImageSet[0].FrameCount := AFrameCount;
-    FImageSet[0].Margins := AMargins;
-    FImageSet[0].ContentOffsets := AContentOffsets;
-    FImageSet[0].StretchMode := AStretchMode;
-  finally
-    FImageSet.EndUpdate;
-  end;
-end;
-
 function TACLResourceTexture.ToStringCore: string;
 begin
   if (Image <> nil) and not Image.Empty then
@@ -2087,22 +2062,37 @@ procedure TACLResourceTexture.DrawClipped(ACanvas: TCanvas;
 var
   AClipRegion: TRegionHandle;
 begin
-  if acStartClippedDraw(ACanvas.Handle, AClipRect, AClipRegion) then
+  if acStartClippedDraw(ACanvas, AClipRect, AClipRegion) then
   try
     Draw(ACanvas, R, AFrameIndex, True, AAlpha);
   finally
-    acRestoreClipRegion(ACanvas.Handle, AClipRegion);
+    acEndClippedDraw(ACanvas, AClipRegion);
   end;
 end;
 
-procedure TACLResourceTexture.InitailizeDefaults(const DefaultID: string;
-  AInstance: HINST; const AName: string; const AMargins, AContentOffsets: TRect;
-  AFrameCount: Integer; ALayout: TACLSkinImageLayout = ilHorizontal;
-  AStretchMode: TACLStretchMode = isStretch);
+procedure TACLResourceTexture.InitailizeDefaults(AInstance: HINST;
+  const AName: string; const AMargins, AContentOffsets: TRect;
+  AFrameCount: Integer; ALayout: TACLSkinImageLayout; AStretchMode: TACLStretchMode);
 begin
-  inherited InitailizeDefaults(DefaultID);
-  LoadFromBitmapResourceCore(AInstance, AName,
-    AMargins, AContentOffsets, AFrameCount, ALayout, AStretchMode);
+  BeginUpdate;
+  try
+    IDDefault := '';
+    Overriden := True;
+    FImageSet.BeginUpdate;
+    try
+      FImageSet.Clear;
+      FImageSet[0].LoadFromResource(AInstance, AName, 'PNG');
+      FImageSet[0].Layout := ALayout;
+      FImageSet[0].FrameCount := AFrameCount;
+      FImageSet[0].Margins := AMargins;
+      FImageSet[0].ContentOffsets := AContentOffsets;
+      FImageSet[0].StretchMode := AStretchMode;
+    finally
+      FImageSet.EndUpdate;
+    end;
+  finally
+    CancelUpdate;
+  end;
 end;
 
 procedure TACLResourceTexture.ImportFromImage(const AImage: TBitmap; DPI: Integer = acDefaultDPI);
@@ -2255,7 +2245,7 @@ begin
     if AAllowColoration = TACLBoolean.True then
       Result := ImageSet.Get(ATargetDPI, FColorSchema)
     else
-      Result := ImageSet.Get(ATargetDPI, TACLColorSchema.Default);
+      Result := ImageSet.Get(ATargetDPI);
   end
   else
   begin
@@ -2998,7 +2988,8 @@ begin
   end;
 end;
 
-function TACLResourceCollectionItems.AddTexture(const ID: string; ASkinImage: TACLSkinImageSet): TACLResourceTexture;
+function TACLResourceCollectionItems.AddTexture(
+  const ID: string; ASkinImage: TACLSkinImageSet): TACLResourceTexture;
 begin
   BeginUpdate;
   try
@@ -3010,23 +3001,8 @@ begin
   end;
 end;
 
-function TACLResourceCollectionItems.AddTexture(const ID: string;
-  const AResInstance: HINST; const AResName: string;
-  const AMargins, AContentOffsets: TRect; AFrameCount: Integer;
-  const ALayout: TACLSkinImageLayout = ilHorizontal;
-  const AStretchMode: TACLStretchMode = isStretch): TACLResourceTexture;
-begin
-  BeginUpdate;
-  try
-    Result := Add<TACLResourceTexture>(ID);
-    Result.Overriden := True;
-    Result.LoadFromBitmapResourceCore(AResInstance, AResName, AMargins, AContentOffsets, AFrameCount, ALayout, AStretchMode);
-  finally
-    EndUpdate;
-  end;
-end;
-
-function TACLResourceCollectionItems.AddRemap(const ID, MasterID: string; AClass: TACLResourceClass): TACLResource;
+function TACLResourceCollectionItems.AddRemap(
+  const ID, MasterID: string; AClass: TACLResourceClass): TACLResource;
 begin
   BeginUpdate;
   try
@@ -3230,7 +3206,7 @@ procedure TACLCustomResourceCollection.LoadFromFile(const AFileName: string);
 var
   AStream: TStream;
 begin
-  AStream := TACLFileStream.Create(AFileName, fmOpenRead or fmShareDenyNone);
+  AStream := TACLFileStream.Create(AFileName, fmOpenReadOnly);
   try
     LoadFromStream(AStream);
   finally
@@ -3363,12 +3339,17 @@ begin
   Result := FInstance;
 end;
 
-class function TACLRootResourceCollection.GetResource(const ID: string; AResourceClass: TClass; ASender: TObject = nil): TObject;
+class function TACLRootResourceCollection.GetResource(
+  const ID: string; AResourceClass: TClass; ASender: TObject = nil): TObject;
 begin
-  Result := GetInstance.GetResource(ID, AResourceClass, ASender)
+  if FFinalized then
+    Result := nil
+  else
+    Result := GetInstance.GetResource(ID, AResourceClass, ASender)
 end;
 
-class function TACLRootResourceCollection.GetResource(const ID: string; AResourceClass: TClass; ASender: TObject; out AResource): Boolean;
+class function TACLRootResourceCollection.GetResource(
+  const ID: string; AResourceClass: TClass; ASender: TObject; out AResource): Boolean;
 begin
   TObject(AResource) := GetResource(ID, AResourceClass, ASender);
   Result := TObject(AResource) <> nil;
@@ -3449,13 +3430,6 @@ begin
   BeginUpdate;
   try
     LoadFromResource(HInstance, 'ACLDEFAULTSKIN' + IfThenW(TACLApplication.IsDarkMode, '_DARK'));
-  {$IFDEF MSWINDOWS}
-    if acOSCheckVersion(10, 0, 22000) then
-    begin
-      InheritIfNecessary('Popup.Margins.Borders', '.W11');
-      InheritIfNecessary('Popup.Margins.CornerRadius', '.W11');
-    end;
-  {$ENDIF}
     if TACLApplication.ColorSchema.IsAssigned then
       ApplyColorSchema(TACLApplication.ColorSchema);
   finally
@@ -3463,17 +3437,17 @@ begin
   end;
 end;
 
-procedure TACLRootResourceCollectionImpl.InheritIfNecessary(const AResourceName, ASuffix: string);
-var
-  AResource: TACLResourceCollectionItem;
-begin
-  AResource := Items.GetResource(AResourceName);
-  if AResource <> nil then
-  begin
-    if Items.GetResource(AResourceName + ASuffix) <> nil then
-      AResource.Resource.ID := AResourceName + ASuffix;
-  end;
-end;
+//procedure TACLRootResourceCollectionImpl.InheritIfNecessary(const AResourceName, ASuffix: string);
+//var
+//  AResource: TACLResourceCollectionItem;
+//begin
+//  AResource := Items.GetResource(AResourceName);
+//  if AResource <> nil then
+//  begin
+//    if Items.GetResource(AResourceName + ASuffix) <> nil then
+//      AResource.Resource.ID := AResourceName + ASuffix;
+//  end;
+//end;
 
 initialization
   TACLResourceClassRepository.Register(TACLResourceColor);

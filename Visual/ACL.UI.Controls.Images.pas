@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ImageBox / SubImage Selector
 //
@@ -291,7 +291,7 @@ begin
     acBitBlt(LDib.handle, DC, LDib.ClientRect, R.TopLeft);
     for I := 0 to LDib.ColorCount - 1 do
     begin
-      LPix := @LDib.Colors^[I];
+      LPix := @LDib.Colors[I];
       LPix^.R := $FF xor LPix^.R;
       LPix^.G := $FF xor LPix^.G;
       LPix^.B := $FF xor LPix^.B;
@@ -796,18 +796,21 @@ var
   AClipRgn: TRegionHandle;
   AElement: TACLSelectionFrameElement;
 begin
-  if acStartClippedDraw(DC, Bounds, AClipRgn) then
+  AClipRgn := acSaveClipRegion(DC);
   try
-    acExcludeFromClipRegion(DC, Bounds.InflateTo(-FFrameSize));
-    for AElement := High(AElement) downto Low(AElement) do
+    if acIntersectClipRegion(DC, Bounds) then
     begin
-      if AElement <> sfeFrame then
-        DrawElement(AElement);
-    end;
-    if not FElements[sfeFrame].IsEmpty then
-    begin
-      acExcludeFromClipRegion(DC, FElements[sfeFrame].InflateTo(-FLineSize));
-      DrawElement(sfeFrame);
+      acExcludeFromClipRegion(DC, Bounds.InflateTo(-FFrameSize));
+      for AElement := High(AElement) downto Low(AElement) do
+      begin
+        if AElement <> sfeFrame then
+          DrawElement(AElement);
+      end;
+      if not FElements[sfeFrame].IsEmpty then
+      begin
+        acExcludeFromClipRegion(DC, FElements[sfeFrame].InflateTo(-FLineSize));
+        DrawElement(sfeFrame);
+      end;
     end;
   finally
     acRestoreClipRegion(DC, AClipRgn);

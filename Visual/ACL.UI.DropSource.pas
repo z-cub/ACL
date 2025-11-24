@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
-//  Purpose:   Shell drop source
+//  Purpose:   Shell Drop Source
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -37,8 +37,8 @@ uses
   ACL.FileFormats.INI,
   ACL.Math,
   ACL.ObjectLinks,
-  ACL.UI.Controls.Base,
   ACL.Threading,
+  ACL.UI.Controls.Base,
   ACL.Utils.Clipboard,
   ACL.Utils.Common,
   ACL.Utils.Desktop,
@@ -59,7 +59,6 @@ type
   IACLDropSourceOperation = interface
   ['{F8DF8282-CEEA-45A4-BD28-6036B3747D5F}']
     procedure DropSourceBegin;
-    procedure DropSourceDrop(var AAllowDrop: Boolean);
     procedure DropSourceEnd(AActions: TACLDropSourceActions; AShiftState: TShiftState);
   end;
 
@@ -161,7 +160,6 @@ type
     // IUnknown
     function QueryInterface({$IFDEF FPC}constref{$ELSE}const{$ENDIF} IID: TGUID; out Obj): HRESULT; override;
     //# Events
-    procedure DoDrop(var AAllowDrop: Boolean);
     procedure DoDropFinish;
     procedure DoDropStart;
   public
@@ -279,20 +277,10 @@ const
 function DropSourceIsActive: Boolean;
 implementation
 
-{$IFDEF LCLGtk2}
-uses
-  Glib2,
-  Gdk2,
-  Gtk2,
-  Gtk2Def,
-  Gtk2Int,
-  Gtk2Proc;
-{$ENDIF}
-{$IFDEF MSWINDOWS}
-uses
-  Winapi.ShlObj,
-  Winapi.Windows,
-  System.Win.ComObj;
+{$IF DEFINED(MSWINDOWS)}
+  {$I ACL.UI.DropSource.Win32.inc}
+{$ELSEIF DEFINED(LCLGtk2)}
+  {$I ACL.UI.DropSource.Gtk2.inc}
 {$ENDIF}
 
 var
@@ -449,15 +437,6 @@ begin
   FHandler := nil;
 end;
 
-procedure TACLDropSource.DoDrop(var AAllowDrop: Boolean);
-var
-  LIntf: IACLDropSourceOperation;
-begin
-  FShiftStateAtDrop := acGetShiftState;
-  if Supports(Handler, IACLDropSourceOperation, LIntf) then
-    LIntf.DropSourceDrop(AAllowDrop);
-end;
-
 procedure TACLDropSource.DoDropFinish;
 begin
   if Handler <> nil then
@@ -504,7 +483,10 @@ begin
       // do nothing
     end;
   finally
-    Free;
+    if IsMainThread or not (csFreeNotification in ComponentState) then
+      Free
+    else
+      RunInMainThread(Free, False);
   end;
 end;
 
@@ -652,580 +634,6 @@ function TACLDragDropDataProviderText.Store(
 begin
   Result := MediumAlloc(PChar(Text), (Length(Text) + 1) * SizeOf(Char), AMedium);
 end;
-
-{$ENDREGION}
-
-{$REGION ' Formats / Windows Specific '}
-{$IFDEF MSWINDOWS}
-
-{ TACLDragDropDataProviderFileStream }
-
-constructor TACLDragDropDataProviderFileStream.Create(AData: IACLDropSourceDataFiles; AIndex: Integer);
-begin
-  inherited Create(AData);
-  FIndex := AIndex;
-end;
-
-function TACLDragDropDataProviderFileStream.GetFormat: TFormatEtc;
-begin
-  Result := MakeFormat(RegisterClipboardFormat(CFSTR_FILECONTENTS));
-  Result.tymed := TYMED_ISTREAM;
-  Result.lindex := FIndex;
-end;
-
-function TACLDragDropDataProviderFileStream.IsSupported(const AFormat: TFormatEtc): Boolean;
-begin
-  Result := (AFormat.cfFormat = GetFormat.cfFormat) and
-    (AFormat.tymed and TYMED_ISTREAM <> 0) and (AFormat.lindex = FIndex);
-end;
-
-function TACLDragDropDataProviderFileStream.Store(
-  out AMedium: TStgMedium; const AFormat: TFormatEtc): Boolean;
-begin
-  Result := (AFormat.tymed and TYMED_ISTREAM <> 0) and (Data.Count > 0);
-  if Result then
-  begin
-    AMedium.tymed := TYMED_ISTREAM;
-    IStream(AMedium.stm) := TStreamAdapter.Create(Data.Streams[FIndex]);
-  end;
-end;
-
-{ TACLDragDropDataProviderFileStreamDescriptor }
-
-function TACLDragDropDataProviderFileStreamDescriptor.GetFormat: TFormatEtc;
-begin
-  Result := MakeFormat(RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW));
-end;
-
-function TACLDragDropDataProviderFileStreamDescriptor.Store(
-  out AMedium: TStgMedium; const AFormat: TFormatEtc): Boolean;
-var
-  ADescriptor: PFileGroupDescriptorW;
-  ADescriptorSize: Integer;
-  AFileDescriptor: PFileDescriptorW;
-  AFileSize: Int64;
-  I: Integer;
-begin
-  ADescriptorSize := SizeOf(TFileGroupDescriptorW) + (Data.Count - 1) * SizeOf(TFileDescriptorW);
-  ADescriptor := AllocMem(ADescriptorSize);
-  try
-    ADescriptor.cItems := Data.Count;
-    for I := 0 to Data.Count - 1 do
-    begin
-      AFileDescriptor := @ADescriptor.fgd[I];
-      StrLCopy(@AFileDescriptor.cFileName[0], PChar(acExtractFileName(Data.Names[I])), MAX_PATH);
-      AFileSize := Data.Streams[I].Size;
-      AFileDescriptor.dwFlags := FD_PROGRESSUI or FD_FILESIZE;
-      AFileDescriptor.nFileSizeHigh := HiInteger(AFileSize);
-      AFileDescriptor.nFileSizeLow := LoInteger(AFileSize);
-    end;
-    AMedium.tymed := TYMED_HGLOBAL;
-    AMedium.hGlobal := TACLGlobalMemory.Alloc(PByte(ADescriptor), ADescriptorSize);
-    Result := True;
-  finally
-    FreeMem(ADescriptor);
-  end;
-end;
-
-{ TACLDragDropDataProviderPIDL }
-
-function TACLDragDropDataProviderPIDL.StoreFiles(
-  AFiles: TACLStringList; out AMedium: TStgMedium): Boolean;
-var
-  LStream: TMemoryStream;
-begin
-  Result := False;
-  if TPIDLHelper.FilesToShellListStream(AFiles, LStream) then
-  try
-    Result := MediumAlloc(LStream.Memory, LStream.Size, AMedium);
-  finally
-    LStream.Free;
-  end;
-end;
-
-function TACLDragDropDataProviderPIDL.GetFormat: TFormatEtc;
-begin
-  Result := MakeFormat(CF_SHELLIDList);
-end;
-
-{$ENDIF}
-{$ENDREGION}
-
-{$REGION ' Gtk2 Implementation '}
-{$IFDEF LCLGtk2}
-type
-
-  { TACLDropSourceGtk2 }
-
-  // https://git.eclipse.org/r/plugins/gitiles/platform/eclipse.platform.swt/+/81633b430a87caf2f0c020f10e108754d81a4415/bundles/org.eclipse.swt/Eclipse%20SWT%20Drag%20and%20Drop/gtk/org/eclipse/swt/dnd/DragSource.java
-  TACLDropSourceGtk2 = class(TACLDropSource)
-  private
-    FContext: PGdkDragContext;
-    FEvent: TACLEvent;
-  protected
-    procedure ExecuteCore; override;
-  public
-    procedure Cancel; override;
-  end;
-
-  { TACLDropSourceGtk2 }
-
-  procedure doGtkDropEnd(w: PGtkWidget; ctx: PGdkDragContext; impl: TACLDropSourceGtk2); cdecl;
-  begin
-    impl.FDropResult := [];
-    case ctx^.action of
-      GDK_ACTION_COPY:
-        impl.FDropResult := [dsaCopy];
-      GDK_ACTION_MOVE:
-        impl.FDropResult := [dsaMove];
-      GDK_ACTION_LINK:
-        impl.FDropResult := [dsaLink];
-    end;
-    if impl.fEvent <> nil then
-      impl.fEvent.Signal;
-  end;
-
-  procedure doGtkDropGetData(w: PGtkWidget; ctx: PGdkDragContext;
-    data: PGtkSelectionData; info, time: guint; src: TACLDropSourceGtk2); cdecl;
-  var
-    LFormat: TFormatEtc;
-    LMedium: TStgMedium;
-    I: Integer;
-  begin
-    LFormat := MakeFormat(data^.target);
-    for I := 0 to src.DataProviders.Count - 1 do
-    begin
-      if src.DataProviders[I].IsSupported(LFormat) then
-      begin
-        if src.DataProviders[I].Store(LMedium, LFormat) then
-        try
-          gtk_selection_data_set(data, data^.target, 8, LMedium.Data, LMedium.Size);
-        finally
-          ReleaseStgMedium(LMedium)
-        end;
-        Break;
-      end;
-    end;
-  end;
-
-  procedure TACLDropSourceGtk2.ExecuteCore;
-  var
-    LActions: TGdkDragAction;
-    LEntries: TACLListOf<TGtkTargetEntry>;
-    LEntry: TGtkTargetEntry;
-    LList: PGtkTargetList;
-    LWidget: PGtkWidget;
-    I: Integer;
-  begin
-    LActions := 0;
-    if dsaCopy in AllowedActions then
-      LActions := LActions or GDK_ACTION_COPY;
-    if dsaMove in AllowedActions then
-      LActions := LActions or GDK_ACTION_MOVE;
-    if dsaLink in AllowedActions then
-      LActions := LActions or GDK_ACTION_LINK;
-
-    LList := gtk_target_list_new(nil, 0);
-    for I := 0 to DataProviders.Count - 1 do
-    begin
-      if DataProviders[I].HasData then
-        gtk_target_list_add(LList, DataProviders[I].GetFormat.cfFormat, 0, 0);
-    end;
-
-    FEvent := TACLEvent.Create(True, False);
-    try
-      LWidget := PGtkWidget(Control.Handle);
-      ConnectSignal(PGtkObject(LWidget), 'drag_data_get', @doGtkDropGetData, Self);
-      ConnectSignal(PGtkObject(LWidget), 'drag_end', @doGtkDropEnd, Self);
-      try
-        FContext := gtk_drag_begin(LWidget, LList, LActions, 1, nil);
-        FEvent.WaitFor;
-        FContext := nil;
-        //* Bug in GTK.  If a drag is initiated using gtk_drag_begin and the
-        //* mouse is released immediately, the mouse and keyboard remain
-        //* grabbed.  The fix is to release the grab on the mouse and keyboard
-        //* whenever the drag is terminated.
-        gdk_keyboard_ungrab(GDK_CURRENT_TIME);
-        gdk_pointer_ungrab(GDK_CURRENT_TIME);
-      finally
-        gtk_signal_disconnect_by_func(PGtkObject(LWidget), @doGtkDropGetData, Self);
-        gtk_signal_disconnect_by_func(PGtkObject(LWidget), @doGtkDropEnd, Self);
-      end;
-    finally
-      FreeAndNil(FEvent);
-    end;
-  end;
-
-  procedure TACLDropSourceGtk2.Cancel;
-  begin
-    inherited;
-    if FContext <> nil then
-    try
-      gtk_drag_finish(FContext, False, False, GDK_CURRENT_TIME);
-    except
-      // do nothing
-    end;
-    if FEvent <> nil then
-      FEvent.Signal;
-  end;
-
-{$ENDIF}
-{$ENDREGION}
-
-{$REGION ' Win32 Implementation '}
-{$IFDEF MSWINDOWS}
-type
-
-  { TACLDropFormatEtcList }
-
-  TACLDropFormatEtcList = class(TInterfacedObject, IEnumFormatEtc)
-  strict private const
-    ResultMap: array[Boolean] of Integer = (S_FALSE, S_OK);
-  strict private
-    FCursor: Integer;
-    FList: TACLListOf<TFormatEtc>;
-
-    function GetFormat(Index: Integer): TFormatEtc;
-    function GetFormatCount: Integer;
-  protected
-    // IEnumFormatEtc
-    function Clone(out AEnum: IEnumFormatEtc): HRESULT; stdcall;
-    function Next(ACount: Longint; out AList; AFetched: PLongint): HRESULT; stdcall;
-    function Reset: HRESULT; stdcall;
-    function Skip(ACount: Longint) : HRESULT; stdcall;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Add(const AFormat: TFormatEtc);
-    procedure Assign(ASource: TACLDropFormatEtcList);
-    //# Properties
-    property Cursor: Integer read FCursor;
-    property Format[Index: Integer]: TFormatEtc read GetFormat;
-    property FormatCount: Integer read GetFormatCount;
-  end;
-
-  { TACLDropSourceWin32 }
-
-  TACLDropSourceWin32 = class(TACLDropSource, IDropSource, IDataObject)
-  strict private
-    FThreadAttached: THandle;
-    FThreadCurrent: THandle;
-
-    function GetAttachThreadId: THandle;
-    function GetAttachWindow: TWndHandle;
-    procedure AttachThread;
-    procedure DetachThread;
-  protected
-    procedure ExecuteCore; override;
-    // IDataObject
-    function DAdvise(const AFormat: TFormatEtc; advf: Longint;
-      const advSink: IAdviseSink; out dwConnection: Longint): HRESULT; stdcall;
-    function DUnadvise(AConnection: Longint): HRESULT; stdcall;
-    function EnumDAdvise(out AEnumAdvise: IEnumStatData): HRESULT; stdcall;
-    function EnumFormatEtc(ADirection: Longint; out AEnumFormat: IEnumFormatEtc): HRESULT; stdcall;
-    function GetCanonicalFormatEtc(const AFormat: TFormatEtc; out AFormatOut: TFormatEtc): HRESULT; stdcall;
-    function GetData(const AFormat: TFormatEtc; out AMedium: TStgMedium): HRESULT; stdcall;
-    function GetDataHere(const AFormat: TFormatEtc; out AMedium: TStgMedium): HRESULT; stdcall;
-    function QueryGetData(const AFormat: TFormatEtc): HRESULT; stdcall;
-    function SetData(const Format: TFormatEtc; var Medium: TStgMedium; Release: BOOL): HRESULT; stdcall;
-    // IDropSource
-    function GiveFeedback(AEffect: LongInt): HRESULT; stdcall;
-    function QueryContinueDrag(AEscapePressed: LongBool; AKeyState: LongInt): HRESULT; stdcall;
-  end;
-
-  { TACLDropFormatEtcList }
-
-  constructor TACLDropFormatEtcList.Create;
-  begin
-    inherited Create;
-    FList := TACLListOf<TFormatEtc>.Create;
-  end;
-
-  destructor TACLDropFormatEtcList.Destroy;
-  begin
-    FreeAndNil(FList);
-    inherited Destroy;
-  end;
-
-  procedure TACLDropFormatEtcList.Add(const AFormat: TFormatEtc);
-  begin
-    FList.Add(AFormat);
-  end;
-
-  procedure TACLDropFormatEtcList.Assign(ASource: TACLDropFormatEtcList);
-  var
-    I: Integer;
-  begin
-    FList.Clear;
-    FCursor := ASource.Cursor;
-    for I := 0 to ASource.FormatCount - 1 do
-      Add(ASource.Format[I]);
-  end;
-
-  function TACLDropFormatEtcList.Next(ACount: Longint; out AList; AFetched: PLongint): HRESULT;
-  var
-    AFormatList: PFormatEtc;
-    AIndex: Integer;
-  begin
-    AFormatList := @AList;
-
-    AIndex := 0;
-    while (AIndex < ACount) and (Cursor < FormatCount) do
-    begin
-      AFormatList^ := Format[Cursor];
-      Inc(AFormatList);
-      Inc(FCursor);
-      Inc(AIndex);
-    end;
-    if Assigned(AFetched) then
-      AFetched^ := AIndex;
-    Result := ResultMap[AIndex = ACount];
-  end;
-
-  function TACLDropFormatEtcList.Skip(ACount: Longint): HRESULT;
-  begin
-    Result := ResultMap[Cursor + ACount <= FormatCount];
-    FCursor := Min(FormatCount, Cursor + ACount);
-  end;
-
-  function TACLDropFormatEtcList.Reset: HRESULT;
-  begin
-    FCursor := 0;
-    Result := S_OK;
-  end;
-
-  function TACLDropFormatEtcList.Clone(out AEnum: IEnumFormatEtc): HRESULT;
-  var
-    AFormatEtc: TACLDropFormatEtcList;
-  begin
-    AFormatEtc := TACLDropFormatEtcList.Create;
-    AFormatEtc.Assign(Self);
-    AEnum := AFormatEtc;
-    Result := S_OK;
-  end;
-
-  function TACLDropFormatEtcList.GetFormat(Index: Integer): TFormatEtc;
-  begin
-    Result := FList[Index];
-  end;
-
-  function TACLDropFormatEtcList.GetFormatCount: Integer;
-  begin
-    Result := FList.Count;
-  end;
-
-  { TACLDropSourceWin32 }
-
-  procedure TACLDropSourceWin32.AttachThread;
-  begin
-    FThreadAttached := GetAttachThreadId;
-    FThreadCurrent := GetCurrentThreadId;
-    if FThreadAttached <> FThreadCurrent then
-      AttachThreadInput(FThreadAttached, FThreadCurrent, True);
-  end;
-
-  procedure TACLDropSourceWin32.DetachThread;
-  begin
-    if (FThreadAttached <> 0) and (FThreadAttached <> FThreadCurrent) then
-    begin
-      AttachThreadInput(FThreadAttached, FThreadCurrent, False);
-      FThreadAttached := 0;
-    end;
-  end;
-
-  procedure TACLDropSourceWin32.ExecuteCore;
-  var
-    LActions: Integer;
-    LResult: Integer;
-  begin
-    AttachThread;
-    try
-      LActions := 0;
-      if dsaCopy in AllowedActions then
-        LActions := LActions or DROPEFFECT_COPY;
-      if dsaMove in AllowedActions then
-        LActions := LActions or DROPEFFECT_MOVE;
-      if dsaLink in AllowedActions then
-        LActions := LActions or DROPEFFECT_LINK;
-
-      OleInitialize(nil);
-      try
-        if DoDragDrop(Self, Self, LActions, LResult) = DRAGDROP_S_DROP then
-        begin
-          if LResult and DROPEFFECT_COPY <> 0 then
-            Include(FDropResult, dsaCopy);
-          if LResult and DROPEFFECT_MOVE <> 0 then
-            Include(FDropResult, dsaMove);
-          if LResult and DROPEFFECT_LINK <> 0 then
-            Include(FDropResult, dsaLink);
-        end;
-      finally
-        OleUninitialize;
-      end;
-    finally
-      DetachThread;
-    end;
-  end;
-
-  function TACLDropSourceWin32.GiveFeedback(AEffect: LongInt): HRESULT; stdcall;
-  begin
-    Result := DRAGDROP_S_USEDEFAULTCURSORS;
-  end;
-
-  function TACLDropSourceWin32.QueryContinueDrag(AEscapePressed: LongBool; AKeyState: LongInt): HRESULT; stdcall;
-  var
-    LAllow: Boolean;
-  begin
-    if AEscapePressed or (Handler = nil) then
-      Exit(DRAGDROP_S_CANCEL);
-    if AKeyState and (MK_LBUTTON or MK_RBUTTON) <> 0 then
-      Exit(S_OK);
-
-    LAllow := True;
-    // if we move files from one control of our application to other and if OnDrop event handler
-    // will show the Modal Dialog - application will hangs (on WinXP) because of attached input
-    // So, we must detach thread input
-    DetachThread;
-    DoDrop(LAllow);
-    if LAllow then
-      Result := DRAGDROP_S_DROP
-    else
-      Result := DRAGDROP_S_CANCEL;
-  end;
-
-  function TACLDropSourceWin32.DAdvise(const AFormat: TFormatEtc; advf: Longint;
-    const advSink: IAdviseSink; out dwConnection: Longint): HRESULT; stdcall;
-  begin
-    Result := OLE_E_ADVISENOTSUPPORTED;
-  end;
-
-  function TACLDropSourceWin32.DUnadvise(AConnection: Longint):HRESULT; stdcall;
-  begin
-    Result := OLE_E_ADVISENOTSUPPORTED;
-  end;
-
-  function TACLDropSourceWin32.EnumDAdvise(out AEnumAdvise: IEnumStatData): HRESULT; stdcall;
-  begin
-    Result := OLE_E_ADVISENOTSUPPORTED;
-  end;
-
-  function TACLDropSourceWin32.EnumFormatEtc(
-    ADirection: Longint; out AEnumFormat: IEnumFormatEtc): HRESULT; stdcall;
-  const
-    ResultMap: array[Boolean] of HRESULT = (E_NOTIMPL, S_OK);
-  var
-    ADataProvider: TACLDragDropDataProvider;
-    AFormatEtcList: TACLDropFormatEtcList;
-    I: Integer;
-  begin
-    AEnumFormat := nil;
-    if ADirection = DATADIR_GET then
-    begin
-      AFormatEtcList := TACLDropFormatEtcList.Create;
-      for I := 0 to DataProviders.Count - 1 do
-      begin
-        ADataProvider := DataProviders[I];
-        if ADataProvider.HasData then
-          AFormatEtcList.Add(ADataProvider.GetFormat);
-      end;
-      if AFormatEtcList.FormatCount > 0 then
-        AEnumFormat := AFormatEtcList;
-    end;
-    Result := ResultMap[AEnumFormat <> nil];
-  end;
-
-  function TACLDropSourceWin32.GetCanonicalFormatEtc(
-    const AFormat: TFormatEtc; out AFormatOut: TFormatEtc): HRESULT; stdcall;
-  begin
-    AFormatOut.ptd := nil;
-    Result := E_NOTIMPL;
-  end;
-
-  function TACLDropSourceWin32.QueryGetData(const AFormat: TFormatEtc): HRESULT; stdcall;
-  var
-    LProvider: TACLDragDropDataProvider;
-    I: Integer;
-  begin
-    Result := DV_E_FORMATETC;
-    if AFormat.dwAspect = DVASPECT_CONTENT then
-    begin
-      for I := 0 to DataProviders.Count - 1 do
-      begin
-        LProvider := DataProviders[I];
-        if LProvider.IsSupported(AFormat) and LProvider.HasData then
-          Exit(S_OK);
-      end;
-    end;
-  end;
-
-  function TACLDropSourceWin32.GetAttachThreadId: THandle;
-  var
-    AAttach: TWndHandle;
-  begin
-    AAttach := GetAttachWindow;
-    if AAttach <> 0 then
-      Result := GetWindowThreadProcessId(AAttach, nil)
-    else
-      Result := MainThreadID;
-  end;
-
-  function TACLDropSourceWin32.GetAttachWindow: TWndHandle;
-  begin
-    Result := GetForegroundWindow;
-    // Fallback to the unsafe method in case GetForegroundWindow didn't work
-    // out (from MSDN: The foreground window can be NULL in certain
-    // circumstances, such as when a window is losing activation).
-    if Result = 0 then
-    begin
-      // Get handle of window under mouse-cursor.
-      // Warning: This introduces a race condition. The cursor might have moved
-      // from the original drop source window to another window. This can happen
-      // easily if the user moves the cursor rapidly or if sufficient time has
-      // elapsed since DragDetect exited.
-      Result := MouseCurrentWindow;
-    end;
-  end;
-
-  function TACLDropSourceWin32.GetData(const AFormat: TFormatEtc; out AMedium: TStgMedium): HRESULT; stdcall;
-  var
-    LProvider: TACLDragDropDataProvider;
-    I: Integer;
-  begin
-    ZeroMemory(@AMedium, SizeOf(AMedium));
-    for I := 0 to DataProviders.Count - 1 do
-    begin
-      LProvider := DataProviders[I];
-      if LProvider.IsSupported(AFormat) and LProvider.HasData then
-      begin
-        if LProvider.Store(AMedium, AFormat) then
-          Exit(S_OK);
-      end;
-    end;
-    Result := DV_E_FORMATETC;
-  end;
-
-  function TACLDropSourceWin32.GetDataHere(const AFormat: TFormatEtc; out AMedium: TStgMedium): HRESULT; stdcall;
-  begin
-    Result := E_NOTIMPL;
-  end;
-
-  function TACLDropSourceWin32.SetData(const Format: TFormatEtc;
-    var Medium: TStgMedium; Release: BOOL): HRESULT; stdcall;
-  begin
-    Result := E_NOTIMPL;
-    try
-  //    if (Format.tymed = TYMED_HGLOBAL) and (Format.cfFormat = CF_CONFIG) then
-  //    begin
-  //      StreamLoad(FTargetConfig.LoadFromStream, TACLGlobalMemoryStream.Create(Medium.hGlobal));
-  //      Result := S_OK;
-  //    end;
-    finally
-      if Release then
-        ReleaseStgMedium(Medium);
-    end;
-  end;
-
-{$ENDIF}
 {$ENDREGION}
 
 { TACLDropSource }
@@ -1233,13 +641,7 @@ type
 class function TACLDropSource.Create(
   AHandler: IACLDropSourceOperation; AControl: TWinControl): TACLDropSource;
 begin
-{$IF DEFINED(MSWINDOWS)}
-  Result := TACLDropSourceWin32.CreateCore(AHandler, AControl);
-{$ELSEIF DEFINED(LCLGtk2)}
-  Result := TACLDropSourceGtk2.CreateCore(AHandler, AControl);
-{$ELSE}
-  Result := TACLDropSource.CreateCore(AHandler, AControl);
-{$ENDIF}
+  Result := TACLDropSourceImpl.CreateCore(AHandler, AControl);
 end;
 
 end.

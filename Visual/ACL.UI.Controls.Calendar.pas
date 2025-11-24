@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Calendar
 //
@@ -92,12 +92,12 @@ type
     function CreateViewInfo: TACLCompoundControlCustomViewInfo; override;
     function GetFullRefreshChanges: TIntegerSet; override;
     procedure DoSelected; virtual;
-    procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); override;
+    procedure ProcessMouseClick(AShift: TShiftState); override;
     procedure ProcessMouseLeave; override;
     procedure ProcessMouseMove(AShift: TShiftState; X, Y: Integer); override;
     procedure ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState); override;
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     //# Properties
     property Style: TACLStyleCalendar read FStyle;
@@ -404,7 +404,8 @@ end;
 
 { TACLCalendarSubClass }
 
-constructor TACLCalendarSubClass.Create(AOwner: TComponent);
+constructor TACLCalendarSubClass.Create(
+  AOwner: IACLCompoundControlSubClassContainer);
 begin
   inherited;
   FStyle := CreateStyle;
@@ -452,13 +453,10 @@ begin
   Result := TACLCalendarViewInfo(inherited ViewInfo);
 end;
 
-procedure TACLCalendarSubClass.ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState);
+procedure TACLCalendarSubClass.ProcessMouseClick(AShift: TShiftState);
 begin
-  inherited;
-
-  if AButton <> mbLeft then
+  if LastClickCount > 1 then
     Exit;
-
   if HitTest.HitObject is TACLCalendarMonthCell then
     ViewInfo.ActivateDayView(TACLCalendarMonthCell(HitTest.HitObject).Value)
   else if HitTest.HitObject is TACLCalendarDayCell then
@@ -468,7 +466,9 @@ begin
   else if HitTest.HitObject is TACLCalendarTitleCell then
     ViewInfo.ActivateMonthView
   else if HitTest.HitObject is TACLCalendarTodayCell then
-    ViewInfo.Select(Now);
+    ViewInfo.Select(Now)
+  else
+    inherited;
 end;
 
 procedure TACLCalendarSubClass.ProcessMouseLeave;
@@ -707,7 +707,7 @@ end;
 
 procedure TACLCalendarCustomViewViewInfo.SetInitialDate(const AValue: TDate);
 begin
-  if not SameDate(AValue, InitialDate) then
+  if not TACLDateUtils.SameDate(AValue, InitialDate) then
   begin
     FInitialDate := AValue;
     DoUpdateRanges;
@@ -747,7 +747,7 @@ begin
   for I := 7 to 48 do
   begin
     ACell := TACLCalendarDayCell(FCells[I]);
-    ACell.FIsToday := SameDate(ANow, FRangeFinish);
+    ACell.FIsToday := TACLDateUtils.SameDate(ANow, FRangeFinish);
     ACell.Value := FRangeFinish;
     FRangeFinish := FRangeFinish + 1;
   end;
@@ -780,7 +780,7 @@ end;
 
 function TACLCalendarDayViewViewInfo.IsSelected(const AValue: TDate): Boolean;
 begin
-  Result := SameDate(FSelectedDay, AValue)
+  Result := TACLDateUtils.SameDate(FSelectedDay, AValue)
 end;
 
 { TACLCalendarCustomDateCell }
@@ -925,7 +925,7 @@ end;
 
 function TACLCalendarMonthViewViewInfo.IsSelected(const AValue: TDate): Boolean;
 begin
-  Result := SameDate(AValue, FSelectedMonth);
+  Result := TACLDateUtils.SameDate(AValue, FSelectedMonth);
 end;
 
 { TACLCalendarTodayCell }
@@ -1156,10 +1156,10 @@ procedure TACLCalendarViewInfo.DrawLanternLight(ACanvas: TCanvas);
 var
   LCell: TACLCalendarViewCustomCell;
   LClipping: TRegionHandle;
+  LImage: TACLImage;
   LRect: TRect;
-  LTexture: TACLSkinImage;
 begin
-  if acStartClippedDraw(ACanvas.Handle, ActiveView.CellsArea, LClipping) then
+  if acStartClippedDraw(ACanvas, ActiveView.CellsArea, LClipping) then
   try
     for LCell in ActiveView.FCells do
       acExcludeFromClipRegion(ACanvas.Handle, LCell.Bounds.InflateTo(-1));
@@ -1167,16 +1167,15 @@ begin
     LRect := TRect.Create(LightSource);
     LRect.Inflate(dpiApply(LanternLightRadius, CurrentDpi));
 
-    LTexture := TACLSkinImage.Create;
+    LImage := TACLImage.Create(HInstance, 'ACLCALENDAR_LIGHT', RT_RCDATA);
     try
-      LTexture.LoadFromResource(HInstance, 'ACLCALENDAR_LIGHT', RT_RCDATA);
-      LTexture.ApplyTint(TACLPixel32.Create(Style.ColorTextSelectedDay.Value));
-      LTexture.Draw(ACanvas, LRect, 0, LanternLightAlpha);
+      LImage.ApplyTint(TACLPixel32.Create(Style.ColorTextSelectedDay.Value));
+      LImage.Draw(ACanvas, LRect, LanternLightAlpha);
     finally
-      LTexture.Free;
+      LImage.Free;
     end;
   finally
-    acRestoreClipRegion(ACanvas.Handle, LClipping);
+    acEndClippedDraw(ACanvas, LClipping);
   end;
 end;
 

@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Application Controller
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -26,6 +26,7 @@ uses
   {Winapi.}Windows,
 {$ENDIF}
   // System
+  {System.}Classes,
   {System.}Math,
   {System.}SysUtils,
   System.UITypes,
@@ -57,11 +58,13 @@ type
 
   TACLApplication = class
   strict private const
+    DefaultCatchExceptions = True;
     DefaultHideHintPause = 10000;
   strict private
     class var FActualAccentColor: TAlphaColor;
     class var FActualDarkMode: Boolean;
     class var FActualDarkModeForSystem: Boolean;
+    class var FCatchExceptions: Boolean;
     class var FColorSchema: TACLColorSchema;
     class var FColorSchemaUseNative: Boolean;
     class var FDarkMode: TACLBoolean;
@@ -72,8 +75,6 @@ type
   {$IFDEF FPC}
     class procedure DefaultFontChanged(Sender: TObject);
   {$ENDIF}
-    class function DecodeColorScheme(const AValue: Word): TACLColorSchema;
-    class function EncodeColorScheme(const AValue: TACLColorSchema): Word;
     class function GetDefaultFont: TFont; static;
     class function GetNativeColorAccent: TAlphaColor;
     class procedure GetNativeDarkMode(out ADarkModeForApps, ADarkModeForSystem: Boolean);
@@ -94,8 +95,11 @@ type
     class procedure UpdateColorSet;
 
     class function GetHandle: HWND;
+    class function IsDestroying: Boolean;
     class function IsMinimized: Boolean;
     class procedure Minimize;
+    class procedure ModalFinish(var AList: Pointer);
+    class procedure ModalStart(out AList: Pointer);
     class procedure PostTerminate;
     class procedure RestoreIfMinimized;
 
@@ -106,6 +110,7 @@ type
     class function IsDarkModeOfSystemBar: Boolean;
 
     class property AccentColor: TAlphaColor read FActualAccentColor;
+    class property CatchExceptions: Boolean read FCatchExceptions write FCatchExceptions;
     class property ColorSchema: TACLColorSchema read FColorSchema write SetColorSchema;
     class property ColorSchemaUseNative: Boolean read FColorSchemaUseNative write SetColorSchemaUseNative;
     class property DarkMode: TACLBoolean read FDarkMode write SetDarkMode;
@@ -134,10 +139,20 @@ uses
 {$ENDIF}
   ACL.Utils.DPIAware;
 
+{$IFDEF FPC}
+type
+  PModalLock = ^TModalLock;
+  TModalLock = record
+    Focus: HWND;
+    List: TList;
+  end;
+{$ENDIF}
+
 { TACLApplication }
 
 class constructor TACLApplication.Create;
 begin
+  CatchExceptions := DefaultCatchExceptions;
   UpdateColorSet;
 end;
 
@@ -150,18 +165,20 @@ class procedure TACLApplication.ConfigLoad(AConfig: TACLIniFile; const ASection:
 begin
   TargetDPI := AConfig.ReadInteger(ASection, 'TargetDPI');
   DarkMode := AConfig.ReadEnum<TACLBoolean>(ASection, 'DarkMode', TACLBoolean.Default);
-  ColorSchema := DecodeColorScheme(AConfig.ReadInteger(ASection, 'ColorSchema'));
+  ColorSchema := TACLColorSchema.CreateFromDword(AConfig.ReadInt64(ASection, 'ColorSchema'));
   ColorSchemaUseNative := AConfig.ReadBool(ASection, 'UseNativeColorSchema');
+  CatchExceptions := AConfig.ReadBool(ASection, 'CatchExceptions', DefaultCatchExceptions);
   Application.HintHidePause := AConfig.ReadInteger(ASection, 'HideHintPause', DefaultHideHintPause);
   Application.ShowHint := Application.HintHidePause > 0;
 end;
 
 class procedure TACLApplication.ConfigSave(AConfig: TACLIniFile; const ASection: string);
 begin
-  AConfig.WriteInteger(ASection, 'ColorSchema', EncodeColorScheme(ColorSchema), 0);
+  AConfig.WriteEnum<TACLBoolean>(ASection, 'DarkMode', DarkMode, TACLBoolean.Default);
+  AConfig.WriteInt64(ASection, 'ColorSchema', ColorSchema.ToDword, 0);
   AConfig.WriteInteger(ASection, 'TargetDPI', TargetDPI, 0);
   AConfig.WriteInteger(ASection, 'HideHintPause', Application.HintHidePause, DefaultHideHintPause);
-  AConfig.WriteEnum<TACLBoolean>(ASection, 'DarkMode', DarkMode, TACLBoolean.Default);
+  AConfig.WriteBool(ASection, 'CatchExceptions', CatchExceptions, DefaultCatchExceptions);
   AConfig.WriteBool(ASection, 'UseNativeColorSchema', ColorSchemaUseNative, False);
 end;
 
@@ -218,6 +235,11 @@ begin
   Result := FActualDarkModeForSystem;
 end;
 
+class function TACLApplication.IsDestroying: Boolean;
+begin
+  Result := (Application = nil) or (csDestroying in Application.ComponentState);
+end;
+
 class procedure TACLApplication.ListenerAdd(AListener: IUnknown);
 begin
   if FListeners = nil then
@@ -235,14 +257,47 @@ begin
   end;
 end;
 
+class procedure TACLApplication.ModalFinish(var AList: Pointer);
+begin
+{$IFDEF FPC}
+  Screen.EnableForms(PModalLock(AList)^.List);
+  SetFocus(PModalLock(AList)^.Focus);
+  FreeMem(AList);
+{$ELSE}
+  EnableTaskWindows(AList);
+{$ENDIF}
+  Application.ModalFinished;
+  AList := nil;
+end;
+
+class procedure TACLApplication.ModalStart(out AList: Pointer);
+{$IFDEF FPC}
+var
+  LLock: PModalLock;
+{$ENDIF}
+begin
+  // В общем суть такая, плагин (Enhancer в частности) поднимает модальное MFC-окно,
+  // при этом не блокирует наши окна, пользователь закрывает наше окно, а затем - MFC-шное
+  // Посколькуо наше окно уже убилось, MouseUp, до этого залоченный модальный
+  // message loop, завершается по убитым объектам и все рушится.
+  Application.ModalStarted;
+{$IFDEF FPC}
+  LLock := AllocMem(SizeOf(TModalLock));
+  LLock^.Focus := GetFocus;
+  LLock^.List := Screen.DisableForms(nil);
+  AList := LLock;
+{$ELSE}
+  AList := DisableTaskWindows(0);
+{$ENDIF}
+end;
+
 class procedure TACLApplication.Changed(AChanges: TACLApplicationChanges);
+var
+  LIntf: IACLApplicationListener;
 begin
   if (FListeners <> nil) and (AChanges <> []) then
-    FListeners.Enum<IACLApplicationListener>(
-      procedure (const AIntf: IACLApplicationListener)
-      begin
-        AIntf.Changed(AChanges);
-      end);
+    for LIntf in FListeners.Enumerate<IACLApplicationListener> do
+      LIntf.Changed(AChanges);
 end;
 
 class procedure TACLApplication.SetDefaultFont(AName: TFontName; AHeight: Integer);
@@ -373,24 +428,6 @@ begin
   Changed([acDefaultFont]);
 end;
 {$ENDIF}
-
-class function TACLApplication.DecodeColorScheme(const AValue: Word): TACLColorSchema;
-begin
-  if AValue = 0 then
-    Result := TACLColorSchema.Default
-  else
-    // backward compatibility, Intensity stored in range [0..100]
-    Result := TACLColorSchema.Create(AValue and $FF, MulDiv(255, AValue shr 8, 100));
-end;
-
-class function TACLApplication.EncodeColorScheme(const AValue: TACLColorSchema): Word;
-begin
-  if AValue.IsAssigned then
-    // backward compatibility, Intensity stored in range [0..100]
-    Result := MakeWord(AValue.Hue, MulDiv(100, AValue.HueIntensity, 255))
-  else
-    Result := 0;
-end;
 
 class function TACLApplication.GetNativeColorAccent: TAlphaColor;
 {$IFDEF MSWINDOWS}

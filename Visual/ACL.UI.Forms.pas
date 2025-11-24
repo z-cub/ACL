@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Forms and Top-level Windows
 //
@@ -22,6 +22,7 @@ uses
   LCLIntf,
   LCLType,
   LMessages,
+  WSLCLClasses,
 {$ELSE}
   Winapi.ActiveX,
   Winapi.CommDlg,
@@ -68,18 +69,14 @@ uses
   ACL.Utils.RTTI,
   ACL.Utils.Strings;
 
-const
-  whmPreprocess  = ACL.UI.Forms.Base.whmPreprocess;
-  whmPostprocess = ACL.UI.Forms.Base.whmPostprocess;
 {$IFNDEF FPC}
+const
   stAlways  = ACL.UI.Forms.Base.stAlways;
   stDefault = ACL.UI.Forms.Base.stDefault;
   stNever   = ACL.UI.Forms.Base.stNever;
-
 type
   TShowInTaskbar = ACL.UI.Forms.Base.TShowInTaskbar;
 {$ENDIF}
-
 type
   TShowMode = ACL.UI.Forms.Base.TShowMode;
 
@@ -90,6 +87,7 @@ type
   TACLPopupWindowClass = class of TACLPopupWindow;
   TACLPopupWindow = class(TACLBasicForm)
   strict private
+    FDropDownMode: Boolean;
     FOwnerFormWnd: TWndHandle;
     FOnClosePopup: TNotifyEvent;
     FOnPopup: TNotifyEvent;
@@ -102,6 +100,7 @@ type
     procedure CreateParams(var Params: TCreateParams); override;
   {$IFDEF FPC}
     procedure KeyDownBeforeInterface(var Key: Word; Shift: TShiftState); override;
+    class procedure WSRegisterClass; override;
   {$ENDIF}
     procedure WndProc(var Message: TMessage); override;
     //# Mouse
@@ -118,6 +117,7 @@ type
       AAlignment: TAlignment = taLeftJustify);
     //# Properties
     property AutoSize;
+    property DropDownMode: Boolean read FDropDownMode write FDropDownMode default False;
     //# Events
     property OnClosePopup: TNotifyEvent read FOnClosePopup write FOnClosePopup;
     property OnPopup: TNotifyEvent read FOnPopup write FOnPopup;
@@ -162,14 +162,10 @@ type
 
 function acGetWindowText(AHandle: HWND): string;
 procedure acSetWindowText(AHandle: HWND; const AText: string);
-
-procedure acFormsCloseAll; deprecated;
 implementation
 
-{$IFDEF LCLGtk2}
 uses
-  ACL.UI.Core.Impl.Gtk2;
-{$ENDIF}
+{$I ACL.UI.Core.Impl.inc};
 
 type
   TWinControlAccess = class(TWinControl);
@@ -220,25 +216,6 @@ begin
     (AChild.Perform(WM_GETDLGCODE, 0, 0) and DLGC_WANTALLKEYS <> 0));
 end;
 
-procedure acFormsCloseAll;
-var
-  AIndex: Integer;
-  APrevCount: Integer;
-begin
-  AIndex := 0;
-  while AIndex < Screen.FormCount do
-  begin
-    APrevCount := Screen.FormCount;
-    if Application.MainForm <> Screen.Forms[AIndex] then
-    begin
-      Screen.Forms[AIndex].Close;
-      Application.ProcessMessages; // to process PostMessages;
-    end;
-    if APrevCount = Screen.FormCount then
-      Inc(AIndex);
-  end;
-end;
-
 {$REGION ' Popup Window '}
 
 { TACLPopupWindow }
@@ -257,7 +234,6 @@ begin
   ShowInTaskBar := stNever;
 {$ENDIF}
   Scaled := False; // manual control
-  InitScaling;
 end;
 
 destructor TACLPopupWindow.Destroy;
@@ -269,10 +245,11 @@ end;
 
 procedure TACLPopupWindow.ClosePopup;
 begin
+  MouseCapture := False;
   if Visible then
   try
   {$IFDEF LCLGtk2}
-    TGtk2App.EndPopup;
+    TGtkApp.EndPopup(Self);
   {$ENDIF}
     Hide;
     if FOwnerFormWnd <> 0 then
@@ -305,8 +282,12 @@ end;
 procedure TACLPopupWindow.CreateParams(var Params: TCreateParams);
 begin
   inherited;
-  Params.WindowClass.Style := Params.WindowClass.Style or
-    CS_HREDRAW or CS_VREDRAW or CS_DROPSHADOW;
+  if DropDownMode then
+  begin
+    Params.Style := WS_POPUP;
+    Params.ExStyle := Params.ExStyle or WS_EX_NOACTIVATE;
+  end;
+  Params.WindowClass.Style := Params.WindowClass.Style or CS_HREDRAW or CS_VREDRAW or CS_DROPSHADOW;
 end;
 
 procedure TACLPopupWindow.DoPopup;
@@ -397,6 +378,11 @@ end;
 
 procedure TACLPopupWindow.ShowPopup(const R: TRect);
 begin
+  if DropDownMode then
+    ControlStyle := ControlStyle - [csCaptureMouse]
+  else
+    ControlStyle := ControlStyle + [csCaptureMouse];
+
   BoundsRect := R;
 
   if Screen.ActiveCustomForm <> nil then
@@ -409,7 +395,17 @@ begin
 
   Visible := True;
 {$IFDEF LCLGtk2}
-  TGtk2App.BeginPopup(Self);
+  try
+    TGtkApp.BeginPopup(Self);
+    if DropDownMode then
+      TGtkApp.SetInputRedirection(Safe.CastOrNil<TWinControl>(Owner));
+  except
+    ClosePopup;
+    raise;
+  end;
+{$ELSE}
+  if DropDownMode then
+    MouseCapture := True;
 {$ENDIF}
 end;
 
@@ -432,6 +428,12 @@ begin
   end;
   inherited;
 end;
+
+class procedure TACLPopupWindow.WSRegisterClass;
+begin
+  RegisterWSComponent(TACLPopupWindow, TACLWSPopupWindow);
+end;
+
 {$ENDIF}
 
 procedure TACLPopupWindow.WndProc(var Message: TMessage);
@@ -444,15 +446,23 @@ begin
           ClosePopup;
       end;
 
+    WM_CAPTURECHANGED:
+      if DropDownMode and not MouseCapture then
+        ClosePopup;
+
     WM_CONTEXTMENU, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, CM_MOUSEWHEEL:
       Exit;
     WM_GETDLGCODE:
       Message.Result := DLGC_WANTARROWS or DLGC_WANTTAB or DLGC_WANTALLKEYS or DLGC_WANTCHARS;
-    WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
-      if not IsMouseInControl then ClosePopup;
 
-    WM_ACTIVATEAPP:
-      ClosePopup;
+    WM_LBUTTONDOWN, WM_RBUTTONDOWN, WM_MBUTTONDOWN:
+      if not IsMouseInControl then
+        ClosePopup;
+
+    WM_MOUSEMOVE:
+      if DropDownMode then
+        UpdateCursor;
+
     WM_ACTIVATE:
       if Visible then
       begin
@@ -464,6 +474,10 @@ begin
       {$ENDIF}
       end;
 
+    WM_ACTIVATEAPP:
+      if not (fsShowing in FFormState) then
+        ClosePopup;
+
   {$IFNDEF FPC}
     WM_KEYDOWN, CM_DIALOGKEY, CM_WANTSPECIALKEY:
       if Visible and (TWMKey(Message).CharCode = VK_ESCAPE) then
@@ -472,6 +486,15 @@ begin
         TWMKey(Message).CharCode := 0;
         TWMKey(Message).Result := 1;
         Exit;
+      end;
+
+    CN_KEYDOWN:
+      if DropDownMode and (PopupParent <> nil) then // ref.TApplication.IsKeyMsg
+      begin
+        if TWMKey(Message).CharCode = VK_TAB then
+          PopupParent.WindowProc(Message); // to SelectNext
+        if TWMKey(Message).CharCode <> VK_ESCAPE then
+          Exit; // key will be processed by IME
       end;
   {$ENDIF}
   end;

@@ -23,9 +23,14 @@
           <OptimizationLevel Value="0"/>
         </Optimizations>
       </CodeGeneration>
+      <Other>
+        <CompilerMessages>
+          <IgnoredMessages idx6060="True" idx6018="True" idx5026="True" idx5024="True" idx5023="True" idx3018="True"/>
+        </CompilerMessages>
+      </Other>
     </CompilerOptions>
-    <Description Value="ACL (Artem&apos;s component / controls library)"/>
-    <Version Major="6"/>
+    <Description Value="ACL (Artem&apos;s Component / Controls Library)"/>
+    <Version Major="7"/>
     <Files>
       <Item>
         <Filename Value="Base/ACL.Classes.pas"/>
@@ -108,6 +113,11 @@
         <UnitName Value="ACL.Graphics.Ex.Cairo"/>
       </Item>
       <Item>
+        <Filename Value="Base/ACL.Graphics.Ex.Stub.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.Graphics.Ex.Stub"/>
+      </Item>
+      <Item>
         <Filename Value="Base/ACL.Graphics.FontCache.pas"/>
         <UnitName Value="ACL.Graphics.FontCache"/>
       </Item>
@@ -126,6 +136,11 @@
       <Item>
         <Filename Value="Base/ACL.Graphics.SkinImageSet.pas"/>
         <UnitName Value="ACL.Graphics.SkinImageSet"/>
+      </Item>
+      <Item>
+        <Filename Value="Base/ACL.Graphics.Stub.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.Graphics.Stub"/>
       </Item>
       <Item>
         <Filename Value="Base/ACL.Graphics.TextLayout.pas"/>
@@ -180,8 +195,17 @@
         <UnitName Value="ACL.Timers"/>
       </Item>
       <Item>
+        <Filename Value="Base/ACL.UndoRedo.pas"/>
+        <UnitName Value="ACL.UndoRedo"/>
+      </Item>
+      <Item>
         <Filename Value="Base/ACL.Utils.Clipboard.pas"/>
         <UnitName Value="ACL.Utils.Clipboard"/>
+      </Item>
+      <Item>
+        <Filename Value="Base/ACL.Utils.CommandLine.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.Utils.CommandLine"/>
       </Item>
       <Item>
         <Filename Value="Base/ACL.Utils.Common.pas"/>
@@ -208,6 +232,11 @@
         <UnitName Value="ACL.Utils.FileSystem.GIO"/>
       </Item>
       <Item>
+        <Filename Value="Base/ACL.Utils.FileSystem.Watcher.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.Utils.FileSystem.Watcher"/>
+      </Item>
+      <Item>
         <Filename Value="Base/ACL.Utils.Logger.pas"/>
         <UnitName Value="ACL.Utils.Logger"/>
       </Item>
@@ -230,6 +259,11 @@
       <Item>
         <Filename Value="Base/ACL.Utils.Strings.pas"/>
         <UnitName Value="ACL.Utils.Strings"/>
+      </Item>
+      <Item>
+        <Filename Value="Base/ACL.Web.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.Web"/>
       </Item>
       <Item>
         <Filename Value="Visual/ACL.UI.AeroPeek.pas"/>
@@ -318,10 +352,6 @@
       <Item>
         <Filename Value="Visual/ACL.UI.Controls.DropDown.pas"/>
         <UnitName Value="ACL.UI.Controls.DropDown"/>
-      </Item>
-      <Item>
-        <Filename Value="Visual/ACL.UI.Controls.FormattedLabel.pas"/>
-        <UnitName Value="ACL.UI.Controls.FormattedLabel"/>
       </Item>
       <Item>
         <Filename Value="Visual/ACL.UI.Controls.GroupBox.pas"/>
@@ -428,10 +458,6 @@
         <UnitName Value="ACL.UI.Controls.TreeList.SubClass"/>
       </Item>
       <Item>
-        <Filename Value="Visual/ACL.UI.Controls.TreeList.SubClass.DragAndDrop.pas"/>
-        <UnitName Value="ACL.UI.Controls.TreeList.SubClass.DragAndDrop"/>
-      </Item>
-      <Item>
         <Filename Value="Visual/ACL.UI.Controls.TreeList.Types.pas"/>
         <UnitName Value="ACL.UI.Controls.TreeList.Types"/>
       </Item>
@@ -448,6 +474,16 @@
         <UnitName Value="ACL.UI.DesignTime.PropEditors.Menu"/>
       </Item>
       <Item>
+        <Filename Value="Visual/ACL.UI.DesignTime.PropEditors.Stub.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.UI.DesignTime.PropEditors.Stub"/>
+      </Item>
+      <Item>
+        <Filename Value="Visual/ACL.UI.DesignTime.PropEditors.Texture.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.UI.DesignTime.PropEditors.Texture"/>
+      </Item>
+      <Item>
         <Filename Value="Visual/ACL.UI.DesignTime.Reg.pas"/>
         <HasRegisterProc Value="True"/>
         <UnitName Value="ACL.UI.DesignTime.Reg"/>
@@ -459,6 +495,11 @@
       <Item>
         <Filename Value="Visual/ACL.UI.Dialogs.ColorPicker.pas"/>
         <UnitName Value="ACL.UI.Dialogs.ColorPicker"/>
+      </Item>
+      <Item>
+        <Filename Value="Visual/ACL.UI.Dialogs.FolderBrowser.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.UI.Dialogs.FolderBrowser"/>
       </Item>
       <Item>
         <Filename Value="Visual/ACL.UI.Dialogs.FontPicker.pas"/>
@@ -475,6 +516,11 @@
       <Item>
         <Filename Value="Visual/ACL.UI.Forms.pas"/>
         <UnitName Value="ACL.UI.Forms"/>
+      </Item>
+      <Item>
+        <Filename Value="Visual/ACL.UI.Forms.Base.pas"/>
+        <AddToUsesPkgSection Value="False"/>
+        <UnitName Value="ACL.UI.Forms.Base"/>
       </Item>
       <Item>
         <Filename Value="Visual/ACL.UI.HintWindow.pas"/>
@@ -504,15 +550,6 @@
     <RequiredPkgs>
       <Item>
         <PackageName Value="IDEIntf"/>
-      </Item>
-      <Item>
-        <PackageName Value="LCLBase"/>
-      </Item>
-      <Item>
-        <PackageName Value="LCL"/>
-      </Item>
-      <Item>
-        <PackageName Value="FCL"/>
       </Item>
     </RequiredPkgs>
     <UsageOptions>

@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   ShellTreeView
 //
@@ -34,6 +34,7 @@ uses
   {Vcl.}Controls,
   {Vcl.}Graphics,
   {Vcl.}ImgList,
+  {Vcl.}Forms,
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
@@ -132,6 +133,7 @@ type
     DefaultQuickAccessNodeState = True;
   strict private
     FImages: TACLShellImageList;
+    FModalLock: Pointer;
     FOptionsBehavior: TACLShellTreeViewOptionsBehavior;
     FOptionsView: TACLShellTreeViewOptionsView;
     FQuickAccessNode: TACLTreeListNode;
@@ -165,7 +167,7 @@ type
     function FindNodeByPIDL(AAbsoluteID: PItemIDList; ANode: TACLTreeListNode): TACLTreeListNode;
     procedure SelectPathByPIDL(PIDL: PItemIDList);
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     procedure ConfigLoad(AConfig: TACLIniFile; const ASection, AItem: string); override;
     procedure ConfigSave(AConfig: TACLIniFile; const ASection, AItem: string); override;
@@ -236,9 +238,7 @@ type
 implementation
 
 uses
-{$IFDEF ACL_LOG_SHELL}
   ACL.Utils.Logger,
-{$ENDIF}
 {$IF DEFINED(MSWINDOWS)}
   ACL.Utils.Desktop,
 {$ELSEIF DEFINED(LCLGtk2)}
@@ -256,7 +256,7 @@ type
 
 {$IFDEF LCLGtk2}
   function gtk_icon_theme_lookup_by_gicon(icon_theme: PGtkIconTheme; icon: PGIcon;
-    size: gint; flags: TGtkIconLookupFlags): PGtkIconInfo; cdecl; external libGtk2;
+    size: gint; flags: TGtkIconLookupFlags): PGtkIconInfo; cdecl; external gtklib;
 {$ENDIF}
 
 { TACLShellImageList }
@@ -267,15 +267,19 @@ var
   LFileInfo: TSHFileInfoW;
 begin
   inherited Create(AOwner);
-  DrawingStyle := dsTransparent;
-  ShareImages := True;
-  ZeroMemory(@LFileInfo, SizeOf(LFileInfo));
-  Handle := SHGetFileInfoW('', 0, LFileInfo, SizeOf(LFileInfo),
-    SHGFI_USEFILEATTRIBUTES or SHGFI_SYSICONINDEX or SHGFI_SMALLICON);
+  try
+    ZeroMemory(@LFileInfo, SizeOf(LFileInfo));
+    Handle := SHGetFileInfoW('', 0, LFileInfo, SizeOf(LFileInfo),
+      SHGFI_USEFILEATTRIBUTES or SHGFI_SYSICONINDEX or SHGFI_SMALLICON);
+    ShareImages := True;
+    DrawingStyle := dsTransparent;
+  except
+    SetSize(16, 16);
+  end;
 {$ELSE}
 begin
   inherited Create(AOwner);
-  FCache := TACLStringIndexes.Create;;
+  FCache := TACLStringIndexes.Create;
 {$ENDIF}
 end;
 
@@ -290,19 +294,19 @@ function TACLShellImageList.GetImageIndex(AFolder: TACLShellFolder): Integer;
 var
   LFileInfo: TSHFileInfoW;
 begin
+  if not ShareImages then Exit(-1);
+
   ZeroMemory(@LFileInfo, SizeOf(LFileInfo));
   if AFolder <> nil then
   begin
-    SHGetFileInfoW(PWideChar(AFolder.AbsoluteID), 0,
-      LFileInfo, SizeOf(LFileInfo),
-      SHGFI_PIDL or SHGFI_SYSICONINDEX or SHGFI_SMALLICON);
+    SHGetFileInfoW(PWideChar(AFolder.AbsoluteID), 0, LFileInfo,
+      SizeOf(LFileInfo), SHGFI_PIDL or SHGFI_SYSICONINDEX or SHGFI_SMALLICON);
   end
   else
   begin
     LFileInfo.dwAttributes := SFGAO_FOLDER;
-    SHGetFileInfo('C:\Folder\', FILE_ATTRIBUTE_DIRECTORY,
-      LFileInfo, SizeOf(LFileInfo),
-      SHGFI_USEFILEATTRIBUTES or SHGFI_SYSICONINDEX);
+    SHGetFileInfo('C:\Folder\', FILE_ATTRIBUTE_DIRECTORY, LFileInfo,
+      SizeOf(LFileInfo), SHGFI_USEFILEATTRIBUTES or SHGFI_SYSICONINDEX);
   end;
   Result := LFileInfo.iIcon;
 {$ELSE}
@@ -527,7 +531,7 @@ end;
 
 { TACLShellTreeViewSubClass }
 
-constructor TACLShellTreeViewSubClass.Create(AOwner: TComponent);
+constructor TACLShellTreeViewSubClass.Create(AOwner: IACLCompoundControlSubClassContainer);
 begin
   inherited Create(AOwner);
   FOptionsView := CreateOptionsView;
@@ -562,15 +566,11 @@ begin
       TPIDLHelper.DisposePIDL(LPIDL);
     end;
   except
-  {$IFDEF ACL_LOG_SHELL}
     on E: Exception do
     begin
-      AddToDebugLog('Shell', e);
+      LogEntry(acGeneralLogFileName, 'Shell', e);
       Result := nil;
     end;
-  {$ELSE}
-    Result := nil;
-  {$ENDIF}
   end;
 end;
 
@@ -671,7 +671,8 @@ end;
 
 procedure TACLShellTreeViewSubClass.DoDriveNotify(const ADrive: TACLDriveInfo; AMount: Boolean);
 begin
-  ReloadData;
+  if FModalLock = nil then
+    ReloadData;
 end;
 
 procedure TACLShellTreeViewSubClass.DoFocusedNodeChanged;
@@ -682,10 +683,27 @@ end;
 
 procedure TACLShellTreeViewSubClass.DoGetNodeChildren(ANode: TACLTreeListNode);
 begin
-  if ANode = RootNode then
-    DoGetRootChildren(ANode)
+  if FModalLock = nil then
+  try
+    // Shell может показать диалог, например "Вставьте CD-диск". И нам важно,
+    // чтобы наше оконо не закрылось, пока контрол не обработает запрос до конца.
+    TACLApplication.ModalStart(FModalLock);
+    try
+      if ANode = RootNode then
+        DoGetRootChildren(ANode)
+      else
+        DoGetPathChildren(ANode);
+    finally
+      TACLApplication.ModalFinish(FModalLock);
+    end;
+  except
+    // do nothing
+  end
   else
-    DoGetPathChildren(ANode);
+    if ANode = RootNode then
+      DoGetRootChildren(ANode)
+    else
+      DoGetPathChildren(ANode);
 end;
 
 procedure TACLShellTreeViewSubClass.DoGetPathChildren(ANode: TACLTreeListNode);
@@ -851,9 +869,7 @@ begin
       TPIDLHelper.DisposePIDL(APIDL);
     end;
   except
-  {$IFDEF ACL_LOG_SHELL}
-    AddToDebugLog('Shell', 'SetSelectedPath failed');
-  {$ENDIF}
+    LogEntry(acGeneralLogFileName, 'Shell', 'SetSelectedPath failed (%s)', [AValue]);
   end;
 end;
 

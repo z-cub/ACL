@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Multi-language UI Engine
 //
@@ -129,7 +129,6 @@ type
     procedure ExpandLinks(ALinks: TACLIniFile); overload;
     procedure LoadFromFile(const AFileName: string); override;
     procedure LoadFromStream(AStream: TStream); override;
-    //
     function ReadStringEx(const ASection, AKey: string; out AValue: string): Boolean; override;
     // Listeners
     class procedure ListenerAdd(const AListener: IACLLocalizationListener);
@@ -348,7 +347,7 @@ end;
 
 procedure LangGetFiles(AList: TACLStringList);
 begin
-  acEnumFiles(LangFilePath, '*' + sLangExt + ';', AList);
+  acEnumFiles(LangFilePath, '*' + sLangExt + ';', AList.AddEx);
   AList.SortLogical;
 end;
 
@@ -430,50 +429,42 @@ end;
 
 procedure TACLLocalization.ExpandLinks(AInst: HMODULE; const AName: string; AType: PChar);
 var
-  ALinks: TACLIniFile;
+  LLinks: TACLIniFile;
 begin
-  ALinks := TACLIniFile.Create;
+  LLinks := TACLIniFile.Create;
   try
-    ALinks.LoadFromResource(AInst, AName, AType);
-    ExpandLinks(ALinks);
+    LLinks.LoadFromResource(AInst, AName, AType);
+    ExpandLinks(LLinks);
   finally
-    ALinks.Free;
+    LLinks.Free;
   end;
 end;
 
 procedure TACLLocalization.ExpandLinks(ALinks: TACLIniFile);
 var
-  AItemName: string;
-  AItems: TACLStringList;
-  ASectionName: string;
-  AValue: string;
+  LKey: string;
+  LSection: TACLIniFileSection;
+  LValue: string;
   I, J, P: Integer;
 begin
-  AItems := TACLStringList.Create;
-  try
-    for I := 0 to ALinks.SectionCount - 1 do
+  for I := 0 to ALinks.SectionCount - 1 do
+  begin
+    LSection := ALinks.SectionObjs[I];
+    for J := 0 to LSection.Count - 1 do
     begin
-      AItems.Clear;
-      ASectionName := ALinks.Sections[I];
-      ALinks.ReadKeys(ASectionName, AItems);
-      for J := 0 to AItems.Count - 1 do
+      LKey := LSection.Names[J];
+      if not ExistsKey(LSection.Name, LKey) then
       begin
-        AItemName := AItems[J];
-        if not ExistsKey(ASectionName, AItemName) then
-        begin
-          AValue := ALinks.ReadString(ASectionName, AItemName);
-          P := acPos('>', AValue);
-          if P = 0 then
-            AValue := ReadString(ASectionName, Copy(AValue, 2, MaxInt))
-          else
-            AValue := ReadString(Copy(AValue, 2, P - 2), Copy(AValue, P + 1, MaxInt));
+        LValue := LSection.ValueFromIndex[J];
+        P := acPos('>', LValue);
+        if P = 0 then
+          LValue := ReadString(LSection.Name, Copy(LValue, 2, MaxInt))
+        else
+          LValue := ReadString(Copy(LValue, 2, P - 2), Copy(LValue, P + 1, MaxInt));
 
-          WriteString(ASectionName, AItemName, AValue);
-        end;
+        WriteString(LSection.Name, LKey, LValue);
       end;
     end;
-  finally
-    AItems.Free;
   end;
 end;
 
@@ -509,25 +500,21 @@ begin
 end;
 
 procedure TACLLocalization.LangChanged;
-{$IFNDEF ACL_BASE_NOVCL}
 var
+{$IFNDEF ACL_BASE_NOVCL}
   I: Integer;
 {$ENDIF}
+  LIntf1: IACLLocalizationListener;
+  LIntf2: IACLLocalizationListener2;
+  LIntf3: IACLLocalizationListener3;
 begin
-  if not acSameTextEx(ShortFileName, [sDefaultLang, sDefaultLang2]) then
+  if not acContains(ShortFileName, [sDefaultLang, sDefaultLang2], True) then
     Merge(LangFilePath + sDefaultLang, False);
 
-  FListeners.Enum<IACLLocalizationListener2>(
-    procedure (const AIntf: IACLLocalizationListener2)
-    begin
-      AIntf.LangInitialize;
-    end);
-
-  FListeners.Enum<IACLLocalizationListener3>(
-    procedure (const AIntf: IACLLocalizationListener3)
-    begin
-      AIntf.LangChanging;
-    end);
+  for LIntf2 in FListeners.Enumerate<IACLLocalizationListener2> do
+    LIntf2.LangInitialize;
+  for LIntf3 in FListeners.Enumerate<IACLLocalizationListener3> do
+    LIntf3.LangChanging;
 
 {$IFNDEF ACL_BASE_NOVCL}
   if Assigned(Application.MainForm) then
@@ -536,11 +523,8 @@ begin
     acSendMessage(Screen.Forms[I].Handle, WM_ACL_LANG, 0, 0);
 {$ENDIF}
 
-  FListeners.Enum<IACLLocalizationListener>(
-    procedure (const AIntf: IACLLocalizationListener)
-    begin
-      AIntf.LangChanged;
-    end);
+  for LIntf1 in FListeners.Enumerate<IACLLocalizationListener> do
+    LIntf1.LangChanged;
 end;
 
 function TACLLocalization.GetLangID: Integer;

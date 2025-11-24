@@ -87,10 +87,12 @@ begin
   try
     repeat
       if LInfo.FileName.StartsWith(Prefix) and (LInfo.FileName <> LName) then
-      begin
+      try
         LClient := TIPCClient.Create(LInfo.FileName);
         LClient.Send(HelloCmd, LName);
         TACLIPCHub.FClients.Add(LClient);
+      except
+        // do nothing
       end;
     until not acFindFileNext(LInfo);
   finally
@@ -119,12 +121,16 @@ var
   LCmd: Cardinal;
   LMsg: string;
 begin
-  LCmd := Cardinal(FCore.Message.MsgType);
-  LMsg := FCore.Message.StringMessage;
-  if LCmd = HelloCmd then
-    TACLIPCHub.FClients.Add(TIPCClient.Create(LMsg))
-  else
-    TACLIPCHub.Receive(LCmd, LMsg);
+  try
+    LCmd := Cardinal(FCore.Message.MsgType);
+    LMsg := FCore.Message.StringMessage;
+    if LCmd = HelloCmd then
+      TACLIPCHub.FClients.Add(TIPCClient.Create(LMsg))
+    else
+      TACLIPCHub.Receive(LCmd, LMsg);
+  except
+    // do nothing
+  end;
 end;
 
 procedure TIPCServer.HandlerPoolMessage(Sender: TObject);
@@ -136,11 +142,16 @@ class function TIPCServer.TryConnect(const AServerName: string): IACLIPCClient;
 var
   LClient: TIPCClient;
 begin
-  LClient := TIPCClient.Create(Prefix + AServerName);
-  if LClient.IsServerRunning then
-    Result := LClient
-  else
-    LClient.Free;
+  Result := nil;
+  try
+    LClient := TIPCClient.Create(Prefix + AServerName);
+    if LClient.IsServerRunning then
+      Result := LClient
+    else
+      LClient.Free;
+  except
+    // do nothing
+  end;
 end;
 
 { TACLAppAtom }

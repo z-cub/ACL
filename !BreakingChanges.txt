@@ -1,0 +1,11 @@
+v7.0 - Breaking Changes:
+------------------------
+1) AlignWithMargins has been removed. Adjust the offsets via the Margins property.
+2) Margins values set to 0 by default
+3) TACLEdit - InnerEdit has been removed (replaced by our own implementation)
+4) TACLMemo - InnerEdit has been removed (replaced by our own implementation)
+5) TACLStyleLabel.Effect has been removed
+6) TACLFormattedLabel moved to ACL.UI.Controls.Labels
+7) TACLFormattedLabel is TACLLabel descendant now
+8) TACLFormattedLabel.AutoScroll removed. Use AutoSize within ScrollBox if necessary
+9) Generics refactoring to resolve FPC internal error #20231102

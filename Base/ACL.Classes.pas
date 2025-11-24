@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   General Classes
 //
@@ -23,12 +23,12 @@ uses
   Winapi.Windows, // inlining
 {$ENDIF}
   // System
-  {System.}Math,
-  {System.}TypInfo,
   {System.}Classes,
-  {System.}SysUtils,
   {System.}Contnrs,
   {System.}Generics.Collections,
+  {System.}Math,
+  {System.}SysUtils,
+  {System.}TypInfo,
   // ACL
   ACL.ObjectLinks,
   ACL.Threading,
@@ -86,7 +86,7 @@ type
     function _Release: Integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
     function QueryInterface({$IFDEF FPC}constref{$ELSE}const{$ENDIF}
       IID: TGUID; out Obj): HRESULT; virtual; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
-    //
+    // Properties
     property IsDestroying: Boolean read FIsDestroying;
   public
     procedure BeforeDestruction; override;
@@ -103,7 +103,7 @@ type
     function _Release: Integer; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
     function QueryInterface({$IFDEF FPC}constref{$ELSE}const{$ENDIF}
       IID: TGUID; out Obj): HRESULT; {$IFDEF MSWINDOWS}stdcall{$ELSE}cdecl{$ENDIF};
-    //
+    // Properties
     property IsDestroying: Boolean read FIsDestroying;
   public
     procedure BeforeDestruction; override;
@@ -149,13 +149,13 @@ type
     procedure DoAssign(Source: TPersistent); virtual;
     procedure DoChanged(AChanges: TACLPersistentChanges); virtual; abstract;
     procedure Changed(AChanges: TACLPersistentChanges = [apcStruct]);
-    //
+    // Properties
     property IsLocked: Boolean read GetIsLocked;
   public
     procedure Assign(Source: TPersistent); override;
     procedure BeginUpdate; virtual;
-    procedure EndUpdate; virtual;
     procedure CancelUpdate; virtual;
+    procedure EndUpdate; virtual;
   end;
 
   { TACLReadWriteSyncPersistent }
@@ -187,7 +187,7 @@ type
 
   { TACLComponentFreeNotifier }
 
-  TACLComponentFreeNotifyEvent = procedure (Sender: TObject; AComponent: TComponent) of object;
+  TACLComponentFreeNotifyEvent = procedure (AComponent: TComponent) of object;
   TACLComponentFreeNotifier = class(TComponent)
   strict private
     FOnFreeNotify: TACLComponentFreeNotifyEvent;
@@ -728,7 +728,7 @@ begin
   if Operation = opRemove then
   begin
     if Assigned(OnFreeNotify) then
-      OnFreeNotify(Self, AComponent);
+      OnFreeNotify(AComponent);
   end;
 end;
 

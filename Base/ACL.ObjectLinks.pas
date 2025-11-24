@@ -1,12 +1,12 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Object Links (aka WeakReferences)
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -52,9 +52,9 @@ type
   strict private
     class var FFreeNotifier: TComponent;
     class var FLinks: TObjectDictionary<TObject, TObject>;
-    class var FLock: TACLCriticalSection;
-
     class function SafeCreateLink(AObject: TObject): TObject;
+  protected
+    class var Lock: TACLCriticalSection;
   public
     class constructor Create;
     class destructor Destroy;
@@ -97,8 +97,10 @@ type
     FRemoveListeners: TACLInterfaceList;
     FWeakReferences: TList;
   public
+    // Вызываются откуда угодно
     constructor Create(AObject: TObject);
     destructor Destroy; override;
+    // Вызываются исключительно из-под TACLObjectLinks.Lock
     procedure AddBridge(const ALink: TACLObjectLink); inline;
     procedure AddExtension(const AIntf: IUnknown); inline;
     procedure AddRemoveListener(const ARemoveListener: IACLObjectRemoveNotify); inline;
@@ -114,7 +116,7 @@ type
 
 class constructor TACLObjectLinks.Create;
 begin
-  FLock := TACLCriticalSection.Create(nil, ClassName);
+  Lock := TACLCriticalSection.Create(nil, ClassName);
   FLinks := TObjectDictionary<TObject, TObject>.Create([doOwnsValues]);
   FFreeNotifier := TFreeNotifier.Create(nil);
 end;
@@ -123,7 +125,7 @@ class destructor TACLObjectLinks.Destroy;
 begin
   FreeAndNil(FFreeNotifier);
   FreeAndNil(FLinks);
-  FreeAndNil(FLock);
+  FreeAndNil(Lock);
 end;
 
 class function TACLObjectLinks.GetExtension(AObject: TObject; const IID: TGUID): IUnknown;
@@ -134,142 +136,84 @@ end;
 
 class function TACLObjectLinks.GetExtension(AObject: TObject; const IID: TGUID; out Obj): Boolean;
 var
-  ALink: TACLObjectLink;
+  LLink: TACLObjectLink;
 begin
-  FLock.Enter;
+  Lock.Enter;
   try
-    Result := FLinks.TryGetValue(AObject, TObject(ALink)) and ALink.GetExtension(IID, Obj);
+    Result := (AObject <> nil) and FLinks.TryGetValue(AObject, TObject(LLink)) and LLink.GetExtension(IID, Obj);
   finally
-    FLock.Leave;
+    Lock.Leave;
   end;
 end;
 
 class procedure TACLObjectLinks.Release(AObject: TObject);
 var
-  APair: TPair<TObject, TObject>;
+  LPair: TPair<TObject, TObject>;
 begin
   if FLinks = nil then Exit;
-  FLock.Enter;
+
+  Lock.Enter;
   try
-    APair := FLinks.ExtractPair(AObject);
+    LPair := FLinks.ExtractPair(AObject);
   finally
-    FLock.Leave;
+    Lock.Leave;
   end;
-  if APair.Value <> nil then
-    APair.Value.Free;
+
+  if LPair.Value <> nil then
+    // Тут надо быть аккуратным:
+    // С одной стороны Link имеет ссылки на другие линки, и их надо чистить синхронно
+    // С другой - уведомление Removing может спровоцировать ожидание потока,
+    // который в свою очередь ждет разблокировки TACLObjectLinks
+    LPair.Value.Free;
 end;
 
 class procedure TACLObjectLinks.RegisterBridge(AObject1, AObject2: TObject);
 var
-  ALink1, ALink2: TACLObjectLink;
+  LLink1, LLink2: TACLObjectLink;
 begin
-  FLock.Enter;
+  if (AObject1 = nil) or (AObject2 = nil) then
+    raise Exception.Create('Objects must not be nil');
+
+  Lock.Enter;
   try
-    ALink1 := TACLObjectLink(SafeCreateLink(AObject1));
-    ALink2 := TACLObjectLink(SafeCreateLink(AObject2));
-    ALink1.AddBridge(ALink2);
-    ALink2.AddBridge(ALink1);
+    LLink1 := TACLObjectLink(SafeCreateLink(AObject1));
+    LLink2 := TACLObjectLink(SafeCreateLink(AObject2));
+    LLink1.AddBridge(LLink2);
+    LLink2.AddBridge(LLink1);
   finally
-    FLock.Leave;
+    Lock.Leave;
   end;
 end;
 
 class procedure TACLObjectLinks.RegisterExtension(AObject: TObject; AExtension: IInterface);
 begin
-  FLock.Enter;
+  Lock.Enter;
   try
     TACLObjectLink(SafeCreateLink(AObject)).AddExtension(AExtension);
   finally
-    FLock.Leave;
+    Lock.Leave;
   end;
 end;
 
 class procedure TACLObjectLinks.RegisterRemoveListener(
   AObject: TObject; ARemoveListener: IACLObjectRemoveNotify);
 begin
-  FLock.Enter;
+  Lock.Enter;
   try
     TACLObjectLink(SafeCreateLink(AObject)).AddRemoveListener(ARemoveListener);
   finally
-    FLock.Leave;
+    Lock.Leave;
   end;
 end;
 
 class procedure TACLObjectLinks.RegisterWeakReference(AObject: TObject; AWeakReference: PObject);
 begin
-  FLock.Enter;
+  Lock.Enter;
   try
     TACLObjectLink(SafeCreateLink(AObject)).AddWeakReference(AWeakReference);
     AWeakReference^ := AObject;
   finally
-    FLock.Leave;
-  end;
-end;
-
-class procedure TACLObjectLinks.UnregisterBridge(AObject1, AObject2: TObject);
-var
-  ALink1, ALink2: TACLObjectLink;
-begin
-  FLock.Enter;
-  try
-    if FLinks.TryGetValue(AObject1, TObject(ALink1)) and FLinks.TryGetValue(AObject2, TObject(ALink2)) then
-    begin
-      ALink1.RemoveBridge(ALink2);
-      ALink2.RemoveBridge(ALink1);
-    end;
-  finally
-    FLock.Leave;
-  end;
-end;
-
-class procedure TACLObjectLinks.UnregisterExtension(AObject: TObject; AExtension: IInterface);
-var
-  AValue: TObject;
-begin
-  FLock.Enter;
-  try
-    if FLinks.TryGetValue(AObject, AValue) then
-      TACLObjectLink(AValue).RemoveExtension(AExtension);
-  finally
-    FLock.Leave;
-  end;
-end;
-
-class procedure TACLObjectLinks.UnregisterRemoveListener(
-  ARemoveListener: IACLObjectRemoveNotify; AObject: TObject = nil);
-var
-  ALink: TObject;
-begin
-  FLock.Enter;
-  try
-    if AObject = nil then
-    begin
-      for ALink in FLinks.Values do
-        TACLObjectLink(ALink).RemoveRemoveListener(ARemoveListener);
-    end
-    else
-      if FLinks.TryGetValue(AObject, ALink) then
-        TACLObjectLink(ALink).RemoveRemoveListener(ARemoveListener);
-  finally
-    FLock.Leave;
-  end;
-end;
-
-class procedure TACLObjectLinks.UnregisterWeakReference(AWeakReference: PObject);
-var
-  AValue: TObject;
-begin
-  if AWeakReference^ <> nil then
-  try
-    FLock.Enter;
-    try
-      if FLinks.TryGetValue(AWeakReference^, AValue) then
-        TACLObjectLink(AValue).RemoveWeakReference(AWeakReference);
-    finally
-      FLock.Leave;
-    end;
-  finally
-    AWeakReference^ := nil;
+    Lock.Leave;
   end;
 end;
 
@@ -286,6 +230,77 @@ begin
     end;
     Result := TACLObjectLink.Create(AObject);
     FLinks.Add(AObject, Result);
+  end;
+end;
+
+class procedure TACLObjectLinks.UnregisterBridge(AObject1, AObject2: TObject);
+var
+  LLink1, LLink2: TACLObjectLink;
+begin
+  if (AObject1 = nil) or (AObject2 = nil) then Exit;
+
+  Lock.Enter;
+  try
+    if FLinks.TryGetValue(AObject1, TObject(LLink1)) and
+       FLinks.TryGetValue(AObject2, TObject(LLink2)) then
+    begin
+      LLink1.RemoveBridge(LLink2);
+      LLink2.RemoveBridge(LLink1);
+    end;
+  finally
+    Lock.Leave;
+  end;
+end;
+
+class procedure TACLObjectLinks.UnregisterExtension(AObject: TObject; AExtension: IInterface);
+var
+  AValue: TObject;
+begin
+  if AObject = nil then Exit;
+  Lock.Enter;
+  try
+    if FLinks.TryGetValue(AObject, AValue) then
+      TACLObjectLink(AValue).RemoveExtension(AExtension);
+  finally
+    Lock.Leave;
+  end;
+end;
+
+class procedure TACLObjectLinks.UnregisterRemoveListener(
+  ARemoveListener: IACLObjectRemoveNotify; AObject: TObject = nil);
+var
+  ALink: TObject;
+begin
+  Lock.Enter;
+  try
+    if AObject = nil then
+    begin
+      for ALink in FLinks.Values do
+        TACLObjectLink(ALink).RemoveRemoveListener(ARemoveListener);
+    end
+    else
+      if FLinks.TryGetValue(AObject, ALink) then
+        TACLObjectLink(ALink).RemoveRemoveListener(ARemoveListener);
+  finally
+    Lock.Leave;
+  end;
+end;
+
+class procedure TACLObjectLinks.UnregisterWeakReference(AWeakReference: PObject);
+var
+  AValue: TObject;
+begin
+  if AWeakReference^ <> nil then
+  try
+    Lock.Enter;
+    try
+      if FLinks.TryGetValue(AWeakReference^, AValue) then
+        TACLObjectLink(AValue).RemoveWeakReference(AWeakReference);
+    finally
+      Lock.Leave;
+    end;
+  finally
+    AWeakReference^ := nil;
   end;
 end;
 
@@ -318,10 +333,19 @@ begin
     FreeAndNil(FWeakReferences);
   end;
 
+  // Тут надо быть аккуратным:
+  // С одной стороны Link имеет ссылки на другие линки, и их надо чистить синхронно
+  // С другой - уведомление Removing может спровоцировать ожидание потока,
+  // который в свою очередь ждет разблокировки TACLObjectLinks
   if FBridges <> nil then
   try
-    for I := FBridges.Count - 1 downto 0 do
-      TACLObjectLink(FBridges.List[I]).RemoveBridge(Self);
+    TACLObjectLinks.Lock.Enter;
+    try
+      for I := FBridges.Count - 1 downto 0 do
+        TACLObjectLink(FBridges.List[I]).RemoveBridge(Self);
+    finally
+      TACLObjectLinks.Lock.Leave;
+    end;
   finally
     FreeAndNil(FBridges);
   end;

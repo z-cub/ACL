@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Docking Layout Manager
 //
@@ -461,7 +461,6 @@ type
     procedure Aligned; override;
     function AllowPin: Boolean; virtual;
     function CanStartDrag: Boolean; virtual;
-    function CreatePadding: TACLPadding; override;
     function GetContentOffset: TRect; override;
     function GetOuterPadding: TRect; override;
   {$IFDEF ACL_DOCKING_PIN_TABBED_GROUP}
@@ -694,9 +693,7 @@ implementation
 
 {$IFDEF FPC}
 uses
-{$IFDEF LCLGtk2}
-  Gtk2WSForms,
-{$ENDIF}
+{$I ACL.UI.Core.Impl.inc},
   WSLCLClasses;
 {$ENDIF}
 
@@ -772,18 +769,15 @@ end;
 
 function TACLStyleDocking.MeasureTabHeight: Integer;
 begin
-  MeasureCanvas.Font.Assign(TabFontActive);
-  Result := MeasureCanvas.TextHeight('Wg') + GetTabMargins.MarginsHeight + dpiApply(TabControlOffset, TargetDPI);
+  Result := TabFontActive.MeasureSize(acMeasureTextPattern).Height +
+    GetTabMargins.MarginsHeight + dpiApply(TabControlOffset, TargetDPI);
 end;
 
 function TACLStyleDocking.MeasureTabWidth(const ACaption: string): Integer;
 begin
-  Result := 0;
-  MeasureCanvas.Font.Assign(TabFont);
-  Result := Max(Result, acTextSize(MeasureCanvas, ACaption).cx);
-  MeasureCanvas.Font.Assign(TabFontActive);
-  Result := Max(Result, acTextSize(MeasureCanvas, ACaption).cx);
-  Inc(Result, GetTabMargins.MarginsWidth);
+  Result := GetTabMargins.MarginsWidth + Max(
+    TabFontActive.MeasureSize(ACaption).Width,
+    TabFont.MeasureSize(ACaption).Width);
 end;
 
 { TACLStyleDockSite }
@@ -799,18 +793,15 @@ end;
 
 function TACLStyleDockSite.MeasureSideBarTabHeight: Integer;
 begin
-  MeasureCanvas.Font.Assign(SideBarTabFontActive);
-  Result := MeasureCanvas.TextHeight('Wg') + GetTabMargins.MarginsHeight + dpiApply(TabControlOffset, TargetDPI);
+  Result := SideBarTabFontActive.MeasureSize(acMeasureTextPattern).Height +
+    GetTabMargins.MarginsHeight + dpiApply(TabControlOffset, TargetDPI);
 end;
 
 function TACLStyleDockSite.MeasureSideBarTabWidth(const ACaption: string): Integer;
 begin
-  Result := 0;
-  MeasureCanvas.Font.Assign(SideBarTabFont);
-  Result := Max(Result, acTextSize(MeasureCanvas, ACaption).cx);
-  MeasureCanvas.Font.Assign(SideBarTabFontActive);
-  Result := Max(Result, acTextSize(MeasureCanvas, ACaption).cx);
-  Inc(Result, GetTabMargins.MarginsWidth);
+  Result := GetTabMargins.MarginsWidth + Max(
+    SideBarTabFontActive.MeasureSize(ACaption).Width,
+    SideBarTabFont.MeasureSize(ACaption).Width);
 end;
 
 {$ENDREGION}
@@ -935,11 +926,7 @@ end;
 {$IFDEF FPC}
 class procedure TACLDockZone.WSRegisterClass;
 begin
-{$IFDEF LCLGtk2}
-  RegisterWSComponent(TACLDockZone, TGtk2WSHintWindow);
-{$ELSE}
-  inherited WSRegisterClass;
-{$ENDIF}
+  RegisterWSComponent(TACLDockZone, TACLWSHintWindow);
 end;
 {$ENDIF}
 
@@ -1322,11 +1309,7 @@ end;
 {$IFDEF FPC}
 class procedure TACLDragSelection.WSRegisterClass;
 begin
-{$IFDEF LCLGtk2}
-  RegisterWSComponent(TACLDragSelection, TGtk2WSHintWindow);
-{$ELSE}
-  inherited WSRegisterClass;
-{$ENDIF}
+  RegisterWSComponent(TACLDragSelection, TACLWSHintWindow);
 end;
 {$ENDIF}
 
@@ -1742,18 +1725,18 @@ end;
 
 procedure TACLDockControl.LayoutLoad(ANode: TACLXMLNode);
 begin
-  FCustomSize.cx := dpiApply(ANode.Attributes.GetValueAsInteger(TACLDockingSchema.AttrWidth), FCurrentPPI);
-  FCustomSize.cy := dpiApply(ANode.Attributes.GetValueAsInteger(TACLDockingSchema.AttrHeight), FCurrentPPI);
-  Align := TAlign(GetEnumValue(TypeInfo(TAlign), ANode.Attributes.GetValue(TACLDockingSchema.AttrAlign)));
+  FCustomSize.cx := dpiApply(ANode.Attrs.GetAsInt32(TACLDockingSchema.AttrWidth), FCurrentPPI);
+  FCustomSize.cy := dpiApply(ANode.Attrs.GetAsInt32(TACLDockingSchema.AttrHeight), FCurrentPPI);
+  Align := TAlign(GetEnumValue(TypeInfo(TAlign), ANode.Attrs.Get(TACLDockingSchema.AttrAlign)));
 end;
 
 procedure TACLDockControl.LayoutSave(ANode: TACLXMLNode);
 begin
-  ANode.Attributes.Add(TACLDockingSchema.AttrAlign, GetEnumName(TypeInfo(TAlign), Ord(Align)));
+  ANode.Attrs.Add(TACLDockingSchema.AttrAlign, GetEnumName(TypeInfo(TAlign), Ord(Align)));
   if CustomHeight > 0 then
-    ANode.Attributes.Add(TACLDockingSchema.AttrHeight, dpiRevert(CustomHeight, FCurrentPPI));
+    ANode.Attrs.Add(TACLDockingSchema.AttrHeight, dpiRevert(CustomHeight, FCurrentPPI));
   if CustomWidth > 0 then
-    ANode.Attributes.Add(TACLDockingSchema.AttrWidth, dpiRevert(CustomWidth, FCurrentPPI));
+    ANode.Attrs.Add(TACLDockingSchema.AttrWidth, dpiRevert(CustomWidth, FCurrentPPI));
 end;
 
 procedure TACLDockControl.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -2323,9 +2306,8 @@ var
 begin
   ATabIndent := dpiApply(TACLStyleDocking.TabIndent, FCurrentPPI);
 
-  ACalculator := TACLAutoSizeCalculator.Create;
+  ACalculator := TACLAutoSizeCalculator.Create(ControlCount);
   try
-    ACalculator.Capacity := ControlCount;
     ACalculator.AvailableSize := ARect.Width - 2 * (ATabIndent + 1);
     for I := 0 to ControlCount - 1 do
     begin
@@ -2348,7 +2330,7 @@ begin
       if (csDesigning in ComponentState) or AChild.Visible then
       begin
         ATab.Control := AChild;
-        ATab.Bounds := ARect.Split(srLeft, ACalculator[ATabIndex].Size);
+        ATab.Bounds := ARect.Split(srLeft, ACalculator.Items[ATabIndex].Size);
         ARect.Left := ATab.Bounds.Right;
         if ATabIndex + 1 < ACalculator.Count then
           Dec(ATab.Bounds.Right, ATabIndent);
@@ -2582,7 +2564,7 @@ procedure TACLDockGroup.LayoutLoad(ANode: TACLXMLNode);
 var
   LChild: TACLXMLNode;
   LGroup: TACLDockGroup;
-  LName: string;
+  LName: TACLXMLAttribute;
   LPanel: TACLDockPanel;
   I: Integer;
 begin
@@ -2591,14 +2573,14 @@ begin
     inherited LayoutLoad(ANode);
 
     Layout := TACLDockGroupLayout(GetEnumValue(TypeInfo(TACLDockGroupLayout),
-      ANode.Attributes.GetValue(TACLDockingSchema.AttrLayout)));
+      ANode.Attrs.Get(TACLDockingSchema.AttrLayout)));
 
     for I := 0 to ANode.Count - 1 do
     begin
       LChild := ANode[I];
-      if LChild.Attributes.GetValue(TACLDockingSchema.AttrName, LName) then
+      if LChild.Attrs.Find(TACLDockingSchema.AttrName, LName) then
       begin
-        if Safe.Cast(Owner.FindComponent(LName), TACLDockPanel, LPanel) then
+        if Safe.Cast(Owner.FindComponent(LName.Value), TACLDockPanel, LPanel) then
         begin
           LPanel.Parent := Self;
           LPanel.LayoutLoad(LChild);
@@ -2609,7 +2591,7 @@ begin
       begin
         LGroup := TACLDockGroup.Create(Owner);
         try
-          LGroup.Name := LChild.Attributes.GetValueDef(TACLDockingSchema.AttrIdent, LGroup.Name);
+          LGroup.Name := LChild.Attrs.Get(TACLDockingSchema.AttrIdent, LGroup.Name);
         except end;
         LGroup.Parent := Self;
         LGroup.Style := Style;
@@ -2618,7 +2600,7 @@ begin
       end;
     end;
 
-    ActiveControlIndex := ANode.Attributes.GetValueAsInteger(TACLDockingSchema.AttrIndex, -1);
+    ActiveControlIndex := ANode.Attrs.GetAsInt32(TACLDockingSchema.AttrIndex, -1);
     Perform(CM_DOCKING_VISIBILITY, 0, 0);
   finally
     EnableAlign;
@@ -2629,12 +2611,12 @@ procedure TACLDockGroup.LayoutSave(ANode: TACLXMLNode);
 var
   I: Integer;
 begin
-  ANode.Attributes.Add(TACLDockingSchema.AttrLayout,
+  ANode.Attrs.Add(TACLDockingSchema.AttrLayout,
     GetEnumName(TypeInfo(TACLDockGroupLayout), Ord(Layout)));
   inherited;
-  ANode.Attributes.Add(TACLDockingSchema.AttrIdent, Name);
+  ANode.Attrs.Add(TACLDockingSchema.AttrIdent, Name);
   if ActiveControlIndex >= 0 then
-    ANode.Attributes.Add(TACLDockingSchema.AttrIndex, ActiveControlIndex);
+    ANode.Attrs.Add(TACLDockingSchema.AttrIndex, ActiveControlIndex);
   for I := 0 to ControlCount - 1 do
     Controls[I].LayoutSave(ANode.Add(TACLDockingSchema.NodeItem));
 end;
@@ -2976,11 +2958,6 @@ begin
     inherited;
 end;
 
-function TACLDockPanel.CreatePadding: TACLPadding;
-begin
-  Result := TACLPadding.Create(0);
-end;
-
 function TACLDockPanel.GetCaptionButtonState(AButton: TCaptionButton): Integer;
 begin
   Result := 0;
@@ -3067,17 +3044,17 @@ end;
 procedure TACLDockPanel.LayoutLoad(ANode: TACLXMLNode);
 begin
   inherited;
-  Visible := ANode.Attributes.GetValueAsBoolean(TACLDockingSchema.AttrVisible, True);
+  Visible := ANode.Attrs.GetAsBool(TACLDockingSchema.AttrVisible, True);
 end;
 
 procedure TACLDockPanel.LayoutSave(ANode: TACLXMLNode);
 begin
   if Name = '' then
     raise EInvalidOperation.Create(ClassName + '.Name must be set!');
-  ANode.Attributes.Add(TACLDockingSchema.AttrName, Name);
+  ANode.Attrs.Add(TACLDockingSchema.AttrName, Name);
   inherited;
   if not Visible then
-    ANode.Attributes.SetValueAsBoolean(TACLDockingSchema.AttrVisible, False);
+    ANode.Attrs.SetAsBool(TACLDockingSchema.AttrVisible, False);
 end;
 
 procedure TACLDockPanel.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -3151,7 +3128,7 @@ begin
     begin
       Style.DrawHeader(Canvas, FCaptionRect);
       Style.DrawHeaderText(Canvas, FCaptionTextRect, Caption);
-      if acStartClippedDraw(Canvas.Handle, FCaptionRect, LClipRgn) then
+      if acStartClippedDraw(Canvas, FCaptionRect, LClipRgn) then
       try
         for I := Low(FCaptionButtons) to High(FCaptionButtons) do
         begin
@@ -3159,7 +3136,7 @@ begin
           Style.HeaderButtonGlyphs.Draw(Canvas, FCaptionButtons[I].InflateTo(-4), Ord(I));
         end;
       finally
-        acRestoreClipRegion(Canvas.Handle, LClipRgn);
+        acEndClippedDraw(Canvas, LClipRgn);
       end;
     end;
   end;
@@ -3261,7 +3238,6 @@ begin
   DefaultMonitor := dmDesktop;
   Position := poDesigned;
   PopupParent := GetParentForm(AOwner);
-  PopupMode := pmExplicit;
   FMainSite := AOwner;
   FMainSite.FloatForms.Add(Self);
   FDockGroup := TACLDockGroup.Create(AOwner.Owner);
@@ -3311,20 +3287,20 @@ procedure TACLFloatDockForm.LayoutLoad(ANode: TACLXMLNode);
 var
   ABounds: TRect;
 begin
-  ABounds := ANode.Attributes.GetValueAsRect(TACLDockingSchema.AttrPosition);
+  ABounds := ANode.Attrs.GetAsRect(TACLDockingSchema.AttrPosition);
   ScaleForPPI(acGetTargetDPI(ABounds.CenterPoint));
   BoundsRect := dpiApply(ABounds, FCurrentPPI);
   DockGroup.LayoutLoad(ANode);
   DockGroup.Align := alClient;
   DockGroup.Visible := True;
-  Visible := ANode.Attributes.GetValueAsBoolean(TACLDockingSchema.AttrVisible);
+  Visible := ANode.Attrs.GetAsBool(TACLDockingSchema.AttrVisible);
 end;
 
 procedure TACLFloatDockForm.LayoutSave(ANode: TACLXMLNode);
 begin
   DockGroup.LayoutSave(ANode);
-  ANode.Attributes.SetValueAsRect(TACLDockingSchema.AttrPosition, dpiRevert(BoundsRect, FCurrentPPI));
-  ANode.Attributes.SetValueAsBoolean(TACLDockingSchema.AttrVisible, Visible);
+  ANode.Attrs.SetAsRect(TACLDockingSchema.AttrPosition, dpiRevert(BoundsRect, FCurrentPPI));
+  ANode.Attrs.SetAsBool(TACLDockingSchema.AttrVisible, Visible);
 end;
 
 procedure TACLFloatDockForm.ResizeSelf(ASide: TACLBorder;
@@ -3428,11 +3404,11 @@ procedure TACLDockSiteSideBarTab.LayoutLoad(ANode: TACLXMLNode; AOwner: TCompone
 var
   LGroup: TComponent;
 begin
-  FPrevAlign := TAlign(GetEnumValue(TypeInfo(TAlign), ANode.Attributes.GetValue(TACLDockingSchema.AttrAlign)));
-  FPrevIndex := ANode.Attributes.GetValueAsInteger(TACLDockingSchema.AttrIndex);
+  FPrevAlign := TAlign(GetEnumValue(TypeInfo(TAlign), ANode.Attrs.Get(TACLDockingSchema.AttrAlign)));
+  FPrevIndex := ANode.Attrs.GetAsInt32(TACLDockingSchema.AttrIndex);
 
   if AOwner <> nil then
-    LGroup := AOwner.FindComponent(ANode.Attributes.GetValue(TACLDockingSchema.AttrIdent))
+    LGroup := AOwner.FindComponent(ANode.Attrs.Get(TACLDockingSchema.AttrIdent))
   else
     LGroup := nil;
 
@@ -3445,9 +3421,9 @@ end;
 procedure TACLDockSiteSideBarTab.LayoutSave(ANode: TACLXMLNode);
 begin
   if (FPrevParent <> nil) and (FPrevParent.Name <> '') then
-    ANode.Attributes.Add(TACLDockingSchema.AttrIdent, FPrevParent.Name);
-  ANode.Attributes.Add(TACLDockingSchema.AttrIndex, FPrevIndex);
-  ANode.Attributes.Add(TACLDockingSchema.AttrAlign, GetEnumName(TypeInfo(TAlign), Ord(FPrevAlign)));
+    ANode.Attrs.Add(TACLDockingSchema.AttrIdent, FPrevParent.Name);
+  ANode.Attrs.Add(TACLDockingSchema.AttrIndex, FPrevIndex);
+  ANode.Attrs.Add(TACLDockingSchema.AttrAlign, GetEnumName(TypeInfo(TAlign), Ord(FPrevAlign)));
 end;
 
 procedure TACLDockSiteSideBarTab.Notification(AComponent: TComponent; AOperation: TOperation);
@@ -3500,7 +3476,7 @@ var
   ASize: Integer;
   I: Integer;
 begin
-  ACalc := TACLAutoSizeCalculator.Create;
+  ACalc := TACLAutoSizeCalculator.Create(FTabs.Count);
   try
     for I := 0 to FTabs.Count - 1 do
     begin
@@ -3515,7 +3491,7 @@ begin
       ACalc.Calculate;
       for I := 0 to FTabs.Count - 1 do
       begin
-        ARect.Width := ACalc[I].Size;
+        ARect.Width := ACalc.Items[I].Size;
         FTabs.List[I].Bounds := ARect;
         ARect.Left := ARect.Right - 1; // 1 - merge borders
       end;
@@ -3527,7 +3503,7 @@ begin
       ACalc.Calculate;
       for I := 0 to FTabs.Count - 1 do
       begin
-        ARect.Height := ACalc[I].Size;
+        ARect.Height := ACalc.Items[I].Size;
         FTabs.List[I].Bounds := ARect;
         ARect.Top := ARect.Bottom - 1; // 1 - merge borders
       end;
@@ -3640,7 +3616,7 @@ begin
     var
       ACtrlIndex: Integer;
     begin
-      ACtrlIndex := ANode.Attributes.GetValueAsInteger(TACLDockingSchema.AttrIndex, -1);
+      ACtrlIndex := ANode.Attrs.GetAsInt32(TACLDockingSchema.AttrIndex, -1);
       if (ACtrlIndex >= 0) and (ACtrlIndex < MainSite.ControlCount) then
       begin
         MainSite.Controls[ACtrlIndex].SideBar := Self;
@@ -3660,7 +3636,7 @@ begin
   begin
     LTab := FTabs.List[I];
     LNode := ANode.Add(TACLDockingSchema.NodeItem);
-    LNode.Attributes.Add(TACLDockingSchema.AttrIndex, IndexOfControl(LTab.Control));
+    LNode.Attrs.Add(TACLDockingSchema.AttrIndex, IndexOfControl(LTab.Control));
     LTab.LayoutSave(LNode.Add(TACLDockingSchema.NodePos));
   end;
 end;

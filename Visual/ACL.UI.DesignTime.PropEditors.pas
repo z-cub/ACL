@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Design Time Routines
 //
@@ -71,6 +71,7 @@ uses
   ACL.UI.Dialogs,
   ACL.UI.Dialogs.ColorPicker,
   ACL.UI.Dialogs.FontPicker,
+  ACL.UI.DesignTime.PropEditors.Stub,
   ACL.UI.Menus,
   ACL.UI.Resources,
   ACL.Utils.Common,
@@ -481,7 +482,9 @@ uses
   ACL.UI.DesignTime.PropEditors.Menu;
 
 const
+{$IFDEF DESIGNER_CAN_CREATECOMPONENT}
   sNewResourceCollection = 'new resource collection';
+{$ENDIF}
   sResourceID = 'Resource ID';
   sResourceIDPrompt = 'Enter Resource ID';
 

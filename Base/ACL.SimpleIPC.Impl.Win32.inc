@@ -54,6 +54,7 @@ end;
 function TIPCClient.Send(ACmd: Cardinal; const AData: string): TACLIPCResult;
 var
   LCopyData: TCopyDataStruct;
+  LResult: DWORD_PTR;
   LTempFileName: string;
   LTempFileNameUsed: Boolean;
 begin
@@ -74,10 +75,16 @@ begin
     LCopyData.cbData := Length(AData) * SizeOf(WideChar);
     LCopyData.lpData := PWideChar(AData);
   end;
-  SendMessageW(FWndHandle, WM_COPYDATA, 0, LPARAM(@LCopyData));
+
+  if SendMessageTimeout(FWndHandle, WM_COPYDATA, 0, LPARAM(@LCopyData),
+    SMTO_NORMAL or SMTO_ABORTIFHUNG, 3000, @LResult) = 0
+  then
+    Result := irAbandoned
+  else
+    Result := irSucceeded;
+
   if LTempFileNameUsed then
     acDeleteFile(LTempFileName);
-  Result := irSucceeded;
 end;
 
 { TIPCServer }
@@ -87,7 +94,7 @@ var
   LClientHandle: HWND;
 begin
   FHelloMessage := RegisterWindowMessage('ACL.IPC:Hello');
-  FWndHandle := WndCreate(WndProc, ClassName, False, AAppId);
+  FWndHandle := acWndAlloc(WndProc, ClassName, False, AAppId);
   LClientHandle := 0;
   repeat
     LClientHandle := FindWindowExW(0, LClientHandle, PWideChar(ClassName), nil);
@@ -101,7 +108,7 @@ end;
 
 destructor TIPCServer.Destroy;
 begin
-  WndFree(FWndHandle);
+  acWndFree(FWndHandle);
   inherited;
 end;
 
@@ -119,17 +126,22 @@ procedure TIPCServer.WndProc(var AMessage: TMessage);
 var
   LStruct: PCopyDataStruct;
 begin
-  if AMessage.Msg = FHelloMessage then
-    TACLIPCHub.FClients.Add(TIPCClient.Create(AMessage.LParam))
-  else
-    if AMessage.Msg = WM_COPYDATA then
-    begin
-      LStruct := PCopyDataStruct(AMessage.LParam);
-      if LStruct <> nil then
-        TACLIPCHub.Receive(LStruct^.dwData, SendDataGetData(LStruct));
-    end
+  try
+    if AMessage.Msg = FHelloMessage then
+      TACLIPCHub.FClients.Add(TIPCClient.Create(AMessage.LParam))
     else
-      WndDefaultProc(FWndHandle, AMessage);
+      if AMessage.Msg = WM_COPYDATA then
+      begin
+        LStruct := PCopyDataStruct(AMessage.LParam);
+        if LStruct <> nil then
+          TACLIPCHub.Receive(LStruct^.dwData, SendDataGetData(LStruct));
+      end
+      else
+        acWndDefaultProc(FWndHandle, AMessage);
+  except
+    if Assigned(ApplicationHandleException) then
+      ApplicationHandleException(Self);
+  end;
 end;
 
 { TACLAppAtom }

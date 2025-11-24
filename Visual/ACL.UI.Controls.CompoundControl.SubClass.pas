@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   CompoundControl Classes
 //
@@ -46,6 +46,7 @@ uses
   ACL.Graphics.SkinImage,
   ACL.Math,
   ACL.MUI,
+  ACL.Threading,
   ACL.Timers,
   ACL.UI.Animation,
   ACL.UI.Controls.Base,
@@ -90,17 +91,19 @@ type
 
   TACLHitTestInfo = class
   strict private
+    FBounds: TRect;
+    FCalcHintData: Boolean;
     FCursor: TCursor;
+    FData: TACLDictionary<string, Pointer>;
+    FFlags: TACLListOfInteger;
     FHitObject: TObject;
-    FHitObjectData: TDictionary<string, TObject>;
-    FHitObjectFlags: TACLListOfInteger;
-    FHitPoint: TPoint;
+    FPoint: TPoint;
 
-    function GetHitObjectData(const Index: string): TObject;
-    procedure SetHitObjectData(const Index: string; const Value: TObject);
+    function GetData(const Index: string): Pointer;
+    procedure SetData(const Index: string; const Value: Pointer);
   protected
-    function GetHitObjectFlag(Index: Integer): Boolean;
-    procedure SetHitObjectFlag(Index: Integer; const Value: Boolean);
+    function GetFlag(Index: Integer): Boolean;
+    procedure SetFlag(Index: Integer; const Value: Boolean);
   public
     HintData: TACLHintData;
 
@@ -109,16 +112,18 @@ type
     function CreateDragObject: TACLCompoundControlDragObject; virtual;
     procedure Reset; virtual;
 
+    property Bounds: TRect read FBounds write FBounds;
+    property CalcHintData: Boolean read FCalcHintData write FCalcHintData;
     property Cursor: TCursor read FCursor write FCursor;
+    property Data[const Index: string]: Pointer read GetData write SetData;
     property HitObject: TObject read FHitObject write FHitObject;
-    property HitObjectData[const Index: string]: TObject read GetHitObjectData write SetHitObjectData;
-    property HitObjectFlags[Index: Integer]: Boolean read GetHitObjectFlag write SetHitObjectFlag;
-    property HitPoint: TPoint read FHitPoint write FHitPoint;
-
-    property IsCheckable: Boolean index cchtCheckable read GetHitObjectFlag write SetHitObjectFlag;
-    property IsExpandable: Boolean index cchtExpandable read GetHitObjectFlag write SetHitObjectFlag;
-    property IsNonClient: Boolean index cchtNonClient read GetHitObjectFlag write SetHitObjectFlag;
-    property IsResizable: Boolean index cchtResizable read GetHitObjectFlag write SetHitObjectFlag;
+    property Point: TPoint read FPoint write FPoint;
+    // Flags
+    property Flags[Index: Integer]: Boolean read GetFlag write SetFlag;
+    property IsCheckable: Boolean index cchtCheckable read GetFlag write SetFlag;
+    property IsExpandable: Boolean index cchtExpandable read GetFlag write SetFlag;
+    property IsNonClient: Boolean index cchtNonClient read GetFlag write SetFlag;
+    property IsResizable: Boolean index cchtResizable read GetFlag write SetFlag;
   end;
 
 {$ENDREGION}
@@ -130,15 +135,8 @@ type
     function CanCheck: Boolean;
     function GetChecked: Boolean;
     procedure SetChecked(AValue: Boolean);
-    //
+    // Properties
     property Checked: Boolean read GetChecked write SetChecked;
-  end;
-
-  { IACLClickableObject }
-
-  IACLClickableObject = interface
-  ['{DAB9B73E-7CD1-41E4-9A7C-B8B4696D826E}']
-    procedure Click(const AHitTestInfo: TACLHitTestInfo);
   end;
 
   { IACLDraggableObject }
@@ -155,7 +153,7 @@ type
     function CanToggle: Boolean;
     function GetExpanded: Boolean;
     procedure SetExpanded(AValue: Boolean);
-    //
+    // Properties
     property Expanded: Boolean read GetExpanded write SetExpanded;
   end;
 
@@ -171,8 +169,10 @@ type
 
   IACLPressableObject = interface
   ['{CA46A988-A0D7-4DB0-982A-D0F48F7CEFC4}']
-    procedure MouseDown(AButton: TMouseButton; AShift: TShiftState; AHitTestInfo: TACLHitTestInfo);
-    procedure MouseUp(AButton: TMouseButton; AShift: TShiftState; AHitTestInfo: TACLHitTestInfo);
+    procedure MouseDown(AButton: TMouseButton;
+      AShift: TShiftState; AHitTestInfo: TACLHitTestInfo);
+    procedure MouseUp(AButton: TMouseButton;
+      AShift: TShiftState; AHitTestInfo: TACLHitTestInfo);
   end;
 
   { IACLSelectableObject }
@@ -189,13 +189,9 @@ type
 
   IACLCompoundControlSubClassContainer = interface(IACLControl)
   ['{3A39F1D5-E2FA-4DAC-98C7-067C97DDF79E}']
-    function CanFocus: Boolean;
     function GetControl: TWinControl;
     function GetFocused: Boolean;
-    function GetFont: TFont;
-    function GetMouseCapture: Boolean;
     procedure SetFocus;
-    procedure SetMouseCapture(const AValue: Boolean);
     procedure UpdateCursor;
   end;
 
@@ -271,12 +267,11 @@ type
     FController: TACLCompoundControlDragAndDropController;
 
     procedure CreateAutoScrollTimer(AInterval: Integer = 0);
-    procedure DoAutoScroll(ADelta: Integer); virtual;
+    procedure DoAutoScroll(ADirection: TAlign); virtual;
     procedure InitializePreview(ASourceViewInfo: TACLCompoundControlCustomViewInfo);
     procedure StartDropSource(AActions: TACLDropSourceActions;
       ASource: IACLDropSourceOperation; ASourceObject: TObject); virtual;
-    procedure UpdateAutoScrollDirection(ADelta: Integer); overload;
-    procedure UpdateAutoScrollDirection(const P: TPoint; const AArea: TRect); overload;
+    procedure UpdateAutoScrollDirection(const P: TPoint; const AArea: TRect);
     procedure UpdateCursor(ACursor: TCursor);
     procedure UpdateDropTarget(ADropTarget: TACLDropTarget);
   public
@@ -299,6 +294,7 @@ type
   TACLCompoundControlDragAndDropController = class(TACLCompoundControlPersistent,
     IACLDropSourceOperation)
   strict private
+    FAutoScrollDirection: TAlign;
     FAutoScrollTimer: TACLTimer;
     FCursor: TCursor;
     FDragObject: TACLCompoundControlDragObject;
@@ -310,6 +306,7 @@ type
     FDropTarget: TACLDropTarget;
     FIsActive: Boolean;
     FIsDropping: Boolean;
+    FIsPressed: Boolean;
     FIsStarted: Boolean;
     FLastPoint: TPoint;
     FMouseCapturePoint: TPoint;
@@ -321,11 +318,12 @@ type
   protected
     // General
     function DragStart: Boolean;
+    procedure DoBeforeDragStarted; virtual;
     procedure UpdateCursor(AValue: TCursor);
 
     // AutoScrollTimer
     procedure CreateAutoScrollTimer(AInterval: Integer = 0); virtual;
-    procedure UpdateAutoScrollDirection(ADelta: Integer);
+    procedure UpdateAutoScrollDirection(ADirection: TAlign);
 
     // DropSource
     function CanStartDropSource(var AActions: TACLDropSourceActions;
@@ -333,7 +331,6 @@ type
     procedure StartDropSource(AActions: TACLDropSourceActions;
       ASource: IACLDropSourceOperation; ASourceObject: TObject);
     procedure DropSourceBegin; virtual;
-    procedure DropSourceDrop(var AAllowDrop: Boolean); virtual;
     procedure DropSourceEnd(AActions: TACLDropSourceActions; AShiftState: TShiftState); virtual;
 
     // DropTarget
@@ -353,11 +350,11 @@ type
   public
     constructor Create(ASubClass: TACLCompoundControlSubClass); override;
     destructor Destroy; override;
-    procedure Cancel; virtual;
+    procedure Cancel;
     procedure Draw(ACanvas: TCanvas); virtual;
-    procedure MouseDown(AShift: TShiftState; X, Y: Integer); virtual;
-    procedure MouseMove(AShift: TShiftState; X, Y: Integer); virtual;
-    procedure MouseUp(AShift: TShiftState; X, Y: Integer); virtual;
+    procedure MouseDown(AShift: TShiftState; const APoint: TPoint);
+    procedure MouseMove(AShift: TShiftState; const APoint: TPoint);
+    procedure MouseUp;
     procedure ProcessChanges(AChanges: TIntegerSet); virtual;
     //# Properties
     property Cursor: TCursor read FCursor;
@@ -367,21 +364,7 @@ type
     property IsActive: Boolean read FIsActive;
     property IsDropping: Boolean read FIsDropping write FIsDropping;
     property IsDropSourceOperation: Boolean read GetIsDropSourceOperation;
-  end;
-
-  { TACLCompoundControlHintController }
-
-  TACLCompoundControlHintController = class(TACLHintController)
-  strict private
-    FSubClass: TACLCompoundControlSubClass;
-  protected
-    function CreateHintWindow: TACLHintWindow; override;
-    function GetOwnerControl: TWinControl; override;
-  public
-    constructor Create(ASubClass: TACLCompoundControlSubClass);
-    procedure Update(AHitTest: TACLHitTestInfo);
-    //# Properties
-    property SubClass: TACLCompoundControlSubClass read FSubClass;
+    property IsPressed: Boolean read FIsPressed;
   end;
 
 {$ENDREGION}
@@ -405,10 +388,10 @@ type
   TACLCompoundControlBaseContentCell = class(TACLUnknownObject)
   strict private
     FData: TObject;
-
     function GetBounds: TRect; inline;
   protected
-    FHeight: Integer;
+    FFlags: Word;
+    FHeight: SmallInt;
     FTop: Integer;
     FViewInfo: TACLCompoundControlBaseContentCellViewInfo;
 
@@ -420,9 +403,11 @@ type
     procedure Draw(ACanvas: TCanvas);
     function MeasureHeight: Integer;
     //# Properties
+    property AbsBounds: TRect read GetClientBounds;
     property Bounds: TRect read GetBounds;
     property Data: TObject read FData;
-    property Height: Integer read FHeight;
+    property Flags: Word read FFlags write FFlags;
+    property Height: SmallInt read FHeight;
     property Top: Integer read FTop;
     property ViewInfo: TACLCompoundControlBaseContentCellViewInfo read FViewInfo;
   end;
@@ -439,8 +424,8 @@ type
     FHeight: Integer;
     FWidth: Integer;
 
+    procedure CalculateHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo); virtual;
     procedure DoDraw(ACanvas: TCanvas); virtual; abstract;
-    procedure DoGetHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo); virtual;
     function GetFocusRect: TRect; virtual;
     function GetFocusRectColor: TColor; virtual;
     function HasFocusRect: Boolean; virtual;
@@ -448,10 +433,9 @@ type
     constructor Create(AOwner: IACLCompoundControlSubClassContent);
     procedure Calculate; overload;
     procedure Calculate(AWidth, AHeight: Integer); overload; virtual;
-    procedure CalculateHitTest(AData: TObject; const ABounds: TRect; AInfo: TACLHitTestInfo);
-    procedure Draw(ACanvas: TCanvas; AData: TObject; const ABounds: TRect);
+    procedure Draw(ACanvas: TCanvas; const ABounds: TRect; AData: TObject; AFlags: Word);
     procedure Initialize(AData: TObject); overload; virtual;
-    procedure Initialize(AData: TObject; AHeight: Integer); overload; virtual;
+    procedure Initialize(AData: TObject; AHeight, AFlags: Integer); overload; virtual;
     function MeasureHeight: Integer; virtual;
     //# Properties
     property Bounds: TRect read GetBounds;
@@ -466,7 +450,7 @@ type
     FExpandButtonRect: TRect;
     FExpandButtonVisible: Boolean;
 
-    procedure DoGetHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo); override;
+    procedure CalculateHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo); override;
     function IsCheckBoxEnabled: Boolean; virtual;
   public
     property CheckBoxRect: TRect read FCheckBoxRect;
@@ -494,7 +478,8 @@ type
     function Find(AData: TObject; out ACell: T): Boolean;
     function FindFirstVisible(AStartFromIndex: Integer;
       ADirection: Integer; ADataClass: TClass; out ACell: T): Boolean;
-    function GetCell(Index: Integer; out ACell: TACLCompoundControlBaseContentCell): Boolean;
+    function GetCell(Index: Integer;
+      out ACell: TACLCompoundControlBaseContentCell): Boolean;
     function GetContentSize: Integer;
     procedure UpdateVisibleBounds;
     //# Properties
@@ -504,9 +489,11 @@ type
 
   { TACLCompoundControlContentCellList }
 
-  TACLCompoundControlContentCellList = class(TACLCompoundControlContentCellList<TACLCompoundControlBaseContentCell>)
+  TACLCompoundControlContentCellList = class(
+    TACLCompoundControlContentCellList<TACLCompoundControlBaseContentCell>)
   public
-    constructor Create(AOwner: IACLCompoundControlSubClassContent; ACellClass: TACLCompoundControlBaseContentCellClass);
+    constructor Create(AOwner: IACLCompoundControlSubClassContent;
+      ACellClass: TACLCompoundControlBaseContentCellClass);
   end;
 
 {$ENDREGION}
@@ -601,6 +588,7 @@ type
   protected
     procedure DoCalculateHitTest(const AInfo: TACLHitTestInfo); override;
     procedure DoDraw(ACanvas: TCanvas); override;
+    procedure DoDrawTo(ADib: TACLDib);
     procedure UpdateState;
     // IACLAnimateControl
     procedure IACLAnimateControl.Animate = Invalidate;
@@ -636,6 +624,8 @@ type
       AShift: TShiftState; AHitTestInfo: TACLHitTestInfo); override;
     procedure MouseUp(AButton: TMouseButton;
       AShift: TShiftState; AHitTestInfo: TACLHitTestInfo); override;
+  public
+    destructor Destroy; override;
   end;
 
   { TACLCompoundControlScrollBarThumbnailDragObject }
@@ -681,7 +671,7 @@ type
     procedure SetViewport(const AValue: TPoint);
     procedure SetViewportX(AValue: Integer);
     procedure SetViewportY(AValue: Integer);
-    //
+    // Handlers
     procedure ScrollHorzHandler(Sender: TObject; ScrollPos: Integer);
     procedure ScrollVertHandler(Sender: TObject; ScrollPos: Integer);
   protected
@@ -732,27 +722,26 @@ type
   TACLCompoundControlDropSourceStartEvent = procedure (
     Sender: TObject; var AHandled: Boolean; var AAllowAction: TACLDropSourceActions) of object;
 
-  TACLCompoundControlSubClass = class(TComponent,
+  TACLCompoundControlSubClass = class(TACLControlSubClass,
     IACLCurrentDpi,
     IACLResourceCollection,
     IACLResourceChangeListener)
   strict private
     FActionType: TACLControlActionType;
-    FBounds: TRect;
     FContainer: IACLCompoundControlSubClassContainer;
     FDragAndDropController: TACLCompoundControlDragAndDropController;
     FEnabledContent: Boolean;
-    FHintController: TACLCompoundControlHintController;
     FHitTest: TACLHitTestInfo;
     FHoveredObject: TObject;
-    FHoveredObjectSubPart: NativeInt;
+    FHoveredObjectPart: NativeInt;
+    FLastClickCount: Integer;
+    FLastClickPoint: TPoint;
+    FLastClickTimestamp: Cardinal;
     FLockCount: Integer;
     FLongOperationCount: Integer;
     FPressedObject: TObject;
-    FSkipClick: Boolean;
     FViewInfo: TACLCompoundControlCustomViewInfo;
 
-    FStyleHint: TACLStyleHint;
     FStyleScrollBox: TACLStyleScrollBox;
 
     FOnCalculated: TNotifyEvent;
@@ -763,19 +752,15 @@ type
     FOnUpdateState: TNotifyEvent;
 
     function GetCurrentDpi: Integer;
+    function GetFocused: Boolean;
     function GetFont: TFont;
     function GetIsDestroying: Boolean; inline;
-    function GetMouseCapture: Boolean;
-    procedure SetBounds(const AValue: TRect);
     procedure SetEnabledContent(AValue: Boolean);
-    procedure SetMouseCapture(const AValue: Boolean);
-    procedure SetStyleHint(AValue: TACLStyleHint);
     procedure SetStyleScrollBox(AValue: TACLStyleScrollBox);
   protected
     FChanges: TIntegerSet;
 
     function CreateDragAndDropController: TACLCompoundControlDragAndDropController; virtual;
-    function CreateHintController: TACLCompoundControlHintController; virtual;
     function CreateHitTest: TACLHitTestInfo; virtual;
     function CreateStyleScrollBox: TACLStyleScrollBox; virtual;
     function CreateViewInfo: TACLCompoundControlCustomViewInfo; virtual; abstract;
@@ -785,6 +770,7 @@ type
 
     // General
     function CanInteract: Boolean;
+    function GetFullRefreshChanges: TIntegerSet; virtual;
     procedure ProcessChanges(AChanges: TIntegerSet = []); virtual;
     procedure ToggleChecked(AObject: TObject);
     procedure ToggleExpanded(AObject: TObject);
@@ -799,14 +785,13 @@ type
 
     // Mouse
     procedure ProcessContextPopup(var AHandled: Boolean); virtual;
-    procedure ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState); virtual;
-    procedure ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState); virtual;
+    procedure ProcessMouseClick(AShift: TShiftState); virtual;
     procedure ProcessMouseDown(AButton: TMouseButton; AShift: TShiftState); virtual;
     procedure ProcessMouseLeave; virtual;
     procedure ProcessMouseMove(AShift: TShiftState; X, Y: Integer); virtual;
     procedure ProcessMouseUp(AButton: TMouseButton; AShift: TShiftState); virtual;
     procedure ProcessMouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState); virtual;
-    procedure SetHoveredObject(AObject: TObject; ASubPart: NativeInt = 0);
+    procedure SetHoveredObject(AObject: TObject; APart: NativeInt = 0);
     procedure UpdateHotTrack;
 
     // Events
@@ -828,20 +813,22 @@ type
     // IUnknown
     function QueryInterface({$IFDEF FPC}constref{$ELSE}const{$ENDIF} IID: TGUID; out Obj): HRESULT; override;
 
-    function GetFocused: Boolean; virtual;
-    function GetFullRefreshChanges: TIntegerSet; virtual;
     // Messages
     procedure CMCancelMode(var Message: TMessage); message CM_CANCELMODE;
+    procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
+    // Properties
+    property LastClickCount: Integer read FLastClickCount;
   public
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: IACLCompoundControlSubClassContainer);
     destructor Destroy; override;
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
+    procedure Calculate(ABounds: TRect); override;
     procedure Changed(AChanges: TIntegerSet); virtual;
     procedure ContextPopup(const P: TPoint; var AHandled: Boolean);
     procedure FullRefresh;
-    procedure SetTargetDPI(AValue: Integer); virtual;
     procedure SetFocus; inline;
+    procedure SetTargetDPI(AValue: Integer); virtual;
 
     // AutoSize
     function CalculateAutoSize(var AWidth, AHeight: Integer): Boolean; virtual;
@@ -850,7 +837,7 @@ type
     procedure Localize(const ASection: string); virtual;
 
     // Drawing
-    procedure Draw(ACanvas: TCanvas);
+    procedure Draw(ACanvas: TCanvas); override; final;
     procedure Invalidate;
     procedure InvalidateRect(const R: TRect); virtual;
     procedure Update;
@@ -859,9 +846,9 @@ type
     procedure Gesture(const AEventInfo: TGestureEventInfo; var AHandled: Boolean);
 
     // Keyboard
-    procedure KeyDown(var Key: Word; Shift: TShiftState);
-    procedure KeyPress(var Key: WideChar);
-    procedure KeyUp(var Key: Word; Shift: TShiftState);
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override; final;
+    procedure KeyChar(var Key: WideChar); override; final;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override; final;
     function WantSpecialKey(Key: Word; Shift: TShiftState): Boolean; virtual;
 
     // Cursor
@@ -869,17 +856,16 @@ type
     procedure UpdateCursor;
 
     // Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure MouseLeave;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer);
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; const P: TPoint); override; final;
+    procedure MouseLeave; override; final;
+    procedure MouseMove(Shift: TShiftState; const P: TPoint); override; final;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; const P: TPoint); override; final;
     procedure MouseWheel(ADirection: TACLMouseWheelDirection; AShift: TShiftState);
 
     // HitTest
     function CalculateState(AObject: TObject; ASubPart: NativeInt = 0): TACLButtonState;
     procedure UpdateHitTest; overload;
-    procedure UpdateHitTest(const P: TPoint); overload; virtual;
-    procedure UpdateHitTest(X, Y: Integer); overload;
+    procedure UpdateHitTest(const P: TPoint; ACalcHint: Boolean = False); overload; virtual;
 
     // HourGlass notify
     procedure BeginLongOperation;
@@ -901,21 +887,17 @@ type
 
     // Properties
     property ActionType: TACLControlActionType read FActionType;
-    property Bounds: TRect read FBounds write SetBounds;
     property Container: IACLCompoundControlSubClassContainer read FContainer;
     property CurrentDpi: Integer read GetCurrentDpi;
     property DragAndDropController: TACLCompoundControlDragAndDropController read FDragAndDropController;
     property EnabledContent: Boolean read FEnabledContent write SetEnabledContent;
     property Focused: Boolean read GetFocused;
     property Font: TFont read GetFont;
-    property HintController: TACLCompoundControlHintController read FHintController;
     property HitTest: TACLHitTestInfo read FHitTest;
     property HoveredObject: TObject read FHoveredObject;
-    property HoveredObjectSubPart: NativeInt read FHoveredObjectSubPart;
-    property MouseCapture: Boolean read GetMouseCapture write SetMouseCapture;
+    property HoveredObjectPart: NativeInt read FHoveredObjectPart;
     property PressedObject: TObject read FPressedObject write FPressedObject;
     property ResourceCollection: TACLCustomResourceCollection read GetResourceCollection;
-    property StyleHint: TACLStyleHint read FStyleHint write SetStyleHint;
     property StyleScrollBox: TACLStyleScrollBox read FStyleScrollBox write SetStyleScrollBox;
     property ViewInfo: TACLCompoundControlCustomViewInfo read FViewInfo;
     //# Events
@@ -932,37 +914,9 @@ type
 implementation
 
 uses
-{$IFDEF LCLGtk2}
-  Gtk2,
-  Gtk2Extra,
-  Gtk2Int,
-{$ENDIF}
-{$IFNDEF FPC}
   ACL.Graphics.SkinImageSet, // inlining
-{$ENDIF}
   ACL.Utils.FileSystem,
   ACL.Utils.Strings;
-
-{$IFDEF LCLGtk2}
-type
-  TGtk2WidgetSetAccess = class(TGtk2WidgetSet);
-{$ENDIF}
-
-procedure SetDragImageListOpacity(Opacity: Byte);
-{$IFDEF LCLGtk2}
-var
-  LWnd: PGtkWindow;
-begin
-  if Assigned(GTK2WidgetSet) then
-  begin
-    LWnd := PGtkWindow(TGtk2WidgetSetAccess(GTK2WidgetSet).FDragImageList);
-    if LWnd <> nil then
-      gtk_window_set_opacity(LWnd, Opacity / 255);
-  end;
-{$ELSE}
-begin
-{$ENDIF}
-end;
 
 {$REGION ' Hit-Test '}
 
@@ -970,16 +924,16 @@ end;
 
 destructor TACLHitTestInfo.Destroy;
 begin
-  FreeAndNil(FHitObjectFlags);
-  FreeAndNil(FHitObjectData);
+  FreeAndNil(FFlags);
+  FreeAndNil(FData);
   inherited Destroy;
 end;
 
 procedure TACLHitTestInfo.AfterConstruction;
 begin
   inherited AfterConstruction;
-  FHitObjectData := TDictionary<string, TObject>.Create;
-  FHitObjectFlags := TACLListOfInteger.Create;
+  FData := TACLDictionary<string, Pointer>.Create;
+  FFlags := TACLListOfInteger.Create;
 end;
 
 function TACLHitTestInfo.CreateDragObject: TACLCompoundControlDragObject;
@@ -987,7 +941,7 @@ var
   AObject: IACLDraggableObject;
 begin
   if Supports(HitObject, IACLDraggableObject, AObject) or
-     Supports(HitObjectData[cchdViewInfo], IACLDraggableObject, AObject)
+     Supports(TObject(Data[cchdViewInfo]), IACLDraggableObject, AObject)
   then
     Result := AObject.CreateDragObject(Self)
   else
@@ -996,34 +950,36 @@ end;
 
 procedure TACLHitTestInfo.Reset;
 begin
-  Cursor := crDefault;
-  FHitObjectData.Clear;
-  FHitObjectFlags.Clear;
+  FBounds := NullRect;
+  FCursor := crDefault;
+  FCalcHintData := False;
+  FData.Clear(True);
+  FFlags.Clear;
   HintData.Reset;
   HitObject := nil;
 end;
 
-function TACLHitTestInfo.GetHitObjectFlag(Index: Integer): Boolean;
+function TACLHitTestInfo.GetFlag(Index: Integer): Boolean;
 begin
-  Result := FHitObjectFlags.IndexOf(Index) >= 0;
+  Result := FFlags.IndexOf(Index) >= 0;
 end;
 
-procedure TACLHitTestInfo.SetHitObjectFlag(Index: Integer; const Value: Boolean);
+procedure TACLHitTestInfo.SetFlag(Index: Integer; const Value: Boolean);
 begin
-  FHitObjectFlags.Remove(Index);
+  FFlags.Remove(Index);
   if Value then
-    FHitObjectFlags.Add(Index);
+    FFlags.Add(Index);
 end;
 
-function TACLHitTestInfo.GetHitObjectData(const Index: string): TObject;
+function TACLHitTestInfo.GetData(const Index: string): Pointer;
 begin
-  if not FHitObjectData.TryGetValue(acLowerCase(Index), Result) then
+  if not FData.TryGetValue(acLowerCase(Index), Result) then
     Result := nil;
 end;
 
-procedure TACLHitTestInfo.SetHitObjectData(const Index: string; const Value: TObject);
+procedure TACLHitTestInfo.SetData(const Index: string; const Value: Pointer);
 begin
-  FHitObjectData.AddOrSetValue(acLowerCase(Index), Value);
+  FData.AddOrSetValue(acLowerCase(Index), Value);
 end;
 
 {$ENDREGION}
@@ -1053,7 +1009,7 @@ end;
 
 function TACLCompoundControlCustomViewInfo.CalculateHitTest(const AInfo: TACLHitTestInfo): Boolean;
 begin
-  Result := PtInRect(Bounds, AInfo.HitPoint);
+  Result := PtInRect(Bounds, AInfo.Point);
   if Result then
     DoCalculateHitTest(AInfo);
 end;
@@ -1065,16 +1021,12 @@ begin
 end;
 
 procedure TACLCompoundControlCustomViewInfo.DrawTo(ACanvas: TCanvas; X, Y: Integer);
-var
-  ASaveIndex: Integer;
 begin
-  ASaveIndex := acSaveDC(ACanvas);
-  try
-    MoveWindowOrg(ACanvas.Handle, -Bounds.Left + X, -Bounds.Top + Y);
-    Draw(ACanvas);
-  finally
-    acRestoreDC(ACanvas, ASaveIndex);
-  end;
+  Dec(X, Bounds.Left);
+  Dec(Y, Bounds.Top);
+  MoveWindowOrg(ACanvas.Handle,  X,  Y);
+  Draw(ACanvas);
+  MoveWindowOrg(ACanvas.Handle, -X, -Y);
 end;
 
 procedure TACLCompoundControlCustomViewInfo.Invalidate;
@@ -1147,11 +1099,11 @@ procedure TACLCompoundControlContainerViewInfo.DoDraw(ACanvas: TCanvas);
 var
   LRgn: TRegionHandle;
 begin
-  if acStartClippedDraw(ACanvas.Handle, Bounds, LRgn) then
+  if acStartClippedDraw(ACanvas, Bounds, LRgn) then
   try
     DoDrawCells(ACanvas);
   finally
-    acRestoreClipRegion(ACanvas.Handle, LRgn);
+    acEndClippedDraw(ACanvas, LRgn);
   end;
 end;
 
@@ -1206,25 +1158,33 @@ begin
   FController.CreateAutoScrollTimer(AInterval);
 end;
 
-procedure TACLCompoundControlDragObject.DoAutoScroll(ADelta: Integer);
-var
-  I: Integer;
+procedure TACLCompoundControlDragObject.DoAutoScroll(ADirection: TAlign);
 begin
-  for I := 0 to Abs(ADelta) - 1 do
-  begin
-    if ADelta < 0 then
-      SubClass.MouseWheel(mwdDown, [])
-    else
-      SubClass.MouseWheel(mwdUp, []);
+  case ADirection of
+    alLeft:
+      SubClass.ScrollHorizontally(scLineUp);
+    alRight:
+      SubClass.ScrollHorizontally(scLineDown);
+    alBottom:
+      SubClass.ScrollVertically(scLineDown);
+    alTop:
+      SubClass.ScrollVertically(scLineUp);
   end;
 end;
 
 procedure TACLCompoundControlDragObject.InitializePreview(
   ASourceViewInfo: TACLCompoundControlCustomViewInfo);
+var
+  LStyle: TACLStyleHint;
 begin
   FreeAndNil(FPreview);
   FPreview := TACLBitmap.CreateEx(ASourceViewInfo.Bounds);
-  SubClass.StyleHint.Draw(Preview.Canvas, Preview.ClientRect);
+  LStyle := TACLStyleHint.Create(nil);
+  try
+    LStyle.Draw(Preview.Canvas, Preview.ClientRect);
+  finally
+    LStyle.Free;
+  end;
   ASourceViewInfo.DrawTo(Preview.Canvas, 0, 0);
 end;
 
@@ -1234,19 +1194,25 @@ begin
   FController.StartDropSource(AActions, ASource, ASourceObject);
 end;
 
-procedure TACLCompoundControlDragObject.UpdateAutoScrollDirection(ADelta: Integer);
+procedure TACLCompoundControlDragObject.UpdateAutoScrollDirection(
+  const P: TPoint; const AArea: TRect);
+var
+  LVertPriority: Boolean;
 begin
-  FController.UpdateAutoScrollDirection(ADelta);
-end;
+  LVertPriority :=
+    Max(AArea.Top - P.Y, P.Y - AArea.Bottom) >
+    Max(AArea.Left - P.X, P.X - AArea.Right);
 
-procedure TACLCompoundControlDragObject.UpdateAutoScrollDirection(const P: TPoint; const AArea: TRect);
-begin
-  if P.Y < AArea.Top then
-    UpdateAutoScrollDirection(1)
-  else if P.Y > AArea.Bottom then
-    UpdateAutoScrollDirection(-1)
+  if (P.Y < AArea.Top) and LVertPriority then
+    FController.UpdateAutoScrollDirection(alTop)
+  else if (P.Y > AArea.Bottom) and LVertPriority then
+    FController.UpdateAutoScrollDirection(alBottom)
+  else if P.X < AArea.Left then
+    FController.UpdateAutoScrollDirection(alLeft)
+  else if P.X > AArea.Right then
+    FController.UpdateAutoScrollDirection(alRight)
   else
-    UpdateAutoScrollDirection(0);
+    FController.UpdateAutoScrollDirection(alNone);
 end;
 
 procedure TACLCompoundControlDragObject.UpdateDropTarget(ADropTarget: TACLDropTarget);
@@ -1295,6 +1261,11 @@ begin
   inherited Destroy;
 end;
 
+procedure TACLCompoundControlDragAndDropController.DoBeforeDragStarted;
+begin
+  // do nothing
+end;
+
 procedure TACLCompoundControlDragAndDropController.Cancel;
 begin
   if IsActive then
@@ -1306,6 +1277,7 @@ begin
     else
       Finish(True);
   end;
+  FIsPressed := False;
 end;
 
 procedure TACLCompoundControlDragAndDropController.Draw(ACanvas: TCanvas);
@@ -1314,32 +1286,36 @@ begin
     DragObject.Draw(ACanvas);
 end;
 
-procedure TACLCompoundControlDragAndDropController.MouseDown(AShift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlDragAndDropController.MouseDown(
+  AShift: TShiftState; const APoint: TPoint);
 begin
+  FIsPressed := True;
   FIsStarted := False;
-  MouseCapturePoint := Point(X, Y);
+  MouseCapturePoint := APoint;
   LastPoint := MouseCapturePoint;
 end;
 
-procedure TACLCompoundControlDragAndDropController.MouseMove(AShift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlDragAndDropController.MouseMove(
+  AShift: TShiftState; const APoint: TPoint);
 var
-  ADeltaX, ADeltaY: Integer;
-  APoint: TPoint;
+  LDelta: TPoint;
+  LPoint: TPoint;
 begin
-  if SubClass.MouseCapture and not (IsActive or IsStarted) and
+  if FIsPressed and not (IsActive or IsStarted) and
      ([ssLeft, ssRight, ssMiddle] * AShift = [ssLeft]) then
   begin
-    ADeltaX := X - MouseCapturePoint.X;
-    ADeltaY := Y - MouseCapturePoint.Y;
-    if acCanStartDragging(ADeltaX, ADeltaY, CurrentDpi) then
+    LDelta := APoint - MouseCapturePoint;
+    if acCanStartDragging(LDelta.X, LDelta.Y, CurrentDpi) then
     begin
       FIsStarted := True;
+      DoBeforeDragStarted;
       SubClass.UpdateHitTest(LastPoint);
       if (SubClass.PressedObject = HitTest.HitObject) and DragStart then
       begin
         FIsActive := True; // first
         SubClass.DoDragStarted;
         LastPoint := DragObject.TransformPoint(LastPoint);
+        SubClass.UpdateHitTest(APoint);
         UpdateCursor(HitTest.Cursor);
       end
       else
@@ -1349,11 +1325,10 @@ begin
 
   if IsActive and not IsDropSourceOperation then
   begin
-    APoint := DragObject.TransformPoint(Point(X, Y));
-    ADeltaX := APoint.X - FLastPoint.X;
-    ADeltaY := APoint.Y - FLastPoint.Y;
-    DragObject.DragMove(APoint, ADeltaX, ADeltaY);
-    LastPoint := Point(LastPoint.X + ADeltaX, LastPoint.Y + ADeltaY);
+    LPoint := DragObject.TransformPoint(APoint);
+    LDelta := LPoint - LastPoint;
+    DragObject.DragMove(LPoint, LDelta.X, LDelta.Y);
+    LastPoint := LastPoint + LDelta;
     if DragWindow <> nil then
     begin
       with MouseCursorPos do
@@ -1362,10 +1337,11 @@ begin
   end;
 end;
 
-procedure TACLCompoundControlDragAndDropController.MouseUp(AShift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlDragAndDropController.MouseUp;
 begin
   if not IsDropSourceOperation then
     Finish(False);
+  FIsPressed := False;
 end;
 
 procedure TACLCompoundControlDragAndDropController.ProcessChanges(AChanges: TIntegerSet);
@@ -1375,24 +1351,27 @@ end;
 
 procedure TACLCompoundControlDragAndDropController.AutoScrollTimerHandler(Sender: TObject);
 begin
-  if (DragObject <> nil) and (FAutoScrollTimer.Tag <> 0) then
-    DragObject.DoAutoScroll(FAutoScrollTimer.Tag);
+  if DragObject <> nil then
+  begin
+    DragObject.DoAutoScroll(FAutoScrollDirection);
+    SubClass.UpdateHotTrack;
+  end;
 end;
 
 procedure TACLCompoundControlDragAndDropController.CreateAutoScrollTimer(AInterval: Integer = 0);
 begin
   if AInterval = 0 then
-    AInterval := 100;
+    AInterval := acAutoScrollInterval;
   if AutoScrollTimer = nil then
     FAutoScrollTimer := TACLTimer.CreateEx(AutoScrollTimerHandler, AInterval);
 end;
 
-procedure TACLCompoundControlDragAndDropController.UpdateAutoScrollDirection(ADelta: Integer);
+procedure TACLCompoundControlDragAndDropController.UpdateAutoScrollDirection(ADirection: TAlign);
 begin
   if AutoScrollTimer <> nil then
   begin
-    AutoScrollTimer.Tag := ADelta;
-    AutoScrollTimer.Enabled := ADelta <> 0;
+    FAutoScrollDirection := ADirection;
+    FAutoScrollTimer.Enabled := ADirection in [alLeft, alTop, alRight, alBottom];
   end;
 end;
 
@@ -1404,6 +1383,7 @@ end;
 
 procedure TACLCompoundControlDragAndDropController.CMCancelMode(var Message: TMessage);
 begin
+  FIsPressed := False;
   if not IsDropSourceOperation then Cancel;
 end;
 
@@ -1413,6 +1393,7 @@ begin
   DropSourceConfig.Clear;
   if CanStartDropSource(AActions, ASourceObject) and (AActions <> []) then
   begin
+    FIsPressed := False;
     FDropSourceObject := ASourceObject;
     FDropSourceOperation := ASource;
     FDropSource := TACLDropSource.Create(Self, SubClass.Container.GetControl);
@@ -1428,11 +1409,6 @@ procedure TACLCompoundControlDragAndDropController.DropSourceBegin;
 begin
   SubClass.UpdateHitTest(LastPoint);
   FDropSourceOperation.DropSourceBegin;
-end;
-
-procedure TACLCompoundControlDragAndDropController.DropSourceDrop(var AAllowDrop: Boolean);
-begin
-  FDropSourceOperation.DropSourceDrop(AAllowDrop);
 end;
 
 procedure TACLCompoundControlDragAndDropController.DropSourceEnd(
@@ -1478,9 +1454,8 @@ begin
         FDragWindow.Width := FDragObject.Preview.Width;
         FDragWindow.Add(FDragObject.Preview, nil);
         with MouseCursorPos do
-          DragWindow.BeginDrag({$IFDEF FPC}0{$ELSE}GetDesktopWindow{$ENDIF}, X, Y);
-        FDragWindow.ShowDragImage;
-        SetDragImageListOpacity(128);
+          DragWindow.BeginDrag(GetDesktopWindow, X, Y);
+        FDragWindow.ShowDragImageEx;
       end;
   end;
 end;
@@ -1526,30 +1501,6 @@ begin
   end;
 end;
 
-{ TACLCompoundControlHintController }
-
-constructor TACLCompoundControlHintController.Create(ASubClass: TACLCompoundControlSubClass);
-begin
-  inherited Create;
-  FSubClass := ASubClass;
-end;
-
-function TACLCompoundControlHintController.CreateHintWindow: TACLHintWindow;
-begin
-  Result := inherited;
-  Result.Font := SubClass.Font;
-  Result.Style := SubClass.StyleHint;
-end;
-
-function TACLCompoundControlHintController.GetOwnerControl: TWinControl;
-begin
-  Result := SubClass.Container.GetControl;
-end;
-
-procedure TACLCompoundControlHintController.Update(AHitTest: TACLHitTestInfo);
-begin
-  inherited Update(AHitTest.HitObject, SubClass.ClientToScreen(AHitTest.HitPoint), AHitTest.HintData);
-end;
 {$ENDREGION}
 
 {$REGION ' Content Cells '}
@@ -1565,13 +1516,19 @@ begin
 end;
 
 procedure TACLCompoundControlBaseContentCell.CalculateHitTest(AInfo: TACLHitTestInfo);
+var
+  LBounds: TRect;
 begin
-  ViewInfo.CalculateHitTest(Data, Bounds, AInfo);
+  LBounds := Bounds;
+  AInfo.HitObject := Data;
+  AInfo.Data[cchdViewInfo] := ViewInfo;
+  ViewInfo.Initialize(Data, LBounds.Height, FFlags);
+  ViewInfo.CalculateHitTest(AInfo.Point - LBounds.TopLeft, LBounds.TopLeft, AInfo);
 end;
 
 procedure TACLCompoundControlBaseContentCell.Draw(ACanvas: TCanvas);
 begin
-  ViewInfo.Draw(ACanvas, Data, Bounds);
+  ViewInfo.Draw(ACanvas, Bounds, Data, Flags);
 end;
 
 function TACLCompoundControlBaseContentCell.MeasureHeight: Integer;
@@ -1595,7 +1552,8 @@ end;
 
 { TACLCompoundControlBaseContentCellViewInfo }
 
-constructor TACLCompoundControlBaseContentCellViewInfo.Create(AOwner: IACLCompoundControlSubClassContent);
+constructor TACLCompoundControlBaseContentCellViewInfo.Create(
+  AOwner: IACLCompoundControlSubClassContent);
 begin
   FOwner := AOwner;
 end;
@@ -1612,25 +1570,24 @@ begin
 end;
 
 procedure TACLCompoundControlBaseContentCellViewInfo.CalculateHitTest(
-  AData: TObject; const ABounds: TRect; AInfo: TACLHitTestInfo);
+  const P, AOrigin: TPoint; AInfo: TACLHitTestInfo);
 begin
-  Initialize(AData, ABounds.Height);
-  AInfo.HitObject := AData;
-  AInfo.HitObjectData[cchdViewInfo] := Self;
-  DoGetHitTest(AInfo.HitPoint - ABounds.TopLeft, ABounds.TopLeft, AInfo);
+  // do nothing
 end;
 
 procedure TACLCompoundControlBaseContentCellViewInfo.Draw(
-  ACanvas: TCanvas; AData: TObject; const ABounds: TRect);
+  ACanvas: TCanvas; const ABounds: TRect; AData: TObject; AFlags: Word);
+var
+  LOrg: TPoint;
 begin
-  MoveWindowOrg(ACanvas.Handle, ABounds.Left, ABounds.Top);
+  LOrg := acMoveWindowOrg(ACanvas.Handle, ABounds.Left, ABounds.Top);
   try
-    Initialize(AData, ABounds.Height);
+    Initialize(AData, ABounds.Height, AFlags);
     DoDraw(ACanvas);
     if HasFocusRect then
       acDrawFocusRect(ACanvas, GetFocusRect, GetFocusRectColor);
   finally
-    MoveWindowOrg(ACanvas.Handle, -ABounds.Left, -ABounds.Top);
+    acRestoreWindowOrg(ACanvas.Handle, LOrg);
   end;
 end;
 
@@ -1639,7 +1596,8 @@ begin
   FData := AData;
 end;
 
-procedure TACLCompoundControlBaseContentCellViewInfo.Initialize(AData: TObject; AHeight: Integer);
+procedure TACLCompoundControlBaseContentCellViewInfo.Initialize(
+  AData: TObject; AHeight, AFlags: Integer);
 begin
   FHeight := AHeight;
   Initialize(AData);
@@ -1648,11 +1606,6 @@ end;
 function TACLCompoundControlBaseContentCellViewInfo.MeasureHeight: Integer;
 begin
   Result := Bounds.Height;
-end;
-
-procedure TACLCompoundControlBaseContentCellViewInfo.DoGetHitTest(const P, AOrigin: TPoint; AInfo: TACLHitTestInfo);
-begin
-  // do nothing
 end;
 
 function TACLCompoundControlBaseContentCellViewInfo.GetFocusRect: TRect;
@@ -1677,14 +1630,14 @@ end;
 
 { TACLCompoundControlBaseCheckableContentCellViewInfo }
 
-procedure TACLCompoundControlBaseCheckableContentCellViewInfo.DoGetHitTest(
+procedure TACLCompoundControlBaseCheckableContentCellViewInfo.CalculateHitTest(
   const P, AOrigin: TPoint; AInfo: TACLHitTestInfo);
 begin
   if PtInRect(CheckBoxRect, P) and IsCheckBoxEnabled then
   begin
     AInfo.Cursor := crHandPoint;
     AInfo.IsCheckable := True;
-    AInfo.HitObjectData[cchdSubPart] := TObject(cchtCheckable);
+    AInfo.Data[cchdSubPart] := Pointer(cchtCheckable);
   end
   else
     if ExpandButtonVisible and PtInRect(ExpandButtonRect, P) then
@@ -1704,8 +1657,8 @@ end;
 constructor TACLCompoundControlContentCellList<T>.Create(AOwner: IACLCompoundControlSubClassContent);
 begin
   inherited Create;
-  FLastVisible := -1;
   FOwner := AOwner;
+  FLastVisible := -1;
   FCellClass := TACLCompoundControlBaseContentCellClass(T);
 end;
 
@@ -1721,7 +1674,7 @@ var
   I: Integer;
 begin
   for I := FirstVisible to LastVisible do
-    if PtInRect(List[I].Bounds, AInfo.HitPoint) then
+    if PtInRect(List[I].Bounds, AInfo.Point) then
     begin
       List[I].CalculateHitTest(AInfo);
       Exit(True);
@@ -1740,12 +1693,12 @@ var
   ASaveIndex: TRegionHandle;
   I: Integer;
 begin
-  if acStartClippedDraw(ACanvas.Handle, GetClipRect, ASaveIndex) then
+  if acStartClippedDraw(ACanvas, GetClipRect, ASaveIndex) then
   try
     for I := FirstVisible to LastVisible do
       List[I].Draw(ACanvas);
   finally
-    acRestoreClipRegion(ACanvas.Handle, ASaveIndex);
+    acEndClippedDraw(ACanvas, ASaveIndex);
   end;
 end;
 
@@ -1835,7 +1788,8 @@ end;
 { TACLCompoundControlContentCellList }
 
 constructor TACLCompoundControlContentCellList.Create(
-  AOwner: IACLCompoundControlSubClassContent; ACellClass: TACLCompoundControlBaseContentCellClass);
+  AOwner: IACLCompoundControlSubClassContent;
+  ACellClass: TACLCompoundControlBaseContentCellClass);
 begin
   inherited Create(AOwner);
   FCellClass := ACellClass;
@@ -1875,34 +1829,6 @@ destructor TACLCompoundControlScrollBarViewInfo.Destroy;
 begin
   FreeAndNil(FScrollTimer);
   inherited Destroy;
-end;
-
-function TACLCompoundControlScrollBarViewInfo.IsThumbResizable: Boolean;
-begin
-  Result := Style.IsThumbResizable(Kind);
-end;
-
-function TACLCompoundControlScrollBarViewInfo.MeasureSize: Integer;
-begin
-  if not Visible then
-    Result := 0
-  else
-    if Kind = sbVertical then
-      Result := Style.TextureBackgroundVert.FrameWidth
-    else
-      Result := Style.TextureBackgroundHorz.FrameHeight;
-end;
-
-procedure TACLCompoundControlScrollBarViewInfo.SetParams(const AScrollInfo: TACLScrollInfo);
-begin
-  FScrollInfo := AScrollInfo;
-  if not IsThumbResizable then
-  begin
-    Dec(FScrollInfo.Max, FScrollInfo.Page);
-    FScrollInfo.Page := 0;
-  end;
-  FVisible := FScrollInfo.Page + 1 < FScrollInfo.Range;
-  Calculate(Bounds, [cccnLayout]);
 end;
 
 function TACLCompoundControlScrollBarViewInfo.CalculateScrollDelta(const P: TPoint): Integer;
@@ -1990,8 +1916,36 @@ end;
 
 procedure TACLCompoundControlScrollBarViewInfo.DoDraw(ACanvas: TCanvas);
 begin
-  Style.DrawBackground(ACanvas, Bounds, Kind);
+  Style.Draw(ACanvas, Bounds, Kind, sbpNone, absNormal);
   inherited DoDraw(ACanvas);
+end;
+
+function TACLCompoundControlScrollBarViewInfo.IsThumbResizable: Boolean;
+begin
+  Result := Style.IsThumbResizable(Kind);
+end;
+
+function TACLCompoundControlScrollBarViewInfo.MeasureSize: Integer;
+begin
+  if not Visible then
+    Result := 0
+  else
+    if Kind = sbVertical then
+      Result := Style.TextureBackgroundVert.FrameWidth
+    else
+      Result := Style.TextureBackgroundHorz.FrameHeight;
+end;
+
+procedure TACLCompoundControlScrollBarViewInfo.SetParams(const AScrollInfo: TACLScrollInfo);
+begin
+  FScrollInfo := AScrollInfo;
+  if not IsThumbResizable then
+  begin
+    Dec(FScrollInfo.Max, FScrollInfo.Page);
+    FScrollInfo.Page := 0;
+  end;
+  FVisible := FScrollInfo.Page + 1 < FScrollInfo.Range;
+  Calculate(Bounds, [cccnLayout]);
 end;
 
 procedure TACLCompoundControlScrollBarViewInfo.RecreateSubCells;
@@ -2037,7 +1991,7 @@ begin
   if HitTest.HitObject <> Self then
     Exit;
 
-  ADelta := CalculateScrollDelta(HitTest.HitPoint);
+  ADelta := CalculateScrollDelta(HitTest.Point);
   if Sign(ADelta) <> Sign(AInitialDelta) then
     Exit;
 
@@ -2056,12 +2010,12 @@ var
   ADelta: Integer;
 begin
   if (AButton = mbLeft) and (ssShift in AShift) or (AButton = mbMiddle) then
-    ScrollTo(AHitTestInfo.HitPoint)
+    ScrollTo(AHitTestInfo.Point)
   else
     if AButton = mbLeft then
     begin
       FreeAndNil(FScrollTimer);
-      ADelta := CalculateScrollDelta(AHitTestInfo.HitPoint);
+      ADelta := CalculateScrollDelta(AHitTestInfo.Point);
       if ADelta <> 0 then
       begin
         FScrollTimer := TACLTimer.CreateEx(ScrollTimerHandler, acScrollBarTimerInitialDelay);
@@ -2134,7 +2088,12 @@ end;
 procedure TACLCompoundControlScrollBarPartViewInfo.DoDraw(ACanvas: TCanvas);
 begin
   if not AnimationManager.Draw(Self, ACanvas, Bounds) then
-    Style.DrawPart(ACanvas, Bounds, Part, ActualState, Kind);
+    Style.Draw(ACanvas, Bounds, Kind, Part, ActualState);
+end;
+
+procedure TACLCompoundControlScrollBarPartViewInfo.DoDrawTo(ADib: TACLDib);
+begin
+  Style.Draw(ADib.Canvas, ADib.ClientRect, Kind, Part, ActualState);
 end;
 
 procedure TACLCompoundControlScrollBarPartViewInfo.UpdateState;
@@ -2193,9 +2152,9 @@ begin
     if acUIAnimations and (AValue = absNormal) and (FState = absHover) then
     begin
       LAnimation := TACLBitmapAnimation.Create(Self, Bounds, TACLAnimatorFadeOut.Create);
-      DrawTo(LAnimation.BuildFrame1.Canvas, 0, 0);
+      DoDrawTo(LAnimation.BuildFrame1);
       FState := AValue;
-      DrawTo(LAnimation.BuildFrame2.Canvas, 0, 0);
+      DoDrawTo(LAnimation.BuildFrame2);
       LAnimation.Run;
     end
     else
@@ -2206,6 +2165,12 @@ begin
 end;
 
 { TACLCompoundControlScrollBarButtonViewInfo }
+
+destructor TACLCompoundControlScrollBarButtonViewInfo.Destroy;
+begin
+  FreeAndNil(FTimer);
+  inherited;
+end;
 
 procedure TACLCompoundControlScrollBarButtonViewInfo.Click;
 begin
@@ -2574,28 +2539,22 @@ end;
 
 { TACLCompoundControlSubClass }
 
-constructor TACLCompoundControlSubClass.Create(AOwner: TComponent);
+constructor TACLCompoundControlSubClass.Create(AOwner: IACLCompoundControlSubClassContainer);
 begin
-  if not Supports(AOwner, IACLCompoundControlSubClassContainer, FContainer) then
-    raise Exception.Create('IACLCompoundControlSubClassContainer is not supported by specified owner');
-
+  FContainer := AOwner;
   inherited Create(AOwner);
   BeginUpdate;
   FEnabledContent := True;
   FViewInfo := CreateViewInfo;
   FHitTest := CreateHitTest;
   FDragAndDropController := CreateDragAndDropController;
-  FHintController := CreateHintController;
-  FStyleHint := TACLStyleHint.Create(Self);
   FStyleScrollBox := CreateStyleScrollBox;
 end;
 
 destructor TACLCompoundControlSubClass.Destroy;
 begin
   FreeAndNil(FDragAndDropController);
-  FreeAndNil(FHintController);
   FreeAndNil(FHitTest);
-  FreeAndNil(FStyleHint);
   FreeAndNil(FStyleScrollBox);
   FreeAndNil(FViewInfo);
   inherited Destroy;
@@ -2610,6 +2569,8 @@ end;
 procedure TACLCompoundControlSubClass.BeforeDestruction;
 begin
   inherited BeforeDestruction;
+  if FActionType = ccatMouse then
+    raise EInvalidOperation.Create(ClassName + ' cannot be destroyed inside mouse action');
   OnUpdateState := nil;
 end;
 
@@ -2647,7 +2608,6 @@ begin
       AHandled := True
     else
     begin
-      MouseCapture := False;
       PressedObject := nil;
       ProcessContextPopup(AHandled);
     end;
@@ -2685,16 +2645,23 @@ end;
 procedure TACLCompoundControlSubClass.SetTargetDPI(AValue: Integer);
 begin
   StyleScrollBox.TargetDPI := AValue;
-  StyleHint.TargetDPI := AValue;
 end;
 
 procedure TACLCompoundControlSubClass.SetFocus;
 begin
-  if Container.CanFocus then
   try
     Container.SetFocus;
   except
     // do nothing
+  end;
+end;
+
+procedure TACLCompoundControlSubClass.Calculate(ABounds: TRect);
+begin
+  if Bounds <> ABounds then
+  begin
+    inherited;
+    BoundsChanged;
   end;
 end;
 
@@ -2726,7 +2693,8 @@ end;
 
 procedure TACLCompoundControlSubClass.InvalidateRect(const R: TRect);
 begin
-  Container.InvalidateRect(R);
+  if not R.IsEmpty then
+    Container.InvalidateRect(R);
 end;
 
 procedure TACLCompoundControlSubClass.Update;
@@ -2764,7 +2732,7 @@ begin
   end;
 end;
 
-procedure TACLCompoundControlSubClass.KeyPress(var Key: WideChar);
+procedure TACLCompoundControlSubClass.KeyChar(var Key: WideChar);
 begin
   if CanInteract then
   begin
@@ -2795,27 +2763,32 @@ begin
   Result := False;
 end;
 
-procedure TACLCompoundControlSubClass.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlSubClass.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
 begin
   if CanInteract then
   begin
     FActionType := ccatMouse;
     try
-      FSkipClick := False;
       DragAndDropController.Cancel;
-      HintController.Cancel;
-      UpdateHitTest(X, Y);
-      PressedObject := HitTest.HitObject;
-      if ssDouble in Shift then
-      begin
-        ProcessMouseDblClick(Button, Shift - [ssDouble]);
-        FSkipClick := True;
-      end
+      Application.CancelHint;
+      UpdateHitTest(P);
+
+      if Button <> mbLeft then
+        FLastClickCount := 1
+      else if TACLThread.IsTimeoutEx(FLastClickTimestamp, GetDoubleClickTime) then
+        FLastClickCount := 1
+      else if acCanStartDragging(FLastClickPoint, P, acDefaultDpi) then
+        FLastClickCount := 1
       else
-      begin
-        MouseCapture := True;
-        ProcessMouseDown(Button, Shift);
-      end;
+        Inc(FLastClickCount);
+
+      if FLastClickCount = 1 then
+        FLastClickPoint := P;
+      if LastClickCount > 1 then
+        Include(Shift, ssDouble);
+      PressedObject := HitTest.HitObject;
+      ProcessMouseDown(Button, Shift);
     finally
       FActionType := ccatNone;
     end;
@@ -2827,47 +2800,48 @@ begin
   if CanInteract then
   begin
     HitTest.Reset;
-    HintController.Cancel;
+    Application.CancelHint;
     SetHoveredObject(nil);
     ProcessMouseLeave;
   end;
 end;
 
-procedure TACLCompoundControlSubClass.MouseMove(Shift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlSubClass.MouseMove(Shift: TShiftState; const P: TPoint);
 begin
   if CanInteract then
   begin
     FActionType := ccatMouse;
     try
-      UpdateHitTest(X, Y);
-      DragAndDropController.MouseMove(Shift, X, Y);
+      UpdateHitTest(P);
+      DragAndDropController.MouseMove(Shift, P);
       if DragAndDropController.IsActive then
-        FSkipClick := True
+        FLastClickCount := 0
       else
-      begin
-        ProcessMouseMove(Shift, X, Y);
-        if not MouseCapture then
-          HintController.Update(HitTest);
-      end;
+        ProcessMouseMove(Shift, P.X, P.Y);
     finally
       FActionType := ccatNone;
     end;
   end;
 end;
 
-procedure TACLCompoundControlSubClass.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+procedure TACLCompoundControlSubClass.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
 begin
   if CanInteract then
   begin
     FActionType := ccatMouse;
     try
-      UpdateHitTest(X, Y);
-      FSkipClick := FSkipClick or DragAndDropController.IsActive;
-      DragAndDropController.MouseUp(Shift, X, Y);
-      if not FSkipClick and (PressedObject = HitTest.HitObject) then
-        ProcessMouseClick(Button, Shift);
+      if DragAndDropController.IsActive then
+        FLastClickCount := 0;
+      DragAndDropController.MouseUp;
+
+      UpdateHitTest(P);
+      if (Button = mbLeft) and (LastClickCount > 0) then
+      begin
+        if PressedObject = HitTest.HitObject then
+          ProcessMouseClick(Shift);
+      end;
       ProcessMouseUp(Button, Shift);
-      MouseCapture := False;
       PressedObject := nil;
     finally
       FActionType := ccatNone;
@@ -2894,20 +2868,17 @@ begin
   end;
 end;
 
-procedure TACLCompoundControlSubClass.UpdateHitTest(X, Y: Integer);
-begin
-  UpdateHitTest(Point(X, Y));
-end;
-
 procedure TACLCompoundControlSubClass.UpdateHitTest;
 begin
   UpdateHitTest(ScreenToClient(MouseCursorPos));
 end;
 
-procedure TACLCompoundControlSubClass.UpdateHitTest(const P: TPoint);
+procedure TACLCompoundControlSubClass.UpdateHitTest(
+  const P: TPoint; ACalcHint: Boolean = False);
 begin
   HitTest.Reset;
-  HitTest.HitPoint := P;
+  HitTest.Point := P;
+  HitTest.CalcHintData := ACalcHint;
   ViewInfo.CalculateHitTest(HitTest);
 end;
 
@@ -2969,6 +2940,17 @@ begin
   inherited;
 end;
 
+procedure TACLCompoundControlSubClass.CMHintShow(var Message: TCMHintShow);
+begin
+  UpdateHitTest(Message.HintInfo.CursorPos, True);
+  if HitTest.HintData.TextRect <> NullRect then
+    Message.HintInfo^.HintPos := ClientToScreen(HitTest.HintData.TextRect.TopLeft);
+  Message.HintInfo^.CursorRect := HitTest.HintData.Area;
+  Message.HintInfo^.HintWindowClass := TACLHintWindow;
+  Message.HintInfo^.HintData := @HitTest.HintData;
+  Message.HintInfo^.HintStr := HitTest.HintData.Text;
+end;
+
 function TACLCompoundControlSubClass.ClientToScreen(const P: TPoint): TPoint;
 begin
   Result := Container.ClientToScreen(P)
@@ -2982,11 +2964,6 @@ end;
 function TACLCompoundControlSubClass.CreateDragAndDropController: TACLCompoundControlDragAndDropController;
 begin
   Result := TACLCompoundControlDragAndDropController.Create(Self);
-end;
-
-function TACLCompoundControlSubClass.CreateHintController: TACLCompoundControlHintController;
-begin
-  Result := TACLCompoundControlHintController.Create(Self);
 end;
 
 function TACLCompoundControlSubClass.CreateHitTest: TACLHitTestInfo;
@@ -3040,7 +3017,7 @@ function TACLCompoundControlSubClass.CalculateState(AObject: TObject; ASubPart: 
 begin
   if not EnabledContent then
     Exit(absDisabled);
-  if (ASubPart = 0) or (HoveredObjectSubPart = ASubPart) then
+  if (ASubPart = 0) or (HoveredObjectPart = ASubPart) then
   begin
     if PressedObject = AObject then
       Exit(absPressed);
@@ -3066,51 +3043,22 @@ begin
   // do nothing
 end;
 
-procedure TACLCompoundControlSubClass.ProcessMouseClick(AButton: TMouseButton; AShift: TShiftState);
-var
-  AClickable: IACLClickableObject;
+procedure TACLCompoundControlSubClass.ProcessMouseClick(AShift: TShiftState);
 begin
-  if AButton = mbLeft then
-  begin
-    if HitTest.IsCheckable then
-      ToggleChecked(HitTest.HitObject)
-    else
-
-    if HitTest.IsExpandable then
-      ToggleExpanded(HitTest.HitObject)
-    else
-
-    if Supports(HitTest.HitObject, IACLClickableObject, AClickable) then
-      AClickable.Click(HitTest);
-  end;
-end;
-
-procedure TACLCompoundControlSubClass.ProcessMouseDblClick(AButton: TMouseButton; AShift: TShiftState);
-var
-  APressable: IACLPressableObject;
-begin
-  if Supports(PressedObject, IACLPressableObject, APressable) then
-  begin
-    APressable.MouseDown(AButton, AShift, HitTest);
-    APressable.MouseUp(AButton, AShift, HitTest);
-  end;
-  if AButton = mbLeft then
-  begin
-    if HitTest.IsExpandable then
-      ToggleExpanded(HitTest.HitObject);
-    if HitTest.IsCheckable then
-      ToggleChecked(HitTest.HitObject);
-  end;
+  if HitTest.IsCheckable then
+    ToggleChecked(HitTest.HitObject)
+  else if HitTest.IsExpandable then
+    ToggleExpanded(HitTest.HitObject)
 end;
 
 procedure TACLCompoundControlSubClass.ProcessMouseDown(AButton: TMouseButton; AShift: TShiftState);
 var
-  APressable: IACLPressableObject;
+  LHandler: IACLPressableObject;
 begin
-  if Supports(PressedObject, IACLPressableObject, APressable) then
-    APressable.MouseDown(AButton, AShift, HitTest);
-  if AButton = mbLeft then
-    DragAndDropController.MouseDown(AShift, HitTest.HitPoint.X, HitTest.HitPoint.Y);
+  if Supports(PressedObject, IACLPressableObject, LHandler) then
+    LHandler.MouseDown(AButton, AShift, HitTest);
+  if (AButton = mbLeft) and (FLastClickCount = 1) then
+    DragAndDropController.MouseDown(AShift, HitTest.Point);
 end;
 
 procedure TACLCompoundControlSubClass.ProcessMouseLeave;
@@ -3121,17 +3069,17 @@ end;
 procedure TACLCompoundControlSubClass.ProcessMouseMove(AShift: TShiftState; X, Y: Integer);
 begin
   if not DragAndDropController.IsActive then
-    SetHoveredObject(HitTest.HitObject, NativeInt(HitTest.HitObjectData[cchdSubPart]));
+    SetHoveredObject(HitTest.HitObject, NativeInt(HitTest.Data[cchdSubPart]));
 end;
 
 procedure TACLCompoundControlSubClass.ProcessMouseUp(AButton: TMouseButton; AShift: TShiftState);
 var
-  APressable: IACLPressableObject;
+  LHandler: IACLPressableObject;
 begin
-  if Supports(PressedObject, IACLPressableObject, APressable) then
+  if Supports(PressedObject, IACLPressableObject, LHandler) then
   begin
     PressedObject := nil;
-    APressable.MouseUp(AButton, AShift, HitTest);
+    LHandler.MouseUp(AButton, AShift, HitTest);
   end;
 end;
 
@@ -3143,8 +3091,7 @@ end;
 
 procedure TACLCompoundControlSubClass.UpdateHotTrack;
 begin
-  with ScreenToClient(MouseCursorPos) do
-    MouseMove(KeyboardStateToShiftState, X, Y);
+  MouseMove(KeyboardStateToShiftState, ScreenToClient(MouseCursorPos));
 end;
 
 procedure TACLCompoundControlSubClass.DoDragStarted;
@@ -3281,11 +3228,6 @@ begin
   Result := csDestroying in ComponentState;
 end;
 
-function TACLCompoundControlSubClass.GetMouseCapture: Boolean;
-begin
-  Result := Container.GetMouseCapture;
-end;
-
 function TACLCompoundControlSubClass.GetResourceCollection: TACLCustomResourceCollection;
 var
   AIntf: IACLResourceCollection;
@@ -3294,15 +3236,6 @@ begin
     Result := AIntf.GetCollection
   else
     Result := nil;
-end;
-
-procedure TACLCompoundControlSubClass.SetBounds(const AValue: TRect);
-begin
-  if FBounds <> AValue then
-  begin
-    FBounds := AValue;
-    BoundsChanged;
-  end;
 end;
 
 procedure TACLCompoundControlSubClass.SetEnabledContent(AValue: Boolean);
@@ -3314,40 +3247,40 @@ begin
   end;
 end;
 
-procedure TACLCompoundControlSubClass.SetHoveredObject(AObject: TObject; ASubPart: NativeInt = 0);
+procedure TACLCompoundControlSubClass.SetHoveredObject(AObject: TObject; APart: NativeInt = 0);
 var
-  AHotTrack: IACLHotTrackObject;
-  APrevObject: TObject;
+  LIntf: IACLHotTrackObject;
+  LPrevObject: TObject;
+  LPrevObjectPart: Integer;
 begin
   if FHoveredObject <> AObject then
   begin
-    APrevObject := HoveredObject;
+    LPrevObject := HoveredObject;
+    LPrevObjectPart := FHoveredObjectPart;
     FHoveredObject := AObject;
-    FHoveredObjectSubPart := ASubPart;
-    if Supports(APrevObject, IACLHotTrackObject, AHotTrack) then
-      AHotTrack.OnHotTrack(htaLeave);
-    if Supports(HoveredObject, IACLHotTrackObject, AHotTrack) then
-      AHotTrack.OnHotTrack(htaEnter);
+    FHoveredObjectPart := APart;
+    if Supports(LPrevObject, IACLHotTrackObject, LIntf) then
+    begin
+      if LPrevObjectPart <> 0 then
+        LIntf.OnHotTrack(htaSwitchPart);
+      LIntf.OnHotTrack(htaLeave);
+    end;
+    if Supports(HoveredObject, IACLHotTrackObject, LIntf) then
+    begin
+      LIntf.OnHotTrack(htaEnter);
+      if FHoveredObjectPart <> 0 then
+        LIntf.OnHotTrack(htaSwitchPart);
+    end;
     DoHoveredObjectChanged;
   end
   else
-    if FHoveredObjectSubPart <> ASubPart then
+    if FHoveredObjectPart <> APart then
     begin
-      FHoveredObjectSubPart := ASubPart;
-      if Supports(HoveredObject, IACLHotTrackObject, AHotTrack) then
-        AHotTrack.OnHotTrack(htaSwitchPart);
+      FHoveredObjectPart := APart;
+      if Supports(HoveredObject, IACLHotTrackObject, LIntf) then
+        LIntf.OnHotTrack(htaSwitchPart);
       DoHoveredObjectChanged;
     end;
-end;
-
-procedure TACLCompoundControlSubClass.SetMouseCapture(const AValue: Boolean);
-begin
-  Container.SetMouseCapture(AValue);
-end;
-
-procedure TACLCompoundControlSubClass.SetStyleHint(AValue: TACLStyleHint);
-begin
-  FStyleHint.Assign(AValue);
 end;
 
 procedure TACLCompoundControlSubClass.SetStyleScrollBox(AValue: TACLStyleScrollBox);

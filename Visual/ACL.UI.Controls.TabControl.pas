@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   TabControl/PageControl
 //
@@ -33,18 +33,23 @@ uses
   // Vcl
   {Vcl.}Graphics,
   {Vcl.}Controls,
+  {Vcl.}ImgList,
   {Vcl.}Forms,
+  {Vcl.}Menus,
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
   ACL.Geometry,
+  ACL.Geometry.Utils,
   ACL.Graphics,
   ACL.Graphics.Ex,
   ACL.Graphics.SkinImage,
   ACL.Math,
   ACL.MUI,
   ACL.UI.Controls.Base,
+  ACL.UI.Controls.Buttons,
   ACL.UI.Insight,
+  ACL.UI.Menus,
   ACL.UI.Resources,
   ACL.Utils.Common,
   ACL.Utils.DPIAware,
@@ -123,6 +128,7 @@ type
     Hover: Boolean;
     Tab: TACLTab;
     TextRect: TRect;
+    TextSize: array[Boolean] of TSize;
     TextTruncated: Boolean;
     constructor Create(ATab: TACLTab);
   end;
@@ -143,27 +149,34 @@ type
   TACLTabsPosition = (tpTop, tpBottom);
 
   TACLTabsOptionsView = class(TPersistent)
+  public const
+    DefaultTabIndent = 3;
+    DefaultTabPosition = tpTop;
+    DefaultTabShrinkFactor = 80;
   strict private
     FControl: TACLCustomTabControl;
     FStyle: TACLTabsStyle;
     FTabIndent: Integer;
     FTabPosition: TACLTabsPosition;
+    FTabShrinkFactor: Integer;
     FTabWidth: Integer;
 
     procedure SetStyle(AValue: TACLTabsStyle);
     procedure SetTabIndent(AValue: Integer);
     procedure SetTabPosition(AValue: TACLTabsPosition);
+    procedure SetTabShrinkFactor(AValue: Integer);
     procedure SetTabWidth(AValue: Integer);
   protected
+    procedure AssignTo(Dest: TPersistent); override;
     procedure Changed;
   public
     constructor Create(AControl: TACLCustomTabControl);
-    procedure Assign(Source: TPersistent); override;
   published
     property Style: TACLTabsStyle read FStyle write SetStyle default tsTab;
-    property TabPosition: TACLTabsPosition read FTabPosition write SetTabPosition default tpTop;
-    property TabIndent: Integer read FTabIndent write SetTabIndent default 3;
-    property TabWidth: Integer read FTabWidth write SetTabWidth default -1;
+    property TabIndent: Integer read FTabIndent write SetTabIndent default DefaultTabIndent;
+    property TabPosition: TACLTabsPosition read FTabPosition write SetTabPosition default DefaultTabPosition;
+    property TabShrinkFactor: Integer read FTabShrinkFactor write SetTabShrinkFactor default DefaultTabShrinkFactor;
+    property TabWidth: Integer read FTabWidth write SetTabWidth default 0;
   end;
 
   { TACLCustomTabControl }
@@ -177,8 +190,11 @@ type
     FHoverTab: TACLTab;
     FIsUserAction: Boolean;
     FLoadedActiveIndex: Integer;
+    FMoreButton: TACLButtonSubClass;
+    FMoreMenu: TACLPopupMenu;
     FOptionsView: TACLTabsOptionsView;
     FStyle: TACLStyleTabControl;
+    FStyleButton: TACLStyleButton;
     FTabs: TACLTabsList;
     FViewItems: TACLTabViewItemList;
 
@@ -190,7 +206,11 @@ type
     procedure SetHoverTab(AValue: TACLTab);
     procedure SetOptionsView(AValue: TACLTabsOptionsView);
     procedure SetStyle(AValue: TACLStyleTabControl);
+    procedure SetStyleButton(AValue: TACLStyleButton);
     procedure SetTabs(AValue: TACLTabsList);
+
+    procedure HandlerMenuClick(Sender: TObject);
+    procedure HandlerMoreClick(Sender: TObject);
   protected
     FFrameRect: TRect;
     FTabAreaRect: TRect;
@@ -208,11 +228,9 @@ type
     // Calculating
     function CalculateTabPlaceIndents(AItem: TACLTabViewItem): TRect; virtual;
     function CalculateTabTextOffsets(AItem: TACLTabViewItem): TRect; virtual;
-    function CalculateTabWidth(AItem: TACLTabViewItem): Integer; virtual;
-    function CalculateTextSize(const ACaption: string): TSize; virtual;
     procedure Calculate;
     procedure CalculateCore; virtual;
-    procedure CalculateTabPlaces(const R: TRect); virtual;
+    procedure CalculateTabsLayout(ARect: TRect); virtual;
     procedure CalculateTabStates; virtual;
     function GetTabHeight: Integer;
     function GetTabMargins: TRect; virtual;
@@ -245,6 +263,7 @@ type
     procedure CMDesignHitTest(var Message: TCMDesignHitTest); message CM_DESIGNHITTEST;
     procedure WMGetDlgCode(var Message: TWMGetDlgCode); message WM_GETDLGCODE;
     //# Properties
+    property MoreButton: TACLButtonSubClass read FMoreButton;
     property Tabs: TACLTabsList read FTabs write SetTabs;
     property ViewItems: TACLTabViewItemList read FViewItems;
   public
@@ -265,6 +284,7 @@ type
     property OptionsView: TACLTabsOptionsView read FOptionsView write SetOptionsView;
     property ResourceCollection;
     property Style: TACLStyleTabControl read FStyle write SetStyle;
+    property StyleButton: TACLStyleButton read FStyleButton write SetStyleButton;
     property Visible;
     //# Events
     property OnTabChanging: TACLTabsActiveChangeEvent read FOnTabChanging write FOnTabChanging;
@@ -330,7 +350,6 @@ type
     procedure SetActivePage(AValue: TACLPageControlPage);
   protected
     procedure AlignControls(AControl: TControl; var ARect: TRect); override;
-    procedure DoActiveIndexChanged; override;
     procedure DoFullRefresh; override;
     procedure PageAdded(APage: TACLPageControlPage);
     procedure PageRemoving(APage: TACLPageControlPage);
@@ -352,7 +371,8 @@ type
 
   TACLPageControlUIInsightAdapter = class(TACLUIInsightAdapterWinControl)
   public
-    class procedure GetChildren(AObject: TObject; ABuilder: TACLUIInsightSearchQueueBuilder); override;
+    class procedure GetChildren(AObject: TObject;
+      ABuilder: TACLUIInsightSearchQueueBuilder); override;
   end;
 
   { TACLPageControlPageUIInsightAdapter }
@@ -380,15 +400,18 @@ const
 
 procedure TACLStyleTabControl.DrawTab(ACanvas: TCanvas;
   const R: TRect; AActive: Boolean; AStyle: TACLTabsStyle);
+var
+  LIndex: Integer;
 begin
   case AStyle of
     tsHeader:
-      HeaderTexture.Draw(ACanvas, R, IfThen(AActive, 3, 2));
+      LIndex := IfThen(AActive, 3, 2);
     tsHeaderAlt:
-      HeaderTexture.Draw(ACanvas, R, IfThen(AActive, 1, 2));
+      LIndex := IfThen(AActive, 1, 2);
   else
-    HeaderTexture.Draw(ACanvas, R, Ord(AActive));
+    LIndex := Ord(AActive);
   end;
+  HeaderTexture.Draw(ACanvas, R, LIndex);
 end;
 
 procedure TACLStyleTabControl.InitializeResources;
@@ -488,7 +511,13 @@ end;
 
 procedure TACLTabsList.Update(Item: TCollectionItem);
 begin
-  FControl.FullRefresh;
+  if Item <> nil then
+  begin
+    FControl.Calculate;
+    FControl.Invalidate;
+  end
+  else
+    FControl.FullRefresh;
 end;
 
 { TACLCustomTabControl }
@@ -496,20 +525,26 @@ end;
 constructor TACLCustomTabControl.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  ControlStyle := ControlStyle + [csAcceptsControls];
   FActiveIndex := -1;
   FBorders := acAllBorders;
-  TabStop := True;
-  FStyle := TACLStyleTabControl.Create(Self);
   FTabs := TACLTabsList.Create(Self);
+  FDefaultSize := TSize.Create(400, 300);
+  FStyle := TACLStyleTabControl.Create(Self);
+  FStyleButton := TACLStyleButton.Create(Self);
   FViewItems := TACLTabViewItemList.Create;
   FOptionsView := TACLTabsOptionsView.Create(Self);
-  FDefaultSize := TSize.Create(400, 300);
+  RegisterSubClass(FMoreButton, TACLButtonSubClass.Create(Self, StyleButton));
+  FMoreButton.OnClick := HandlerMoreClick;
+  FMoreButton.HasArrow := True;
+  ControlStyle := ControlStyle + [csAcceptsControls];
+  TabStop := True;
 end;
 
 destructor TACLCustomTabControl.Destroy;
 begin
   FreeAndNil(FStyle);
+  FreeAndNil(FStyleButton);
+  FreeAndNil(FMoreMenu);
   FreeAndNil(FOptionsView);
   FreeAndNil(FViewItems);
   FreeAndNil(FTabs);
@@ -537,7 +572,7 @@ end;
 
 function TACLCustomTabControl.CreatePadding: TACLPadding;
 begin
-  Result := TACLPadding.Create(5);
+  Result := TACLPadding.Create(8);
 end;
 
 procedure TACLCustomTabControl.CreateWnd;
@@ -553,7 +588,7 @@ begin
     PopulateViewItems;
     CalculateCore;
     CalculateTabStates;
-    CalculateTabPlaces(FTabAreaRect);
+    CalculateTabsLayout(FTabAreaRect);
   end;
 end;
 
@@ -590,118 +625,164 @@ begin
     TACLMath.Exchange<Integer>(Result.Top, Result.Bottom);
 end;
 
-procedure TACLCustomTabControl.CalculateTabPlaces(const R: TRect);
+procedure TACLCustomTabControl.CalculateTabsLayout(ARect: TRect);
 var
-  ACalculator: TACLAutoSizeCalculator;
-  AContentRect: TRect;
-  AIndentBetweenTabs: Integer;
-  AItem: TACLTabViewItem;
-  ATabOffset: Integer;
-  ATextSize: TSize;
-  AWidth: Integer;
   I: Integer;
+  LAutoWidth: Boolean;
+  LButtonRect: TRect;
+  LCalculator: TACLAutoSizeCalculator;
+  LContentRect: TRect;
+  LFixedWidth: Integer;
+  LIndentBetweenTabs: Integer;
+  LItem: TACLTabViewItem;
+  LTabOffset: Integer;
+  LTabMaxWidth: Integer;
+  LTabs: Boolean;
+  LTabWidth: Integer;
+  LVisibleRange: TACLRange;
 begin
-  AIndentBetweenTabs := dpiApply(OptionsView.TabIndent, FCurrentPPI);
-  if OptionsView.Style = tsTab then
-    ATabOffset := dpiApply(OptionsView.TabIndent, FCurrentPPI) + 1
+{$REGION ' Metrics '}
+  LTabs := OptionsView.Style = tsTab;
+  LTabOffset := IfThen(LTabs, dpiApply(OptionsView.TabIndent, FCurrentPPI) + 1);
+  LIndentBetweenTabs := dpiApply(OptionsView.TabIndent, FCurrentPPI);
+
+  LAutoWidth := OptionsView.TabWidth <= 0;
+  if LAutoWidth then
+    LFixedWidth := GetTabMargins.MarginsWidth
   else
-    ATabOffset := 0;
+    LFixedWidth := dpiApply(OptionsView.TabWidth, FCurrentPPI);
 
-  ACalculator := TACLAutoSizeCalculator.Create;
+  if not LTabs then
+  begin
+    if OptionsView.TabPosition = tpTop then
+      Dec(ARect.Bottom, LIndentBetweenTabs)
+    else
+      Inc(ARect.Top, LIndentBetweenTabs);
+  end;
+{$ENDREGION}
+
+  LCalculator := TACLAutoSizeCalculator.Create(ViewItems.Count);
   try
-    ACalculator.Capacity := ViewItems.Count;
-    ACalculator.AvailableSize := R.Width - 2 * ATabOffset;
+    LCalculator.AvailableSize := ARect.Width - 2 * LTabOffset - LIndentBetweenTabs * (ViewItems.Count - 1);
+
+  {$REGION ' Measuring '}
+    LTabMaxWidth := 0;
     for I := 0 to ViewItems.Count - 1 do
     begin
-      if OptionsView.Style = tsTab then
-        AWidth := CalculateTabWidth(ViewItems[I]) + IfThen(I + 1 < ViewItems.Count, AIndentBetweenTabs)
-      else
-        AWidth := 0;
-
-      ACalculator.Add(AWidth, 1, AWidth, True);
-    end;
-    ACalculator.Calculate;
-
-    Inc(ATabOffset, R.Left);
-    for I := 0 to ViewItems.Count - 1 do
-    begin
-      AItem := ViewItems[I];
-      AItem.Bounds := Bounds(ATabOffset, R.Top, ACalculator[I].Size, R.Height);
-      if I + 1 < ViewItems.Count then
-        Dec(AItem.Bounds.Right, AIndentBetweenTabs);
-      ATabOffset := AItem.Bounds.Right + AIndentBetweenTabs;
-
-      if OptionsView.Style = tsTab then
-        AItem.Bounds.Content(CalculateTabPlaceIndents(AItem))
-      else if OptionsView.TabPosition = tpTop then
-        Dec(AItem.Bounds.Bottom, AIndentBetweenTabs)
-      else
-        Inc(AItem.Bounds.Top, AIndentBetweenTabs);
-
-      if AItem.Tab.Caption <> '' then
+      LItem := ViewItems.List[I];
+      LItem.TextSize[False] := Style.HeaderFont.MeasureSize(LItem.Tab.Caption);
+      LItem.TextSize[True] := Style.HeaderFontActive.MeasureSize(LItem.Tab.Caption);
+      LTabWidth := LFixedWidth;
+      if LAutoWidth then
       begin
-        if AItem.Active then
-          MeasureCanvas.Font.Assign(Style.HeaderFontActive)
-        else
-          MeasureCanvas.Font.Assign(Style.HeaderFont);
-
-        ATextSize := acTextSize(MeasureCanvas, AItem.Tab.Caption);
-        AContentRect := AItem.Bounds;
-        AContentRect.Content(CalculateTabTextOffsets(AItem));
-        AItem.TextRect := AContentRect;
-        AItem.TextRect.Center(ATextSize);
-        AItem.TextTruncated := ATextSize.cx > AContentRect.Width;
-        AItem.TextRect.Intersect(AContentRect);
+        Inc(LTabWidth, Max(LItem.TextSize[False].cx, LItem.TextSize[True].cx));
+        LTabMaxWidth := Max(LTabMaxWidth, LTabWidth);
       end;
-
-      if AItem.Active then
+      LCalculator.Add(LTabWidth,
+        MulDiv(LTabWidth, OptionsView.TabShrinkFactor, 100),
+        IfThen(LTabs, LTabWidth), True);
+    end;
+    if LAutoWidth and not LTabs then
+    begin
+      if LTabMaxWidth * LCalculator.Count <= LCalculator.AvailableSize then
       begin
-        AItem.FocusRect := AItem.Bounds.Split(Style.HeaderTexture.ContentOffsets);
-        if OptionsView.Style = tsHeaderAlt then
+         for I := 0 to LCalculator.Count - 1 do
+           LCalculator.Items[I].Size := LTabMaxWidth;
+      end;
+    end;
+    LCalculator.Calculate;
+  {$ENDREGION}
+
+  {$REGION ' Overloading '}
+    LVisibleRange := TACLRange.Create(0, LCalculator.Count - 1);
+    if LCalculator.UsedSize > LCalculator.AvailableSize then
+    begin
+      LButtonRect := ARect.SplitRect(srRight, dpiApply(16, FCurrentPPI));
+      if LTabs then
+        LButtonRect.Inflate(0, -LIndentBetweenTabs);
+      MoreButton.Calculate(LButtonRect);
+      repeat
+        LCalculator.AvailableSize := ARect.Width - 2 * LTabOffset -
+          LIndentBetweenTabs * LVisibleRange.Length -
+          LIndentBetweenTabs - MoreButton.Bounds.Width;
+        if LVisibleRange.Length = 0 then
+          Break;
+        if LVisibleRange.Finish > ActiveIndex then
         begin
-          Inc(AItem.FocusRect.Bottom, AIndentBetweenTabs);
-          Inc(AItem.Bounds.Bottom, AIndentBetweenTabs + 2);
+          LCalculator.Items[LVisibleRange.Finish].MinSize := 0;
+          LCalculator.Items[LVisibleRange.Finish].MaxSize := 0;
+          LCalculator.Items[LVisibleRange.Finish].Size := 0;
+          Dec(LVisibleRange.Finish);
+        end
+        else
+        begin
+          LCalculator.Items[LVisibleRange.Start].MinSize := 0;
+          LCalculator.Items[LVisibleRange.Start].MaxSize := 0;
+          LCalculator.Items[LVisibleRange.Start].Size := 0;
+          Inc(LVisibleRange.Start);
+        end;
+      until LCalculator.UsedSize <= LCalculator.AvailableSize;
+      if LVisibleRange.Length = 0 then
+        LCalculator.Items[LVisibleRange.Start].MinSize := 0;
+      LCalculator.Calculate;
+    end
+    else
+      MoreButton.Calculate(NullRect);
+  {$ENDREGION}
+
+  {$REGION ' Positioning '}
+    Inc(LTabOffset, ARect.Left);
+    for I := 0 to ViewItems.Count - 1 do
+    begin
+      LItem := ViewItems.List[I];
+      LItem.Bounds := Bounds(LTabOffset, ARect.Top, LCalculator.Items[I].Size, ARect.Height);
+      if not LItem.Bounds.IsEmpty then
+      begin
+        LTabOffset := LItem.Bounds.Right + LIndentBetweenTabs;
+        if LTabs then
+          LItem.Bounds.Content(CalculateTabPlaceIndents(LItem));
+        if LItem.Tab.Caption <> '' then
+        begin
+          LContentRect := LItem.Bounds;
+          LContentRect.Content(CalculateTabTextOffsets(LItem));
+          LItem.TextRect := LContentRect;
+          LItem.TextRect.Center(LItem.TextSize[LItem.Active]);
+          LItem.TextTruncated := LItem.TextRect.Width > LContentRect.Width;
+          LItem.TextRect.Intersect(LContentRect);
+        end;
+        if LItem.Active then
+        begin
+          LItem.FocusRect := LItem.Bounds.Split(Style.HeaderTexture.ContentOffsets);
+          if OptionsView.Style = tsHeaderAlt then
+          begin
+            Inc(LItem.FocusRect.Bottom, LIndentBetweenTabs);
+            Inc(LItem.Bounds.Bottom, LIndentBetweenTabs + 2);
+          end;
         end;
       end;
     end;
+  {$ENDREGION}
   finally
-    ACalculator.Free;
+    LCalculator.Free;
   end;
-end;
-
-function TACLCustomTabControl.CalculateTabWidth(AItem: TACLTabViewItem): Integer;
-begin
-  if OptionsView.TabWidth > 0 then
-    Result := dpiApply(OptionsView.TabWidth, FCurrentPPI)
-  else
-    Result := GetTabMargins.MarginsWidth + CalculateTextSize(AItem.Tab.Caption).cx;
 end;
 
 procedure TACLCustomTabControl.CalculateTabStates;
 var
-  AViewItem: TACLTabViewItem;
+  LItem: TACLTabViewItem;
   I: Integer;
 begin
   for I := 0 to ViewItems.Count - 1 do
   begin
-    AViewItem := ViewItems[I];
-    AViewItem.Active := ActiveIndex = AViewItem.Tab.Index;
-    AViewItem.Hover := HoverTab = AViewItem.Tab;
+    LItem := ViewItems.List[I];
+    LItem.Active := ActiveIndex = LItem.Tab.Index;
+    LItem.Hover := HoverTab = LItem.Tab;
   end;
 end;
 
 function TACLCustomTabControl.CalculateTabTextOffsets(AItem: TACLTabViewItem): TRect;
 begin
   Result := GetTabMargins;
-end;
-
-function TACLCustomTabControl.CalculateTextSize(const ACaption: string): TSize;
-begin
-  Result := NullSize;
-  Canvas.Font.Assign(Style.HeaderFont);
-  Result := Max(Result, acTextSize(Canvas, ACaption));
-  Canvas.Font.Assign(Style.HeaderFontActive);
-  Result := Max(Result, acTextSize(Canvas, ACaption));
 end;
 
 procedure TACLCustomTabControl.SetTargetDPI(AValue: Integer);
@@ -771,21 +852,21 @@ end;
 
 procedure TACLCustomTabControl.DrawItems(ACanvas: TCanvas);
 var
-  AActiveViewItem: TACLTabViewItem;
-  AViewItem: TACLTabViewItem;
   I: Integer;
+  LItem: TACLTabViewItem;
+  LItemActive: TACLTabViewItem;
 begin
-  AActiveViewItem := nil;
+  LItemActive := nil;
   for I := 0 to ViewItems.Count - 1 do
   begin
-    AViewItem := ViewItems.List[I];
-    if AViewItem.Active then
-      AActiveViewItem := AViewItem
+    LItem := ViewItems.List[I];
+    if LItem.Active then
+      LItemActive := LItem
     else
-      DrawItem(ACanvas, AViewItem);
+      DrawItem(ACanvas, LItem);
   end;
-  if AActiveViewItem <> nil then
-    DrawItem(ACanvas, AActiveViewItem);
+  if LItemActive <> nil then
+    DrawItem(ACanvas, LItemActive);
 end;
 
 procedure TACLCustomTabControl.DrawItemText(ACanvas: TCanvas; AViewItem: TACLTabViewItem);
@@ -823,6 +904,29 @@ begin
     ActiveIndex := AIndex
   else
     ActiveIndex := -1;
+end;
+
+procedure TACLCustomTabControl.HandlerMenuClick(Sender: TObject);
+begin
+  ActiveIndex := TMenuItem(Sender).Tag;
+end;
+
+procedure TACLCustomTabControl.HandlerMoreClick(Sender: TObject);
+var
+  LItem: TMenuItem;
+  I: Integer;
+begin
+  if FMoreMenu = nil then
+    FMoreMenu := TACLPopupMenu.Create(nil);
+  FMoreMenu.Items.Clear;
+  for I := 0 to Tabs.Count - 1 do
+  begin
+    LItem := FMoreMenu.Items.AddItem(Tabs[I].Caption, I, HandlerMenuClick);
+    LItem.RadioItem := True;
+    LItem.Default := I = ActiveIndex;
+    LItem.Checked := I = ActiveIndex;
+  end;
+  FMoreMenu.PopupUnderControl(MoreButton.Bounds + ClientOrigin);
 end;
 
 function TACLCustomTabControl.HitTest(X, Y: Integer; out AViewItem: TACLTabViewItem): Boolean;
@@ -865,7 +969,7 @@ function TACLCustomTabControl.MouseWheel(Direction: TACLMouseWheelDirection;
   Shift: TShiftState; const MousePos: TPoint): Boolean;
 begin
   Result := acUIMouseWheelSwitchesTabs and
-    FTabAreaRect.Contains({$IFNDEF LCLGtk2}ScreenToClient{$ENDIF}(MousePos));
+    FTabAreaRect.Contains({$IFNDEF FPC}ScreenToClient{$ENDIF}(MousePos));
   if Result then
     ActiveIndex := ActiveIndex - TACLMouseWheel.DirectionToInteger[Direction];
 end;
@@ -875,17 +979,17 @@ begin
   Result := HandleAllocated and (WindowFromPoint(MouseCursorPos) = Handle);
 end;
 
-procedure TACLCustomTabControl.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+procedure TACLCustomTabControl.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
-  AViewItem: TACLTabViewItem;
+  LItem: TACLTabViewItem;
 begin
-  inherited MouseDown(Button, Shift, X, Y);
-
-  if HitTest(X, Y, AViewItem) then
+  inherited;
+  if HitTest(X, Y, LItem) then
   begin
     FIsUserAction := True;
     try
-      ActiveIndex := AViewItem.Tab.Index;
+      ActiveIndex := LItem.Tab.Index;
       SetFocus;
     finally
       FIsUserAction := False;
@@ -900,31 +1004,33 @@ begin
 end;
 
 procedure TACLCustomTabControl.MouseMove(Shift: TShiftState; X, Y: Integer);
-const
-  CursorsMap: array[Boolean] of TCursor = (crDefault, crHandPoint);
 var
-  AViewItem: TACLTabViewItem;
+  LItem: TACLTabViewItem;
 begin
   inherited MouseMove(Shift, X, Y);
 
-  if HitTest(X, Y, AViewItem) then
-    SetHoverTab(AViewItem.Tab)
+  if HitTest(X, Y, LItem) then
+    SetHoverTab(LItem.Tab)
   else
     SetHoverTab(nil);
 
-  Cursor := CursorsMap[(HoverTab <> nil) and (HoverTab.Index <> ActiveIndex)];
+  if MoreButton.IsHovered or (HoverTab <> nil) and (HoverTab.Index <> ActiveIndex) then
+    Cursor := crHandPoint
+  else
+    Cursor := crDefault;
 end;
 
 procedure TACLCustomTabControl.Paint;
 begin
   DrawContentAreaBackground(Canvas);
   DrawItems(Canvas);
+  SubClasses.Draw(Canvas);
 end;
 
 procedure TACLCustomTabControl.FocusChanged;
 begin
   inherited FocusChanged;
-  Invalidate;
+  InvalidateRect(FTabAreaRect);
 end;
 
 procedure TACLCustomTabControl.DoLoaded;
@@ -948,7 +1054,7 @@ begin
     Exit;
 
   AForm := GetParentForm(Self);
-  if AForm <> nil then
+  if (AForm <> nil) and acIsChildOrSelf(Self, AForm.ActiveControl) then
   begin
     AControl := FindNextControl(nil, True, True, False);
     if AControl = nil then
@@ -963,6 +1069,112 @@ end;
 procedure TACLCustomTabControl.UpdateTransparency;
 begin
   ControlStyle := ControlStyle - [csOpaque];
+end;
+
+function TACLCustomTabControl.GetTabHeight: Integer;
+begin
+  Result := 0;
+  if ViewItems.Count > 0 then
+  begin
+    Result := GetTabMargins.MarginsHeight + Max(
+      Style.HeaderFont.MeasureSize(acMeasureTextPattern).Height,
+      Style.HeaderFontActive.MeasureSize(acMeasureTextPattern).Height);
+    if OptionsView.Style = tsTab then
+      Inc(Result, dpiApply(TACLStyleTabControl.Offset, FCurrentPPI))
+    else
+      Inc(Result, dpiApply(OptionsView.TabIndent, FCurrentPPI));
+  end;
+end;
+
+function TACLCustomTabControl.GetTabMargins: TRect;
+begin
+  if OptionsView.Style = tsTab then
+    Result := Rect(4, 4, 4, 4)
+  else
+    Result := Rect(6, 6, 6, 6);
+
+  Result := dpiApply(Result, FCurrentPPI);
+end;
+
+procedure TACLCustomTabControl.PopulateViewItems;
+var
+  I: Integer;
+begin
+  ViewItems.Clear;
+  for I := 0 to Tabs.Count - 1 do
+  begin
+    if Tabs[I].Visible then
+      ViewItems.Add(TACLTabViewItem.Create(Tabs[I]));
+  end;
+end;
+
+procedure TACLCustomTabControl.SetActiveIndex(AValue: Integer);
+begin
+  if csLoading in ComponentState then
+  begin
+    FLoadedActiveIndex := AValue;
+    Exit;
+  end;
+
+  AValue := MinMax(AValue, 0, Tabs.Count - 1);
+  if AValue <> FActiveIndex then
+  try
+    DoActiveIndexChanging(AValue);
+    FActiveIndex := AValue;
+    FullRefresh; // first
+    DoActiveIndexChanged;
+  except
+    // do nothing
+  end;
+end;
+
+procedure TACLCustomTabControl.SetBorders(AValue: TACLBorders);
+begin
+  if FBorders <> AValue then
+  begin
+    FBorders := AValue;
+    FullRefresh;
+  end;
+end;
+
+procedure TACLCustomTabControl.SetHoverTab(AValue: TACLTab);
+var
+  AItem: TACLTabViewItem;
+begin
+  if HoverTab <> AValue then
+  begin
+    FHoverTab := AValue;
+    if not (csDesigning in ComponentState) then
+    begin
+      Application.CancelHint;
+      if ViewItems.FindByTab(HoverTab, AItem) and AItem.TextTruncated then
+        Hint := AItem.Tab.Caption
+      else
+        Hint := '';
+    end;
+    CalculateTabStates;
+    InvalidateRect(FTabAreaRect);
+  end;
+end;
+
+procedure TACLCustomTabControl.SetOptionsView(AValue: TACLTabsOptionsView);
+begin
+  FOptionsView.Assign(AValue);
+end;
+
+procedure TACLCustomTabControl.SetStyle(AValue: TACLStyleTabControl);
+begin
+  FStyle.Assign(AValue);
+end;
+
+procedure TACLCustomTabControl.SetStyleButton(AValue: TACLStyleButton);
+begin
+  FStyleButton.Assign(AValue);
+end;
+
+procedure TACLCustomTabControl.SetTabs(AValue: TACLTabsList);
+begin
+  FTabs.Assign(AValue);
 end;
 
 procedure TACLCustomTabControl.CMChildKey(var Message: TCMChildKey);
@@ -1016,105 +1228,6 @@ begin
   Message.Result := DLGC_WANTARROWS;
 end;
 
-function TACLCustomTabControl.GetTabHeight: Integer;
-begin
-  Result := 0;
-  if ViewItems.Count > 0 then
-  begin
-    Result := CalculateTextSize('Wg').cy + GetTabMargins.MarginsHeight;
-    if OptionsView.Style = tsTab then
-      Inc(Result, dpiApply(TACLStyleTabControl.Offset, FCurrentPPI))
-    else
-      Inc(Result, dpiApply(OptionsView.TabIndent, FCurrentPPI));
-  end;
-end;
-
-function TACLCustomTabControl.GetTabMargins: TRect;
-begin
-  if OptionsView.Style = tsTab then
-    Result := Rect(4, 4, 4, 4)
-  else
-    Result := Rect(6, 6, 6, 6);
-
-  Result := dpiApply(Result, FCurrentPPI);
-end;
-
-procedure TACLCustomTabControl.PopulateViewItems;
-var
-  I: Integer;
-begin
-  ViewItems.Clear;
-  for I := 0 to Tabs.Count - 1 do
-  begin
-    if Tabs[I].Visible then
-      ViewItems.Add(TACLTabViewItem.Create(Tabs[I]));
-  end;
-end;
-
-procedure TACLCustomTabControl.SetActiveIndex(AValue: Integer);
-begin
-  if csLoading in ComponentState then
-  begin
-    FLoadedActiveIndex := AValue;
-    Exit;
-  end;
-
-  AValue := MinMax(AValue, 0, Tabs.Count - 1);
-  if AValue <> FActiveIndex then
-  try
-    DoActiveIndexChanging(AValue);
-    FActiveIndex := AValue;
-    DoActiveIndexChanged;
-    FullRefresh;
-  except
-    // do nothing
-  end;
-end;
-
-procedure TACLCustomTabControl.SetBorders(AValue: TACLBorders);
-begin
-  if FBorders <> AValue then
-  begin
-    FBorders := AValue;
-    FullRefresh;
-  end;
-end;
-
-procedure TACLCustomTabControl.SetHoverTab(AValue: TACLTab);
-var
-  AItem: TACLTabViewItem;
-begin
-  if HoverTab <> AValue then
-  begin
-    FHoverTab := AValue;
-    if not (csDesigning in ComponentState) then
-    begin
-      Application.CancelHint;
-      if ViewItems.FindByTab(HoverTab, AItem) and AItem.TextTruncated then
-        Hint := AItem.Tab.Caption
-      else
-        Hint := '';
-    end;
-    CalculateTabStates;
-    Invalidate;
-  end;
-end;
-
-procedure TACLCustomTabControl.SetOptionsView(AValue: TACLTabsOptionsView);
-begin
-  FOptionsView.Assign(AValue);
-end;
-
-procedure TACLCustomTabControl.SetStyle(AValue: TACLStyleTabControl);
-begin
-  FStyle.Assign(AValue);
-end;
-
-procedure TACLCustomTabControl.SetTabs(AValue: TACLTabsList);
-begin
-  FTabs.Assign(AValue);
-end;
-
 { TACLTabViewItem }
 
 constructor TACLTabViewItem.Create(ATab: TACLTab);
@@ -1150,20 +1263,21 @@ constructor TACLTabsOptionsView.Create(AControl: TACLCustomTabControl);
 begin
   inherited Create;
   FControl := AControl;
-  FTabPosition := tpTop;
-  FTabWidth := -1;
-  FTabIndent := 3;
+  FTabIndent := DefaultTabIndent;
+  FTabPosition := DefaultTabPosition;
+  FTabShrinkFactor := DefaultTabShrinkFactor;
 end;
 
-procedure TACLTabsOptionsView.Assign(Source: TPersistent);
+procedure TACLTabsOptionsView.AssignTo(Dest: TPersistent);
 begin
-  if Source is TACLTabsOptionsView then
+  if Dest is TACLTabsOptionsView then
   begin
-    FStyle := TACLTabsOptionsView(Source).Style;
-    FTabPosition := TACLTabsOptionsView(Source).TabPosition;
-    FTabWidth := TACLTabsOptionsView(Source).TabWidth;
-    FTabIndent := TACLTabsOptionsView(Source).TabIndent;
-    Changed;
+    TACLTabsOptionsView(Dest).FStyle := FStyle;
+    TACLTabsOptionsView(Dest).FTabIndent := FTabIndent;
+    TACLTabsOptionsView(Dest).FTabPosition := FTabPosition;
+    TACLTabsOptionsView(Dest).FTabShrinkFactor := FTabShrinkFactor;
+    TACLTabsOptionsView(Dest).FTabWidth := FTabWidth;
+    TACLTabsOptionsView(Dest).Changed;
   end;
 end;
 
@@ -1196,6 +1310,16 @@ begin
   if FTabPosition <> AValue then
   begin
     FTabPosition := AValue;
+    Changed;
+  end;
+end;
+
+procedure TACLTabsOptionsView.SetTabShrinkFactor(AValue: Integer);
+begin
+  AValue := EnsureRange(AValue, 0, 100);
+  if AValue <> FTabShrinkFactor then
+  begin
+    FTabShrinkFactor := AValue;
     Changed;
   end;
 end;
@@ -1336,12 +1460,6 @@ begin
     Pages[I].BoundsRect := ARect;
 end;
 
-procedure TACLPageControl.DoActiveIndexChanged;
-begin
-  UpdatePagesVisibility;
-  inherited DoActiveIndexChanged;
-end;
-
 procedure TACLPageControl.DoFullRefresh;
 begin
   inherited;
@@ -1370,33 +1488,39 @@ end;
 
 procedure TACLPageControl.ValidateInsert(AComponent: TComponent);
 begin
-  if not (AComponent is TACLPageControlPage) then
+  if (AComponent is TControl) and not (AComponent is TACLPageControlPage) then
     raise Exception.CreateFmt(sErrorWrongChild, [TACLPageControlPage.ClassName, ClassName]);
   inherited;
 end;
 
 procedure TACLPageControl.UpdatePagesVisibility;
 var
+  LActivePage: TACLPageControlPage;
   I: Integer;
 begin
   if csDesigning in ComponentState then
   begin
-    if ActivePage <> nil then
-      ActivePage.BringToFront;
+    LActivePage := ActivePage;
+    if LActivePage <> nil then
+      LActivePage.BringToFront;
   end
   else
     if HandleAllocated then
     begin
       DisableAlign;
       try
-        if ActivePage <> nil then
+        LActivePage := ActivePage;
+        if LActivePage <> nil then
         begin
-          ActivePage.Visible := False;
-          ActivePage.BringToFront;
-          ActivePage.Visible := True;
+          LActivePage.Visible := False;
+          LActivePage.BringToFront;
+          LActivePage.Visible := True;
         end;
         for I := 0 to PageCount - 1 do
-          Pages[I].Visible := IsTabVisible(I) and (I = ActiveIndex);
+        begin
+          if I <> ActiveIndex then
+            Pages[I].Visible := False;
+        end;
       finally
         EnableAlign;
       end;

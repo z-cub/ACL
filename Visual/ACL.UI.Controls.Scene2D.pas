@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Extended Library-based PaintBox
 //             with hardware acceleration via Direct2D
@@ -34,6 +34,7 @@ uses
   // ACL
   ACL.Graphics,
   ACL.Graphics.Ex,
+  ACL.Graphics.Ex.Stub,
   ACL.UI.Controls.Base,
   // VCL
   {Vcl.}Controls;

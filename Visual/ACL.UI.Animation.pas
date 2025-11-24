@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Animation Engine
 //
@@ -119,7 +119,7 @@ type
 
   TACLAnimationManager = class(TACLTimerListOf<TACLAnimation>)
   protected
-    function DoAdding(const AObject: TACLAnimation): Boolean; override;
+    function CanAdd(const AObject: TACLAnimation): Boolean; override;
     procedure TimerObject(const AObject: TACLAnimation); override;
   public
     constructor Create; reintroduce;
@@ -128,27 +128,6 @@ type
     function Draw(const AControl: IACLAnimateControl;
       ACanvas: TCanvas; const ARect: TRect; ATag: NativeInt = 0): Boolean;
     procedure RemoveOwner(AOwnerObject: TObject);
-  end;
-
-{$ENDREGION}
-
-{$REGION ' Text Animation '}
-
-  { TACLAnimationText }
-
-  TACLAnimationText = class(TACLAnimation)
-  strict private
-    FSourceText: string;
-    FTargetText: string;
-    function GetActualText: string;
-  public
-    constructor Create(const ASourceText, ATargetText: string;
-      const AControl: IACLAnimateControl; ATime: Cardinal;
-      ATransition: TACLAnimationTransitionMode = ateLinear); reintroduce;
-    //# Properties
-    property ActualText: string read GetActualText;
-    property SourceText: string read FSourceText;
-    property TargetText: string read FTargetText;
   end;
 
 {$ENDREGION}
@@ -356,7 +335,6 @@ implementation
 
 uses
   {System.}Math,
-  {System.}StrUtils,
   {System.}SysUtils,
   // VCL
   {Vcl.}Forms;
@@ -529,6 +507,18 @@ begin
   Interval := 1;
 end;
 
+function TACLAnimationManager.CanAdd(const AObject: TACLAnimation): Boolean;
+var
+  I: Integer;
+begin
+  for I := FList.Count - 1 downto 0 do
+  begin
+    if not FList.List[I].IsCompatible(AObject) then
+      FList.List[I].Terminate;
+  end;
+  Result := True;
+end;
+
 function TACLAnimationManager.Find(const AControl: IACLAnimateControl;
   out AAnimation: TACLAnimation; ATag: NativeInt = 0): Boolean;
 var
@@ -565,56 +555,14 @@ begin
   end;
 end;
 
-function TACLAnimationManager.DoAdding(const AObject: TACLAnimation): Boolean;
-var
-  I: Integer;
-begin
-  for I := FList.Count - 1 downto 0 do
-  begin
-    if not FList.List[I].IsCompatible(AObject) then
-      FList.List[I].Terminate;
-  end;
-  Result := True;
-end;
-
 procedure TACLAnimationManager.TimerObject(const AObject: TACLAnimation);
 begin
   AObject.Animate;
   if AObject.Finished then
   begin
-    AObject.Terminate;
     Remove(AObject);
+    AObject.Terminate;
   end;
-end;
-
-{$ENDREGION}
-
-{$REGION ' Text Animation '}
-
-{ TACLAnimationText }
-
-constructor TACLAnimationText.Create(const ASourceText, ATargetText: string;
-  const AControl: IACLAnimateControl; ATime: Cardinal; ATransition: TACLAnimationTransitionMode);
-var
-  ASourceTextLength: Integer;
-  ATargetTextLength: Integer;
-begin
-  inherited Create(AControl, ATime, ATransition);
-
-  ASourceTextLength := Length(ASourceText);
-  ATargetTextLength := Length(ATargetText);
-  FSourceText := ASourceText + DupeString(' ', Max(ATargetTextLength, ASourceTextLength) - ASourceTextLength);
-  FTargetText := ATargetText + DupeString(' ', Max(ATargetTextLength, ASourceTextLength) - ATargetTextLength);
-end;
-
-function TACLAnimationText.GetActualText: string;
-var
-  I, L: Integer;
-begin
-  L := Length(FSourceText);
-  SetLength(Result{%H-}, L);
-  for I := 1 to L do
-    Result[I] := Char(Trunc(Ord(FSourceText[I]) * Progress + Ord(FTargetText[I]) * (1 - Progress)));
 end;
 
 {$ENDREGION}
@@ -911,13 +859,13 @@ var
   LRect2: TRect;
   LSaveRgn: TRegionHandle;
 begin
-  if acStartClippedDraw(ACanvas.Handle, R, LSaveRgn) then
+  if acStartClippedDraw(ACanvas, R, LSaveRgn) then
   try
     Animator.Calculate(Progress, FFrame1.Size, R, LRect1, LRect2, LAlpha1, LAlpha2);
     FFrame1.DrawBlend(ACanvas, LRect1, LAlpha1);
     FFrame2.DrawBlend(ACanvas, LRect2, LAlpha2);
   finally
-    acRestoreClipRegion(ACanvas.Handle, LSaveRgn);
+    acEndClippedDraw(ACanvas, LSaveRgn);
   end;
 end;
 

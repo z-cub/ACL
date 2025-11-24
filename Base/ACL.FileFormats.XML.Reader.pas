@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Stream-based XML Reader
 //             Based on .NET platform code:
@@ -625,8 +625,7 @@ type
       out ACharCount: Integer; out AEntityType: TEntityType): Integer;
     function ParsePI(APiInDtdStringBuilder: TACLStringBuilder = nil): Boolean;
     function ParsePIValue(out AOutStartPosition, AOutEndPosition: Integer): Boolean;
-    function ParseQName(AIsQName: Boolean; AStartOffset: Integer; out AColonPosition: Integer): Integer; overload;
-    function ParseQName(out AColonPosition: Integer): Integer; overload;
+    function ParseQName(AIsQName: Boolean; out AColonPosition: Integer): Integer;
     function ParseRootLevelWhitespace: Boolean;
     function ParseText: Boolean; overload;
     function ParseText(out AStartPosition, AEndPosition: Integer; var AOutOrChars: Integer): Boolean; overload;
@@ -655,7 +654,6 @@ type
     procedure SetupEncoding(AEncoding: TEncoding);
     procedure SwitchEncoding(ANewEncoding: TEncoding);
     procedure SwitchEncodingAfterResetState;
-    procedure SwitchEncodingToUTF8;
 
     procedure ReThrow(E: Exception; ALineNo, ALinePos: Integer);
     procedure SetErrorState;
@@ -2702,12 +2700,12 @@ lbContinueParseName:
           goto lbContinueParseName;
         end;
         //# else fallback to full name parsing routine
-        APosition := ParseQName(AColonPos);
+        APosition := ParseQName(True, AColonPos);
       end;
     end
     else
       if APosition + 1 >= FParsingState.CharsUsed then
-        APosition := ParseQName(AColonPos);
+        APosition := ParseQName(True, AColonPos);
 
     AAttr := AddAttribute(APosition, AColonPos);
     AAttr.LineInfo.Init(FParsingState.LineNo, AAttrNameLinePos);
@@ -2856,7 +2854,7 @@ ContinueName:
       goto SetElement;
 
 ParseQNameSlow:
-  APosition := ParseQName(AColonPos);
+  APosition := ParseQName(True, AColonPos);
 
 SetElement:
   //# push namespace context
@@ -3158,7 +3156,7 @@ function TACLXMLTextReader.ParseName: Integer;
 var
   AColonPos: Integer;
 begin
-  Result := ParseQName(False, 0, AColonPos);
+  Result := ParseQName(False, AColonPos);
 end;
 
 procedure TACLXMLTextReader.OnNewLine(APosition: Integer);
@@ -3400,6 +3398,7 @@ end;
 //# it will be saved in the passed string builder (target, whitespace & value).
 function TACLXMLTextReader.ParsePI(APiInDtdStringBuilder: TACLStringBuilder): Boolean;
 var
+  AColonPos: Integer;
   ANameEndPos, AStartPos, AEndPos: Integer;
   ATarget: string;
   ACh: WideChar;
@@ -3410,8 +3409,9 @@ begin
 
   Assert(FStringBuilder.Length = 0);
   //# parse target name
-  ANameEndPos := ParseName;
-  ATarget := FNameTable.Add(FParsingState.Chars, FParsingState.CharPos, ANameEndPos - FParsingState.CharPos);
+  ANameEndPos := ParseQName(True, AColonPos);
+  ATarget := FNameTable.Add(FParsingState.Chars,
+    FParsingState.CharPos, ANameEndPos - FParsingState.CharPos);
 
   if SameText(ATarget, 'xml') then
     Throw(SXMLXmlDeclNotFirst, ATarget);
@@ -3480,11 +3480,6 @@ begin
   Result := True;
 end;
 
-function TACLXMLTextReader.ParseQName(out AColonPosition: Integer): Integer;
-begin
-  Result := ParseQName(True, 0, AColonPosition);
-end;
-
 function TACLXMLTextReader.ReadDataInName(var APosition: Integer): Boolean;
 var
   AOffset: Integer;
@@ -3494,14 +3489,14 @@ begin
   APosition := FParsingState.CharPos + AOffset;
 end;
 
-function TACLXMLTextReader.ParseQName(AIsQName: Boolean; AStartOffset: Integer; out AColonPosition: Integer): Integer;
+function TACLXMLTextReader.ParseQName(AIsQName: Boolean; out AColonPosition: Integer): Integer;
 label
   ContinueStartName, ContinueName;
 var
   AColonOffset, APosition: Integer;
 begin
   AColonOffset := -1;
-  APosition := FParsingState.CharPos + AStartOffset;
+  APosition := FParsingState.CharPos;
 
 ContinueStartName:
   if TACLXMLCharType.CharProperties[FParsingState.Chars[APosition]] and TACLXMLCharType.NCStartNameSC <> 0 then
@@ -4527,7 +4522,7 @@ var
   AColonPos: Integer;
 begin
   // parse dtd name
-  FParsingState.CharPos := ParseQName(AColonPos);
+  FParsingState.CharPos := ParseQName(True, AColonPos);
   // check whitespace
   EatWhitespaces(nil);
 
@@ -5104,7 +5099,7 @@ begin
   else
   begin
     FParsingState.Encoding := AEncoding;
-    if TACLEncodings.WebName(AEncoding).Contains('utf-16') then
+    if (AEncoding.CodePage = CP_UTF16LE) or (AEncoding.CodePage = CP_UTF16BE) then
     begin
       FParsingState.Decoder := TEncoding.Unicode;
       FParsingState.DecoderIsASCII := False;
@@ -5120,8 +5115,7 @@ end;
 procedure TACLXMLTextReader.SwitchEncoding(ANewEncoding: TEncoding);
 begin
   if FParsingState.DecoderIsASCII and not FAfterResetState or
-    (TACLEncodings.WebName(ANewEncoding) <>
-     TACLEncodings.WebName(FParsingState.Encoding)) then
+    (ANewEncoding.CodePage <> FParsingState.Encoding.CodePage) then
   begin
     Assert(FParsingState.Stream <> nil);
     UnDecodeChars;
@@ -5133,14 +5127,14 @@ end;
 
 procedure TACLXMLTextReader.SwitchEncodingAfterResetState;
 var
-  AEncodingName: string;
+  LEncoding: Cardinal;
 begin
   if FAfterResetState then
   begin
-    AEncodingName := TACLEncodings.WebName(FParsingState.Encoding);
-    if (AEncodingName <> 'utf-8') and
-       (AEncodingName <> 'utf-16') and
-       (AEncodingName <> 'utf-16be') and not
+    LEncoding := FParsingState.Encoding.CodePage;
+    if (LEncoding <> CP_UTF8) and
+       (LEncoding <> CP_UTF16LE) and
+       (LEncoding <> CP_UTF16BE) and not
        (FParsingState.Encoding is TMBCSEncoding)
     then
       if FParsingState.Encoding.GetByteCount('A') = 1 then
@@ -5149,12 +5143,7 @@ begin
         Throw(SXmlEncodingSwitchAfterResetState, 'UTF-16');
   end;
   if FParsingState.DecoderIsASCII then
-    SwitchEncodingToUTF8;
-end;
-
-procedure TACLXMLTextReader.SwitchEncodingToUTF8;
-begin
-  SwitchEncoding(TEncoding.UTF8);
+    SwitchEncoding(TEncoding.UTF8);
 end;
 
 procedure TACLXMLTextReader.Throw(const ARes: string);
@@ -5305,7 +5294,7 @@ begin
   if AStartTag.&Type = TACLXMLNodeType.Element then
   begin
     //# parse the bad name
-    AEndPos := ParseQName(AColonPos);
+    AEndPos := ParseQName(True, AColonPos);
     AArg0 := AStartTag.GetNameWPrefix(FNameTable);
     AArg1 := IntToStr(AStartTag.LineInfo.LineNo);
     AArg2 := IntToStr(AStartTag.LineInfo.LinePos);

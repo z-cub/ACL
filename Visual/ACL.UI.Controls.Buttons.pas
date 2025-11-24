@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Controls Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   Buttons
 //
@@ -57,12 +57,10 @@ const
   DefaultButtonWidth = 100;
 
 type
-  TACLCustomButtonSubClass = class;
-
-  { TACLStyleCustomButton }
-
   TACLButtonPart = (abpButton, abpDropDown, abpDropDownArrow);
   TACLButtonState = (absNormal, absHover, absPressed, absDisabled, absActive);
+
+  { TACLStyleButton }
 
   TACLStyleButton = class(TACLStyle)
   strict private
@@ -79,11 +77,6 @@ type
     // Properties
     property ContentOffsets: TRect read GetContentOffsets;
     property TextColors[AState: TACLButtonState]: TColor read GetTextColor;
-    // for backward compatibility with scripts
-    property TextColor: TACLResourceColor index Ord(absNormal) read GetColor;
-    property TextColorDisabled: TACLResourceColor index Ord(absDisabled) read GetColor;
-    property TextColorHover: TACLResourceColor index Ord(absHover) read GetColor;
-    property TextColorPressed: TACLResourceColor index Ord(absPressed) read GetColor;
   published
     property ColorText: TACLResourceColor index Ord(absNormal) read GetColor write SetColor stored IsColorStored;
     property ColorTextDisabled: TACLResourceColor index Ord(absDisabled) read GetColor write SetColor stored IsColorStored;
@@ -92,36 +85,24 @@ type
     property Texture: TACLResourceTexture index 0 read GetTexture write SetTexture stored IsTextureStored;
   end;
 
-  { IACLButtonOwner }
+  { TACLSimpleButtonSubClass }
 
-  IACLButtonOwner = interface(IACLControl)
-  ['{DEFEC667-C49F-4D75-893A-D9CF9F803E01}']
-    function ButtonOwnerGetFont: TFont;
-    function ButtonOwnerGetImages: TCustomImageList;
-    function ButtonOwnerGetStyle: TACLStyleButton;
-    procedure ButtonOwnerRecalculate;
-  end;
-
-  { TACLCustomButtonSubClass }
-
-  TACLButtonStateFlag = (bsfPressed, bsfHovered, bsfEnabled, bsfFocused, bsfDown, bsfDefault);
+  TACLButtonStateFlag = (bsfPressed, bsfHovered, bsfEnabled,
+    bsfFocused, bsfDown, bsfDefault, bsfPerformClick);
   TACLButtonStateFlags = set of TACLButtonStateFlag;
 
-  TACLCustomButtonSubClass = class(TACLUnknownObject, IACLAnimateControl)
+  TACLSimpleButtonSubClass = class(TACLControlSubClass, IACLAnimateControl)
   strict private
-    FBounds: TRect;
     FCaption: string;
     FFlags: TACLButtonStateFlags;
-    FOwner: IACLButtonOwner;
     FState: TACLButtonState;
+    FStyle: TACLStyleButton;
     FTag: Integer;
 
     FOnClick: TNotifyEvent;
 
     function GetCurrentDpi: Integer;
     function GetFlag(Index: TACLButtonStateFlag): Boolean;
-    function GetFont: TFont;
-    function GetStyle: TACLStyleButton;
     function GetTextureSize: TSize;
     procedure SetAlignment(AValue: TAlignment);
     procedure SetCaption(const AValue: string);
@@ -136,44 +117,42 @@ type
     function GetIndentBetweenElements: Integer; inline;
     function GetTextColor: TColor; virtual;
     function GetTransparent: Boolean; virtual;
+    procedure RefreshState;
     procedure StateChanged; virtual;
     // Drawing
     function AllowAnimation: Boolean; virtual;
     procedure AssignCanvasParameters(ACanvas: TCanvas); virtual;
-    procedure DrawBackground(ACanvas: TCanvas; const R: TRect); virtual; abstract;
+    procedure DrawBackground(ACanvas: TCanvas; const R: TRect); virtual;
     procedure DrawContent(ACanvas: TCanvas); virtual;
     procedure DrawFocusRect(ACanvas: TCanvas); virtual;
     // IACLAnimateControl
     procedure IACLAnimateControl.Animate = Invalidate;
+    // Messages
+    procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
     //# Properties
     property Flags: TACLButtonStateFlags read FFlags;
-    property Owner: IACLButtonOwner read FOwner;
-    property Style: TACLStyleButton read GetStyle;
+    property Style: TACLStyleButton read FStyle;
   public
-    constructor Create(AOwner: IACLButtonOwner); virtual;
+    constructor Create(AOwner: IACLControl; AStyle: TACLStyleButton); virtual;
     destructor Destroy; override;
-    procedure Calculate(R: TRect); virtual;
-    procedure Draw(ACanvas: TCanvas);
-    procedure FullRefresh;
-    procedure PerformClick; virtual;
-    procedure Invalidate;
+    procedure AfterConstruction; override;
+    procedure Calculate(ARect: TRect); override;
+    procedure CalculateAutoSize(var AWidth, AHeight: Integer); virtual;
+    procedure Draw(ACanvas: TCanvas); override;
+    procedure PerformClick;
     // Keyboard
-    procedure KeyDown(var Key: Word; Shift: TShiftState); virtual;
-    procedure KeyUp(var Key: Word; Shift: TShiftState); virtual;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
     // Mouse
-    procedure MouseDown(Button: TMouseButton; const P: TPoint);
-    procedure MouseMove(Shift: TShiftState; const P: TPoint);
-    procedure MouseUp(Button: TMouseButton; const P: TPoint);
-    // States
-    procedure RefreshState;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; const P: TPoint); override;
+    procedure MouseMove(Shift: TShiftState; const P: TPoint); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; const P: TPoint); override;
     //# Properties
     property Alignment: TAlignment read FAlignment write SetAlignment;
-    property Bounds: TRect read FBounds;
     property ButtonRect: TRect read FButtonRect;
     property Caption: string read FCaption write SetCaption;
     property CurrentDpi: Integer read GetCurrentDpi;
     property FocusRect: TRect read FFocusRect;
-    property Font: TFont read GetFont;
     property State: TACLButtonState read FState;
     property Tag: Integer read FTag write FTag;
     property TextColor: TColor read GetTextColor;
@@ -193,15 +172,13 @@ type
 
   { TACLCustomButton }
 
-  TACLCustomButton = class(TACLCustomControl,
-    IACLButtonOwner,
-    IACLFocusableControl)
+  TACLCustomButton = class(TACLCustomControl)
   strict private
     FShowCaption: Boolean;
     FStyle: TACLStyleButton;
-    FSubClass: TACLCustomButtonSubClass;
+    FSubClass: TACLSimpleButtonSubClass;
 
-    procedure ButtonClickHandler(Sender: TObject);
+    procedure ClickHandler(Sender: TObject);
     function GetAlignment: TAlignment;
     procedure SetAlignment(AValue: TAlignment);
     procedure SetShowCaption(AValue: Boolean);
@@ -211,44 +188,28 @@ type
     procedure BoundsChanged; override;
     procedure Calculate(R: TRect); virtual;
     function CreateStyle: TACLStyleButton; virtual; abstract;
-    function CreateSubClass: TACLCustomButtonSubClass; virtual; abstract;
+    function CreateSubClass: TACLSimpleButtonSubClass; virtual; abstract;
     procedure DoGetHint(const P: TPoint; var AHint: string); override;
     procedure FocusChanged; override;
     procedure Paint; override;
     procedure ResourceChanged; override;
     procedure SetTargetDPI(AValue: Integer); override;
-    procedure UpdateCaption;
     procedure UpdateTransparency; override;
 
     // Keyboard
     function DialogChar(var Message: TWMKey): Boolean; override;
-    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
-    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
-
-    // Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseEnter; override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-
-    // IACLButtonOwner
-    procedure IACLButtonOwner.ButtonOwnerRecalculate = FullRefresh;
-    function ButtonOwnerGetFont: TFont;
-    function ButtonOwnerGetImages: TCustomImageList; virtual;
-    function ButtonOwnerGetStyle: TACLStyleButton; virtual;
 
     // Messages
-    procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
-    procedure CMFontchanged(var Message: TMessage); message CM_FONTCHANGED;
+    procedure CMFontChanged(var Message: TMessage); message CM_FONTCHANGED;
     procedure CMHintShow(var Message: TCMHintShow); message CM_HINTSHOW;
     procedure CMTextChanged(var Message: TMessage); message CM_TEXTCHANGED;
 
     // Properties
-    property SubClass: TACLCustomButtonSubClass read FSubClass;
+    property SubClass: TACLSimpleButtonSubClass read FSubClass;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    function MeasureSize(AWidth: Integer = -1): TSize;
   published
     property Alignment: TAlignment read GetAlignment write SetAlignment default taCenter;
     property Action;
@@ -292,40 +253,45 @@ type
 
   { TACLButtonSubClass }
 
-  TACLButtonSubClass = class(TACLCustomButtonSubClass)
+  TACLButtonSubClass = class(TACLSimpleButtonSubClass)
+  strict private const
+    FocusThickness = 1;
+    TextIndent = acTextIndent - 1;
   strict private
     FHasArrow: Boolean;
     FImageIndex: Integer;
+    FImageList: TCustomImageList;
+    FPart: TACLButtonPart;
 
-    function GetHasImage: Boolean;
     function GetImageSize: TSize;
     procedure SetImageIndex(AValue: Integer);
   protected
     FArrowRect: TRect;
     FImageRect: TRect;
-    FPart: TACLButtonPart;
 
     procedure CalculateArrowRect(var R: TRect); virtual;
     procedure CalculateImageRect(var R: TRect); virtual;
     procedure CalculateTextRect(var R: TRect); virtual;
     function GetGlyph: TACLGlyph; virtual;
-    function GetImages: TCustomImageList; virtual;
+    function GetHasImage: Boolean; virtual;
     procedure DrawBackground(ACanvas: TCanvas; const R: TRect); override;
     procedure DrawContent(ACanvas: TCanvas); override;
     //# Properties
     property Glyph: TACLGlyph read GetGlyph;
-    property Images: TCustomImageList read GetImages;
-    property Part: TACLButtonPart read FPart;
   public
-    constructor Create(AOwner: IACLButtonOwner); override;
-    procedure Calculate(R: TRect); override;
+    constructor Create(AOwner: IACLControl; AStyle: TACLStyleButton); override;
+    procedure Calculate(ARect: TRect); override;
+    procedure CalculateAutoSize(var AWidth, AHeight: Integer); override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
     //# Properties
     property ArrowRect: TRect read FArrowRect;
     property HasArrow: Boolean read FHasArrow write FHasArrow;
     property HasImage: Boolean read GetHasImage;
     property ImageIndex: Integer read FImageIndex write SetImageIndex;
+    property ImageList: TCustomImageList read FImageList write FImageList; // just a reference! don't forget to remove it
     property ImageRect: TRect read FImageRect;
     property ImageSize: TSize read GetImageSize;
+    property Part: TACLButtonPart read FPart write FPart;
   end;
 
   { TACLSimpleButton }
@@ -342,6 +308,7 @@ type
   {$IFDEF FPC}
     FRolesUpdateLocked: Boolean;
   {$ENDIF}
+    FOnPaint: TNotifyEvent;
     procedure HandlerImageChange(Sender: TObject);
     function IsGlyphStored: Boolean;
     function IsImageIndexStored: Boolean;
@@ -355,18 +322,22 @@ type
     procedure SetImages(const AList: TCustomImageList);
     procedure UpdateRoles;
     // Messages
-    procedure CMDialogKey(var Message: TCMDialogKey); message {%H-}CM_DIALOGKEY;
+  {$IFDEF FPC}
+    procedure WMKillFocus(var Message: TMessage); message WM_KILLFOCUS;
+    procedure WMSetFocus(var Message: TMessage); message WM_SETFOCUS;
+  {$ELSE}
     procedure CMFocusChanged(var Message: TMessage); message CM_FOCUSCHANGED;
+    procedure CMDialogKey(var Message: TCMDialogKey); message {%H-}CM_DIALOGKEY;
+  {$ENDIF}
   protected
     procedure ActionChange(Sender: TObject; CheckDefaults: Boolean); override;
     function CreateStyle: TACLStyleButton; override;
-    function CreateSubClass: TACLCustomButtonSubClass; override;
+    function CreateSubClass: TACLSimpleButtonSubClass; override;
     function GetActionLinkClass: TControlActionLinkClass; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure Paint; override;
     procedure PerformClick; virtual;
     procedure SetTargetDPI(AValue: Integer); override;
-    // IACLButtonOwner
-    function ButtonOwnerGetImages: TCustomImageList; override;
     // IACLGlyph
     function GetGlyph: TACLGlyph;
   public
@@ -382,6 +353,7 @@ type
     procedure UpdateRolesForForm; override;
   {$ENDIF}
     //# Properties
+    property Canvas;
     property SubClass: TACLButtonSubClass read GetSubClass;
   published
     property Cancel: Boolean read FCancel write SetCancel default False;
@@ -392,6 +364,7 @@ type
     property Images: TCustomImageList read FImages write SetImages;
     property ModalResult: TModalResult read FModalResult write FModalResult default mrNone;
     property ParentColor;
+    property OnPaint: TNotifyEvent read FOnPaint write FOnPaint;
   end;
 
   { TACLSimpleButtonActionLink }
@@ -406,7 +379,6 @@ type
   { TACLButton }
 
   TACLButtonKind = (sbkNormal, sbkDropDown, sbkDropDownButton);
-
   TACLButton = class(TACLSimpleButton)
   strict private
     FDropDownMenu: TPopupMenu;
@@ -418,27 +390,19 @@ type
     procedure HandlerDropDownClick(Sender: TObject);
     procedure SetKind(AValue: TACLButtonKind);
   protected
-    procedure Calculate(R: TRect); override;
+    procedure Calculate(ARect: TRect); override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
     procedure Paint; override;
     procedure PerformClick; override;
     procedure UpdateTransparency; override;
-    // Keyboard
-    procedure KeyUp(var Key: Word; Shift: TShiftState); override;
-    // Mouse
-    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X,Y: Integer); override;
-    procedure MouseLeave; override;
-    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
-    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
-    // Messages
-    procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
   public
     constructor Create(AOwner: TComponent); override;
-    destructor Destroy; override;
+    function CanAutoSize(var NewWidth, NewHeight: Integer): Boolean; override;
     procedure ShowDropDownMenu;
     //# Properties
     property DropDownSubClass: TACLButtonSubClass read FDropDownSubClass;
   published
+    property AutoSize;
     property DropDownMenu: TPopupMenu read FDropDownMenu write FDropDownMenu;
     property Kind: TACLButtonKind read FKind write SetKind default sbkNormal;
     //# Events
@@ -458,9 +422,9 @@ type
     property ColorLine2: TACLResourceColor index 11 read GetColor write SetColor stored IsColorStored;
   end;
 
-  { TACLStyleRadioBox }
+  { TACLStyleRadioButton }
 
-  TACLStyleRadioBox = class(TACLStyleCheckBox)
+  TACLStyleRadioButton = class(TACLStyleCheckBox)
   protected
     procedure InitializeTextures; override;
   end;
@@ -479,7 +443,6 @@ type
   TACLCheckBoxSubControlOptions = class(TACLSubControlOptions)
   strict private
     FEnabled: Boolean;
-
     function GetOwnerEx: TACLCustomCheckBox; inline;
     procedure SetEnabled(AValue: Boolean);
     procedure SyncEnabled;
@@ -494,12 +457,11 @@ type
 
   { TACLCheckBoxSubClass }
 
-  TACLCheckBoxSubClass = class(TACLCustomButtonSubClass)
+  TACLCheckBoxSubClass = class(TACLSimpleButtonSubClass)
   strict private
     FCheckState: TCheckBoxState;
     FShowCheckMark: Boolean;
     FShowLine: Boolean;
-    FTextSize: TSize;
     FWordWrap: Boolean;
 
     function GetStyle: TACLStyleCheckBox;
@@ -508,16 +470,14 @@ type
     procedure SetShowLine(AValue: Boolean);
     procedure SetWordWrap(AValue: Boolean);
   protected
-    procedure CalculateButtonRect(var R: TRect); virtual;
-    procedure CalculateTextRect(var R: TRect); virtual;
-    procedure CalculateTextSize(var R: TRect; out ATextSize: TSize); virtual;
     function GetTransparent: Boolean; override;
     procedure DrawBackground(ACanvas: TCanvas; const R: TRect); override;
     procedure DrawContent(ACanvas: TCanvas); override;
+    procedure MeasureText(var ARect: TRect); virtual;
   public
-    constructor Create(AOwner: IACLButtonOwner); override;
-    procedure Calculate(R: TRect); override;
-    procedure CalculateAutoSize(var AWidth, AHeight: Integer); virtual;
+    constructor Create(AOwner: IACLControl; AStyle: TACLStyleButton); override;
+    procedure Calculate(ARect: TRect); override;
+    procedure CalculateAutoSize(var AWidth, AHeight: Integer); override;
     //# Properties
     property CheckState: TCheckBoxState read FCheckState write SetCheckState;
     property ShowCheckMark: Boolean read FShowCheckMark write SetShowCheckMark;
@@ -559,7 +519,7 @@ type
     procedure Calculate(R: TRect); override;
     function CreateStyle: TACLStyleButton; override;
     function CreateSubControlOptions: TACLCheckBoxSubControlOptions; virtual;
-    function CreateSubClass: TACLCustomButtonSubClass; override;
+    function CreateSubClass: TACLSimpleButtonSubClass; override;
     function GetActionLinkClass: TControlActionLinkClass; override;
     procedure Loaded; override;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
@@ -606,22 +566,22 @@ type
   { TACLInplaceCheckBox }
 
   TACLInplaceCheckBox = class(TACLCustomCheckBox, IACLInplaceControl)
-  strict private
-    procedure CMHitTest(var Message: TWMNCHitTest); message CM_HITTEST;
   protected
     // IACLInplaceControl
     function InplaceGetValue: string;
     function IACLInplaceControl.InplaceIsFocused = Focused;
     procedure InplaceSetValue(const AValue: string);
     procedure IACLInplaceControl.InplaceSetFocus = SetFocus;
+    // Messages
+    procedure CMHitTest(var Message: TCMHitTest); message CM_HITTEST;
   public
     constructor CreateInplace(const AParams: TACLInplaceInfo);
     property AllowGrayed;
   end;
 
-  { TACLRadioBox }
+  { TACLRadioButton }
 
-  TACLRadioBox = class(TACLCustomCheckBox)
+  TACLRadioButton = class(TACLCustomCheckBox)
   strict private
     FGroupIndex: Integer;
     procedure SetGroupIndex(const Value: Integer);
@@ -651,8 +611,13 @@ uses
 
 procedure TACLStyleButton.Draw(ACanvas: TCanvas; const R: TRect;
   AState: TACLButtonState; APart: TACLButtonPart = abpButton);
+var
+  LIndex: Integer;
 begin
-  Texture.Draw(ACanvas, R, Ord(APart) * 5 + Ord(AState));
+  LIndex := Ord(AState);
+  if Texture.FrameCount >= 15 then
+    Inc(LIndex, Ord(APart) * 5);
+  Texture.Draw(ACanvas, R, LIndex);
 end;
 
 procedure TACLStyleButton.Draw(ACanvas: TCanvas; const R: TRect;
@@ -696,71 +661,86 @@ begin
     Result := ColorText.AsColor;
 end;
 
-{ TACLCustomButtonSubClass }
+{ TACLSimpleButtonSubClass }
 
-constructor TACLCustomButtonSubClass.Create(AOwner: IACLButtonOwner);
+constructor TACLSimpleButtonSubClass.Create(AOwner: IACLControl; AStyle: TACLStyleButton);
 begin
-  inherited Create;
-  FOwner := AOwner;
+  inherited Create(AOwner);
   FAlignment := taCenter;
   FFlags := [bsfEnabled];
+  FStyle := AStyle;
 end;
 
-destructor TACLCustomButtonSubClass.Destroy;
+destructor TACLSimpleButtonSubClass.Destroy;
 begin
   AnimationManager.RemoveOwner(Self);
-  if IsPressed then
+  if GetFlag(bsfPerformClick) then
     raise EInvalidOperation.Create('Attempt to destroy the Form from OnClick handler');
   inherited Destroy;
 end;
 
-procedure TACLCustomButtonSubClass.Calculate(R: TRect);
+procedure TACLSimpleButtonSubClass.Calculate(ARect: TRect);
 begin
-  FBounds := R;
-  FButtonRect := R;
+  inherited;
+  FButtonRect := Bounds;
 end;
 
-procedure TACLCustomButtonSubClass.Draw(ACanvas: TCanvas);
+procedure TACLSimpleButtonSubClass.CalculateAutoSize(var AWidth, AHeight: Integer);
 var
-  AClipRgn: TRegionHandle;
+  LTextRect: TRect;
 begin
-  if acStartClippedDraw(ACanvas.Handle, Bounds, AClipRgn) then
+  if Caption <> '' then
+  begin
+    LTextRect := Rect(0, 0, 1, 1);
+    AssignCanvasParameters(MeasureCanvas);
+    acSysDrawText(MeasureCanvas, LTextRect, Caption, DT_CALCRECT);
+    AHeight := LTextRect.Height;
+    AWidth := LTextRect.Width;
+  end
+  else
+  begin
+    AHeight := 0;
+    AWidth := 0;
+  end;
+end;
+
+procedure TACLSimpleButtonSubClass.Draw(ACanvas: TCanvas);
+var
+  LClipping: TRegionHandle;
+begin
+  if acStartClippedDraw(ACanvas, Bounds, LClipping) then
   try
-    ACanvas.Font := Font;
+    AssignCanvasParameters(ACanvas);
     if not AnimationManager.Draw(Self, ACanvas, ButtonRect) then
       DrawBackground(ACanvas, ButtonRect);
     if IsFocused then
       DrawFocusRect(ACanvas);
     DrawContent(ACanvas);
   finally
-    acRestoreClipRegion(ACanvas.Handle, AClipRgn);
+    acEndClippedDraw(ACanvas, LClipping);
   end;
 end;
 
-procedure TACLCustomButtonSubClass.FullRefresh;
+procedure TACLSimpleButtonSubClass.DrawBackground(ACanvas: TCanvas; const R: TRect);
 begin
-  Owner.ButtonOwnerRecalculate;
-  Invalidate;
+  Style.Draw(ACanvas, R, State)
 end;
 
-procedure TACLCustomButtonSubClass.Invalidate;
+procedure TACLSimpleButtonSubClass.KeyDown(var Key: Word; Shift: TShiftState);
 begin
-  Owner.InvalidateRect(Bounds);
-end;
-
-procedure TACLCustomButtonSubClass.KeyDown(var Key: Word; Shift: TShiftState);
-begin
-  if Key = VK_SPACE then
+  if (Key = vkSpace) and IsFocused then
+  begin
     IsPressed := True;
+    Key := 0;
+  end;
 end;
 
-procedure TACLCustomButtonSubClass.KeyUp(var Key: Word; Shift: TShiftState);
+procedure TACLSimpleButtonSubClass.KeyUp(var Key: Word; Shift: TShiftState);
 begin
   case Key of
-    VK_ESCAPE:
+    vkEscape:
       IsPressed := False;
-
-    VK_SPACE:
+    vkSpace:
       if IsPressed then
       try
         PerformClick;
@@ -770,17 +750,19 @@ begin
   end;
 end;
 
-procedure TACLCustomButtonSubClass.MouseDown(Button: TMouseButton; const P: TPoint);
+procedure TACLSimpleButtonSubClass.MouseDown(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
 begin
   IsPressed := IsEnabled and PtInRect(Bounds, P) and (Button = mbLeft);
 end;
 
-procedure TACLCustomButtonSubClass.MouseMove(Shift: TShiftState; const P: TPoint);
+procedure TACLSimpleButtonSubClass.MouseMove(Shift: TShiftState; const P: TPoint);
 begin
   IsHovered := IsEnabled and PtInRect(Bounds, P) and not (ssLeft in Shift);
 end;
 
-procedure TACLCustomButtonSubClass.MouseUp(Button: TMouseButton; const P: TPoint);
+procedure TACLSimpleButtonSubClass.MouseUp(
+  Button: TMouseButton; Shift: TShiftState; const P: TPoint);
 begin
   if IsPressed then
   try
@@ -791,37 +773,42 @@ begin
   end;
 end;
 
-procedure TACLCustomButtonSubClass.PerformClick;
+procedure TACLSimpleButtonSubClass.PerformClick;
 begin
-  CallNotifyEvent(Self, OnClick);
+  SetFlag(bsfPerformClick, True);
+  try
+    CallNotifyEvent(Self, OnClick);
+  finally
+    SetFlag(bsfPerformClick, False);
+  end;
 end;
 
-procedure TACLCustomButtonSubClass.RefreshState;
+procedure TACLSimpleButtonSubClass.RefreshState;
 var
   LAnimation: TACLBitmapAnimation;
-  ANewState: TACLButtonState;
+  LNewState: TACLButtonState;
 begin
-  ANewState := CalculateState;
-  if ANewState <> FState then
+  LNewState := CalculateState;
+  if LNewState <> FState then
   begin
     if AllowAnimation and not ButtonRect.IsEmpty and
-      (FState = absHover) and (ANewState in [absActive, absNormal]) then
+      (FState = absHover) and (LNewState in [absActive, absNormal]) then
     begin
       LAnimation := TACLBitmapAnimation.Create(Self, ButtonRect, TACLAnimatorFadeOut.Create);
       LAnimation.BuildFrame1(DrawBackground);
-      FState := ANewState;
+      FState := LNewState;
       LAnimation.BuildFrame2(DrawBackground);
       LAnimation.Run;
     end;
-    FState := ANewState;
+    FState := LNewState;
     StateChanged;
     Invalidate;
   end;
 end;
 
-function TACLCustomButtonSubClass.CalculateState: TACLButtonState;
+function TACLSimpleButtonSubClass.CalculateState: TACLButtonState;
 begin
-  if not IsEnabled then
+  if not (IsEnabled and Owner.GetEnabled) then
     Result := absDisabled
   else if IsPressed or IsDown then
     Result := absPressed
@@ -833,100 +820,102 @@ begin
     Result := absNormal;
 end;
 
-function TACLCustomButtonSubClass.GetFont: TFont;
+procedure TACLSimpleButtonSubClass.CMEnabledChanged(var Message: TMessage);
 begin
-  Result := Owner.ButtonOwnerGetFont;
+  RefreshState;
 end;
 
-function TACLCustomButtonSubClass.GetIndentBetweenElements: Integer;
+function TACLSimpleButtonSubClass.GetIndentBetweenElements: Integer;
 begin
   Result := dpiApply(acIndentBetweenElements, CurrentDpi);
 end;
 
-function TACLCustomButtonSubClass.GetTextColor: TColor;
+function TACLSimpleButtonSubClass.GetTextColor: TColor;
 begin
   Result := Style.TextColors[State];
 end;
 
-function TACLCustomButtonSubClass.GetTransparent: Boolean;
+function TACLSimpleButtonSubClass.GetTransparent: Boolean;
 begin
   Result := Style.Texture.HasAlpha;
 end;
 
-procedure TACLCustomButtonSubClass.StateChanged;
+procedure TACLSimpleButtonSubClass.StateChanged;
 begin
-  // do nothing
+  if State = absHover then
+    Application.CancelHint;
 end;
 
-function TACLCustomButtonSubClass.AllowAnimation: Boolean;
+procedure TACLSimpleButtonSubClass.AfterConstruction;
+begin
+  inherited;
+  FState := CalculateState;
+end;
+
+function TACLSimpleButtonSubClass.AllowAnimation: Boolean;
 begin
   Result := True;
 end;
 
-procedure TACLCustomButtonSubClass.AssignCanvasParameters(ACanvas: TCanvas);
+procedure TACLSimpleButtonSubClass.AssignCanvasParameters(ACanvas: TCanvas);
 begin
-  ACanvas.Brush.Style := bsSolid;
+  ACanvas.SetScaledFont(Owner.GetFont);
   ACanvas.Font.Color := TextColor;
   ACanvas.Brush.Style := bsClear;
 end;
 
-procedure TACLCustomButtonSubClass.DrawContent(ACanvas: TCanvas);
+procedure TACLSimpleButtonSubClass.DrawContent(ACanvas: TCanvas);
 var
-  ATextRect: TRect;
+  LRect: TRect;
 begin
   if Caption <> '' then
   begin
     AssignCanvasParameters(ACanvas);
-    ATextRect := TextRect;
-    acSysDrawText(ACanvas, ATextRect, Caption, acTextAlignHorz[Alignment] or
+    LRect := TextRect;
+    acSysDrawText(ACanvas, LRect, Caption, acTextAlignHorz[Alignment] or
       DT_VCENTER or DT_SINGLELINE or DT_END_ELLIPSIS); // Keep the "&" Prefix in mind
   end;
 end;
 
-procedure TACLCustomButtonSubClass.DrawFocusRect(ACanvas: TCanvas);
+procedure TACLSimpleButtonSubClass.DrawFocusRect(ACanvas: TCanvas);
 begin
   acDrawFocusRect(ACanvas, FocusRect, TextColor);
 end;
 
-function TACLCustomButtonSubClass.GetCurrentDpi: Integer;
+function TACLSimpleButtonSubClass.GetCurrentDpi: Integer;
 begin
   Result := Owner.GetCurrentDpi;
 end;
 
-function TACLCustomButtonSubClass.GetFlag(Index: TACLButtonStateFlag): Boolean;
+function TACLSimpleButtonSubClass.GetFlag(Index: TACLButtonStateFlag): Boolean;
 begin
   Result := Index in FFlags;
 end;
 
-function TACLCustomButtonSubClass.GetStyle: TACLStyleButton;
-begin
-  Result := Owner.ButtonOwnerGetStyle;
-end;
-
-function TACLCustomButtonSubClass.GetTextureSize: TSize;
+function TACLSimpleButtonSubClass.GetTextureSize: TSize;
 begin
   Result := Style.Texture.FrameSize;
 end;
 
-procedure TACLCustomButtonSubClass.SetAlignment(AValue: TAlignment);
+procedure TACLSimpleButtonSubClass.SetAlignment(AValue: TAlignment);
 begin
   if AValue <> FAlignment then
   begin
     FAlignment := AValue;
-    FullRefresh;
+    Refresh;
   end;
 end;
 
-procedure TACLCustomButtonSubClass.SetCaption(const AValue: string);
+procedure TACLSimpleButtonSubClass.SetCaption(const AValue: string);
 begin
   if AValue <> FCaption then
   begin
     FCaption := AValue;
-    FullRefresh;
+    RefreshAutoSize;
   end;
 end;
 
-procedure TACLCustomButtonSubClass.SetFlag(AFlag: TACLButtonStateFlag; AValue: Boolean);
+procedure TACLSimpleButtonSubClass.SetFlag(AFlag: TACLButtonStateFlag; AValue: Boolean);
 begin
   if GetFlag(AFlag) <> AValue then
   begin
@@ -952,24 +941,16 @@ begin
   TabStop := True;
   ControlStyle := ControlStyle - [csDoubleClicks, csClickEvents];
   FDefaultSize := TSize.Create(DefaultButtonWidth, DefaultButtonHeight);
-  FSubClass := CreateSubClass;
-  FSubClass.OnClick := ButtonClickHandler;
-  FShowCaption := True;
   FStyle := CreateStyle;
+  FShowCaption := True;
+  RegisterSubClass(FSubClass, CreateSubClass);
+  FSubClass.OnClick := ClickHandler;
 end;
 
 destructor TACLCustomButton.Destroy;
 begin
-  FreeAndNil(FSubClass);
   FreeAndNil(FStyle);
   inherited Destroy;
-end;
-
-procedure TACLCustomButton.DoGetHint(const P: TPoint; var AHint: string);
-begin
-  if not ShowCaption and (AHint = '') then
-    AHint := Caption;
-  inherited;
 end;
 
 procedure TACLCustomButton.ActionChange(Sender: TObject; CheckDefaults: Boolean);
@@ -997,44 +978,9 @@ begin
   SubClass.Calculate(R);
 end;
 
-procedure TACLCustomButton.SetTargetDPI(AValue: Integer);
+procedure TACLCustomButton.ClickHandler(Sender: TObject);
 begin
-  inherited;
-  Style.SetTargetDPI(AValue);
-end;
-
-procedure TACLCustomButton.FocusChanged;
-begin
-  inherited FocusChanged;
-  if not (csDesigning in ComponentState) then
-  begin
-    SubClass.IsFocused := Focused;
-    SubClass.Invalidate;
-  end;
-end;
-
-procedure TACLCustomButton.Paint;
-begin
-  SubClass.Draw(Canvas);
-end;
-
-procedure TACLCustomButton.ResourceChanged;
-begin
-  inherited;
-  FullRefresh;
-end;
-
-procedure TACLCustomButton.UpdateCaption;
-begin
-  SubClass.Caption := IfThenW(ShowCaption, Caption);
-end;
-
-procedure TACLCustomButton.UpdateTransparency;
-begin
-  if SubClass.Transparent then
-    ControlStyle := ControlStyle - [csOpaque]
-  else
-    ControlStyle := ControlStyle + [csOpaque];
+  Click;
 end;
 
 function TACLCustomButton.DialogChar(var Message: TWMKey): Boolean;
@@ -1049,68 +995,36 @@ begin
     Result := inherited;
 end;
 
-procedure TACLCustomButton.KeyDown(var Key: Word; Shift: TShiftState);
+procedure TACLCustomButton.DoGetHint(const P: TPoint; var AHint: string);
 begin
-  inherited KeyDown(Key, Shift);
-  SubClass.KeyDown(Key, Shift);
+  if not ShowCaption and (AHint = '') then
+    AHint := Caption;
+  inherited;
 end;
 
-procedure TACLCustomButton.KeyUp(var Key: Word; Shift: TShiftState);
+procedure TACLCustomButton.FocusChanged;
 begin
-  inherited KeyUp(Key, Shift);
-  SubClass.KeyUp(Key, Shift);
+  inherited FocusChanged;
+  SubClass.IsFocused := not (csDesigning in ComponentState) and Focused;
 end;
 
-procedure TACLCustomButton.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+procedure TACLCustomButton.Paint;
 begin
-  inherited MouseDown(Button, Shift, X, Y);
-  SubClass.MouseDown(Button, Point(X, Y));
+  SubClasses.Draw(Canvas);
 end;
 
-procedure TACLCustomButton.MouseEnter;
-begin
-  inherited MouseEnter;
-  Invalidate;
-end;
-
-procedure TACLCustomButton.MouseLeave;
-begin
-  inherited MouseLeave;
-  SubClass.MouseMove([], InvalidPoint);
-  SubClass.Invalidate;
-end;
-
-procedure TACLCustomButton.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseMove(Shift, X, Y);
-  SubClass.MouseMove(Shift, Point(X, Y));
-end;
-
-procedure TACLCustomButton.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseUp(Button, Shift, X, Y);
-  SubClass.MouseUp(Button, Point(X, Y));
-end;
-
-function TACLCustomButton.ButtonOwnerGetFont: TFont;
-begin
-  Result := Font;
-end;
-
-function TACLCustomButton.ButtonOwnerGetImages: TCustomImageList;
-begin
-  Result := nil;
-end;
-
-function TACLCustomButton.ButtonOwnerGetStyle: TACLStyleButton;
-begin
-  Result := Style;
-end;
-
-procedure TACLCustomButton.CMEnabledChanged(var Message: TMessage);
+procedure TACLCustomButton.ResourceChanged;
 begin
   inherited;
-  SubClass.IsEnabled := Enabled;
+  FullRefresh;
+end;
+
+procedure TACLCustomButton.UpdateTransparency;
+begin
+  if SubClass.Transparent then
+    ControlStyle := ControlStyle - [csOpaque]
+  else
+    ControlStyle := ControlStyle + [csOpaque];
 end;
 
 procedure TACLCustomButton.CMFontChanged(var Message: TMessage);
@@ -1129,18 +1043,21 @@ end;
 
 procedure TACLCustomButton.CMTextChanged(var Message: TMessage);
 begin
-  UpdateCaption;
+  SubClass.Caption := IfThenW(ShowCaption, Caption);
   inherited;
-end;
-
-procedure TACLCustomButton.ButtonClickHandler(Sender: TObject);
-begin
-  Click;
 end;
 
 function TACLCustomButton.GetAlignment: TAlignment;
 begin
   Result := SubClass.Alignment;
+end;
+
+function TACLCustomButton.MeasureSize(AWidth: Integer): TSize;
+begin
+  Result.cx := AWidth;
+  Result.cy := -1;
+  if not CanAutoSize(Result.cx, Result.cy) then
+    Result := NullSize;
 end;
 
 procedure TACLCustomButton.SetAlignment(AValue: TAlignment);
@@ -1153,7 +1070,7 @@ begin
   if FShowCaption <> AValue then
   begin
     FShowCaption := AValue;
-    UpdateCaption;
+    Perform(CM_TEXTCHANGED, 0, 0);
   end;
 end;
 
@@ -1162,79 +1079,110 @@ begin
   FStyle.Assign(Value);
 end;
 
-{ TACLButtonSubClass }
-
-procedure TACLButtonSubClass.Calculate(R: TRect);
+procedure TACLCustomButton.SetTargetDPI(AValue: Integer);
 begin
   inherited;
-  FButtonRect := R;
-  R.Content(Style.ContentOffsets);
-  FFocusRect := R;
-  R.Inflate(-1);
-  CalculateArrowRect(R);
-  CalculateImageRect(R);
-  CalculateTextRect(R);
+  Style.SetTargetDPI(AValue);
+end;
+
+{ TACLButtonSubClass }
+
+constructor TACLButtonSubClass.Create;
+begin
+  inherited;
+  FImageIndex := -1;
+end;
+
+procedure TACLButtonSubClass.Calculate(ARect: TRect);
+begin
+  inherited;
+  ARect.Content(Style.ContentOffsets);
+  FFocusRect := ARect;
+  ARect.Inflate(-FocusThickness);
+  if HasArrow then
+    CalculateArrowRect(ARect);
+  if HasImage then
+    CalculateImageRect(ARect);
+  CalculateTextRect(ARect);
 end;
 
 procedure TACLButtonSubClass.CalculateArrowRect(var R: TRect);
+var
+  LIndent: Integer;
+  LWidth: Integer;
 begin
+  FArrowRect := R;
+  if Part <> abpDropDownArrow then
+  begin
+    LIndent := GetIndentBetweenElements;
+    LWidth := acGetArrowSize(makBottom, CurrentDpi).cx;
+    FArrowRect.Right := FArrowRect.Right - LIndent;
+    FArrowRect.Left := FArrowRect.Right - LWidth;
+    if FArrowRect.Left < R.Left + LIndent then
+    begin
+      FArrowRect := R;
+      FArrowRect.CenterHorz(LWidth);
+    end;
+    R.Right := FArrowRect.Left - LIndent;
+  end;
+end;
+
+procedure TACLButtonSubClass.CalculateAutoSize(var AWidth, AHeight: Integer);
+var
+  LSize: TSize;
+begin
+  inherited;
   if HasArrow then
   begin
-    FArrowRect := R;
-    if Part <> abpDropDownArrow then
-    begin
-      FArrowRect.Right := FArrowRect.Right - GetIndentBetweenElements;
-      FArrowRect.Left := FArrowRect.Right - dpiApply(acDropArrowSize.cx, CurrentDpi);
-    end;
-    R.Right := FArrowRect.Left - GetIndentBetweenElements;
+    Inc(AWidth, acGetArrowSize(makBottom, CurrentDpi).cx);
+    Inc(AWidth, GetIndentBetweenElements);
   end;
+  if HasImage then
+  begin
+    LSize := ImageSize;
+    Inc(AWidth, LSize.cx);
+    Inc(AWidth, GetIndentBetweenElements);
+    AHeight := Max(AHeight, LSize.cy);
+  end;
+  Inc(AHeight, 2 * FocusThickness);
+  Inc(AHeight, 2 * dpiApply(TextIndent, CurrentDpi));
+  Inc(AHeight, Style.ContentOffsets.MarginsHeight);
+  Inc(AWidth, 2 * FocusThickness);
+  Inc(AWidth, 2 * dpiApply(TextIndent, CurrentDpi));
+  Inc(AWidth, Style.ContentOffsets.MarginsWidth);
 end;
 
 procedure TACLButtonSubClass.CalculateImageRect(var R: TRect);
 var
   LImageSize: TSize;
 begin
-  if HasImage then
+  LImageSize := ImageSize;
+  FImageRect := R;
+  if Caption <> '' then
   begin
-    LImageSize := ImageSize;
-    FImageRect := R;
-    if Caption <> '' then
-    begin
-      FImageRect.CenterVert(LImageSize.cy);
-      FImageRect.Width := LImageSize.cx;
-    end
-    else
-      FImageRect.Center(LImageSize);
+    FImageRect.CenterVert(LImageSize.cy);
+    FImageRect.Width := LImageSize.cx;
+  end
+  else
+    FImageRect.Center(LImageSize);
 
-    R.Left := FImageRect.Right + GetIndentBetweenElements;
-  end;
+  R.Left := FImageRect.Right + GetIndentBetweenElements;
 end;
 
 procedure TACLButtonSubClass.CalculateTextRect(var R: TRect);
 begin
   FTextRect := R;
-  FTextRect.Inflate(-dpiApply(acTextIndent - 1, CurrentDpi), 0);
-end;
-
-constructor TACLButtonSubClass.Create(AOwner: IACLButtonOwner);
-begin
-  inherited;
-  FImageIndex := -1;
+  FTextRect.Inflate(-dpiApply(TextIndent, CurrentDpi), 0);
 end;
 
 function TACLButtonSubClass.GetGlyph: TACLGlyph;
 var
-  AIntf: IACLGlyph;
+  LIntf: IACLGlyph;
 begin
-  if Supports(Owner, IACLGlyph, AIntf) then
-    Result := AIntf.GetGlyph
+  if Supports(Owner, IACLGlyph, LIntf) then
+    Result := LIntf.GetGlyph
   else
     Result := nil;
-end;
-
-function TACLButtonSubClass.GetImages: TCustomImageList;
-begin
-  Result := Owner.ButtonOwnerGetImages;
 end;
 
 procedure TACLButtonSubClass.DrawBackground(ACanvas: TCanvas; const R: TRect);
@@ -1247,21 +1195,21 @@ begin
   inherited DrawContent(ACanvas);
 
   if FHasArrow then
-    acDrawDropArrow(ACanvas.Handle, ArrowRect, TextColor, dpiApply(acDropArrowSize, CurrentDpi));
+    acDrawArrow(ACanvas, ArrowRect, TextColor, makBottom, CurrentDpi);
 
   if not ImageRect.IsEmpty then
   begin
     if Glyph <> nil then
-      Glyph.Draw(ACanvas, ImageRect, IsEnabled)
+      Glyph.Draw(ACanvas, ImageRect, State <> absDisabled)
     else
-      acDrawImage(ACanvas, ImageRect, Images, ImageIndex, IsEnabled);
+      acDrawImage(ACanvas, ImageRect, ImageList, ImageIndex, State <> absDisabled);
   end;
 end;
 
 function TACLButtonSubClass.GetHasImage: Boolean;
 begin
   Result := (Part <> abpDropDownArrow) and
-    ((Images <> nil) and (ImageIndex >= 0) or (Glyph <> nil));
+    ((ImageList <> nil) and (ImageIndex >= 0) or (Glyph <> nil));
 end;
 
 function TACLButtonSubClass.GetImageSize: TSize;
@@ -1269,7 +1217,23 @@ begin
   if Glyph <> nil then
     Result := Glyph.FrameSize
   else
-    Result := acGetImageListSize(Images, CurrentDpi);
+    Result := acGetImageListSize(ImageList, CurrentDpi);
+end;
+
+procedure TACLButtonSubClass.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  if (Part = abpDropDownArrow) and acIsDropDownCommand(Key, Shift) then
+  begin
+    IsPressed := True;
+    try
+      PerformClick;
+    finally
+      IsPressed := False;
+      Key := 0;
+    end;
+  end
+  else
+    inherited;
 end;
 
 procedure TACLButtonSubClass.SetImageIndex(AValue: Integer);
@@ -1365,31 +1329,33 @@ end;
 
 procedure TACLSimpleButton.UpdateRolesForForm;
 var
-  AForm: TCustomForm;
+  LForm: TCustomForm;
+  LRole: TControlRolesForForm;
 begin
   if FRolesUpdateLocked then
     Exit;
-  AForm := GetParentForm(Self);
-  if AForm <> nil then
-    Default := crffDefault in AForm.GetRolesForControl(Self);
+  LForm := GetParentForm(Self);
+  if LForm <> nil then
+  begin
+    LRole := LForm.GetRolesForControl(Self);
+    Cancel := crffCancel in LRole;
+    Default := crffDefault in LRole;
+  end;
 end;
 
-{$ENDIF}
-
-procedure TACLSimpleButton.CMDialogKey(var Message: TCMDialogKey);
+procedure TACLSimpleButton.WMKillFocus(var Message: TMessage);
 begin
-  if (Message.CharCode = VK_RETURN) and (SubClass.IsFocused or SubClass.IsDefault) or
-     (Message.CharCode = VK_ESCAPE) and Cancel
-  then
-    if (KeyDataToShiftState(Message.KeyData) = []) and CanFocus then
-    begin
-      SubClass.PerformClick;
-      Message.Result := 1;
-      Exit;
-    end;
-
+  ActiveDefaultControlChanged(nil);
   inherited;
 end;
+
+procedure TACLSimpleButton.WMSetFocus(var Message: TMessage);
+begin
+  inherited;
+  ActiveDefaultControlChanged(Self);
+end;
+
+{$ELSE}
 
 procedure TACLSimpleButton.CMFocusChanged(var Message: TMessage);
 var
@@ -1404,14 +1370,31 @@ begin
   inherited;
 end;
 
+procedure TACLSimpleButton.CMDialogKey(var Message: TCMDialogKey);
+begin
+  if (Message.CharCode = vkReturn) and (SubClass.IsFocused or SubClass.IsDefault) or
+     (Message.CharCode = vkEscape) and Cancel
+  then
+    if (KeyDataToShiftState(Message.KeyData) = []) and CanFocus then
+    begin
+      SubClass.PerformClick;
+      Message.Result := 1;
+      Exit;
+    end;
+
+  inherited;
+end;
+
+{$ENDIF}
+
 function TACLSimpleButton.CreateStyle: TACLStyleButton;
 begin
   Result := TACLStyleButton.Create(Self);
 end;
 
-function TACLSimpleButton.CreateSubClass: TACLCustomButtonSubClass;
+function TACLSimpleButton.CreateSubClass: TACLSimpleButtonSubClass;
 begin
-  Result := TACLButtonSubClass.Create(Self);
+  Result := TACLButtonSubClass.Create(Self, Style);
 end;
 
 procedure TACLSimpleButton.Notification(AComponent: TComponent; Operation: TOperation);
@@ -1419,6 +1402,12 @@ begin
   inherited Notification(AComponent, Operation);
   if (Operation = opRemove) and (AComponent = Images) then
     Images := nil;
+end;
+
+procedure TACLSimpleButton.Paint;
+begin
+  inherited;
+  CallNotifyEvent(Self, OnPaint);
 end;
 
 procedure TACLSimpleButton.PerformClick;
@@ -1438,11 +1427,6 @@ begin
     Result := FGlyph
   else
     Result := nil;
-end;
-
-function TACLSimpleButton.ButtonOwnerGetImages: TCustomImageList;
-begin
-  Result := Images;
 end;
 
 function TACLSimpleButton.IsGlyphStored: Boolean;
@@ -1555,6 +1539,7 @@ end;
 
 procedure TACLSimpleButton.HandlerImageChange(Sender: TObject);
 begin
+  SubClass.ImageList := Images;
   FullRefresh;
 end;
 
@@ -1577,39 +1562,39 @@ end;
 constructor TACLButton.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FDropDownSubClass := TACLButtonSubClass.Create(Self);
+  RegisterSubClass(FDropDownSubClass, TACLButtonSubClass.Create(Self, Style));
   FDropDownSubClass.OnClick := HandlerDropDownClick;
-  FDropDownSubClass.FPart := abpDropDownArrow;
+  FDropDownSubClass.HasArrow := True;
+  FDropDownSubClass.Part := abpDropDownArrow;
 end;
 
-destructor TACLButton.Destroy;
-begin
-  FreeAndNil(FDropDownSubClass);
-  inherited Destroy;
-end;
-
-procedure TACLButton.Calculate(R: TRect);
+procedure TACLButton.Calculate(ARect: TRect);
 const
   PartMap: array [Boolean] of TACLButtonPart = (abpButton, abpDropDown);
-var
-  DR: TRect;
 begin
-  DR := R.Split(srRight, IfThen(Kind = sbkDropDownButton, DropDownSubClass.TextureSize.cx));
-  R.Right := DR.Left;
-
-  DropDownSubClass.HasArrow := True;
-  DropDownSubClass.Calculate(DR);
-
+  DropDownSubClass.Calculate(ARect.Split(srRight,
+    IfThen(Kind = sbkDropDownButton, DropDownSubClass.TextureSize.cx)));
+  ARect.Right := FDropDownSubClass.ButtonRect.Left;
   SubClass.ImageIndex := ImageIndex;
   SubClass.HasArrow := Kind = sbkDropDown;
-  SubClass.FPart := PartMap[Kind = sbkDropDownButton];
-  SubClass.Calculate(R);
+  SubClass.Part := PartMap[Kind = sbkDropDownButton];
+  SubClass.Calculate(ARect);
+end;
+
+function TACLButton.CanAutoSize(var NewWidth, NewHeight: Integer): Boolean;
+begin
+  NewWidth := -1;
+  NewHeight := -1;
+  SubClass.CalculateAutoSize(NewWidth, NewHeight);
+  if Kind = sbkDropDownButton then
+    Inc(NewWidth, DropDownSubClass.TextureSize.cx);
+  NewHeight := Max(NewHeight, dpiApply(DefaultButtonHeight, FCurrentPPI));
+  Result := True;
 end;
 
 procedure TACLButton.Notification(AComponent: TComponent; Operation: TOperation);
 begin
   inherited Notification(AComponent, Operation);
-
   if Operation = opRemove then
   begin
     if AComponent = DropDownMenu then
@@ -1619,9 +1604,8 @@ end;
 
 procedure TACLButton.Paint;
 begin
-  inherited Paint;
   DropDownSubClass.IsDefault := SubClass.IsDefault or SubClass.IsFocused;
-  DropDownSubClass.Draw(Canvas);
+  inherited Paint;
 end;
 
 procedure TACLButton.PerformClick;
@@ -1636,41 +1620,6 @@ begin
       else
         ShowDropDownMenu;
     end;
-end;
-
-procedure TACLButton.KeyUp(var Key: Word; Shift: TShiftState);
-begin
-  inherited KeyUp(Key, Shift);
-  if (Kind = sbkDropDownButton) and acIsDropDownCommand(Key, Shift) then
-  begin
-    DropDownSubClass.IsPressed := True;
-    DropDownSubClass.PerformClick;
-    DropDownSubClass.IsPressed := False;
-  end
-end;
-
-procedure TACLButton.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  inherited MouseDown(Button, Shift, X, Y);
-  DropDownSubClass.MouseDown(Button, Point(X, Y));
-end;
-
-procedure TACLButton.MouseLeave;
-begin
-  DropDownSubClass.MouseMove([], InvalidPoint);
-  inherited MouseLeave;
-end;
-
-procedure TACLButton.MouseMove(Shift: TShiftState; X, Y: Integer);
-begin
-  DropDownSubClass.MouseMove(Shift, Point(X, Y));
-  inherited MouseMove(Shift, X, Y);
-end;
-
-procedure TACLButton.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-begin
-  DropDownSubClass.MouseUp(Button, Point(X, Y));
-  inherited MouseUp(Button, Shift, X, Y);
 end;
 
 procedure TACLButton.HandlerDropDownClick(Sender: TObject);
@@ -1696,25 +1645,19 @@ begin
   end;
 end;
 
-procedure TACLButton.CMEnabledChanged(var Message: TMessage);
-begin
-  inherited;
-  DropDownSubClass.IsEnabled := Enabled;
-end;
-
 procedure TACLButton.ShowDropDownMenu;
 var
-  AMenu: IACLPopup;
-  APosition: TPoint;
+  LMenu: IACLPopup;
+  LPosition: TPoint;
 begin
   if Assigned(DropDownMenu) then
   begin
     DropDownMenu.PopupComponent := Self;
-    APosition := ClientToScreen(NullPoint);
-    if Supports(DropDownMenu, IACLPopup, AMenu) then
-      AMenu.PopupUnderControl(Bounds(APosition.X, APosition.Y, Width, Height))
+    LPosition := ClientToScreen(NullPoint);
+    if Supports(DropDownMenu, IACLPopup, LMenu) then
+      LMenu.PopupUnderControl(Bounds(LPosition.X, LPosition.Y - 1, Width, Height + 2))
     else
-      DropDownMenu.Popup(APosition.X, APosition.Y + Height + 1);
+      DropDownMenu.Popup(LPosition.X, LPosition.Y + Height + 1);
   end;
 end;
 
@@ -1740,9 +1683,9 @@ begin
   Texture.InitailizeDefaults('Buttons.Textures.CheckBox');
 end;
 
-{ TACLStyleRadioBox }
+{ TACLStyleRadioButton }
 
-procedure TACLStyleRadioBox.InitializeTextures;
+procedure TACLStyleRadioButton.InitializeTextures;
 begin
   Texture.InitailizeDefaults('Buttons.Textures.RadioBox');
 end;
@@ -1765,14 +1708,18 @@ end;
 
 procedure TACLCheckBoxSubControlOptions.AlignControl(var AClientRect: TRect);
 var
-  AIndent: Integer;
+  LIndent: Integer;
 begin
   if (Position = mBottom) and Owner.ShowCheckMark then
   begin
-    AIndent := Owner.SubClass.TextureSize.cx + Owner.SubClass.GetIndentBetweenElements;
-    Inc(AClientRect.Left, AIndent);
+    // ref. TACLCheckBoxSubClass.Calculate
+    // ref. TACLCheckBoxSubClass.CalculateAutoSize
+    LIndent :=
+      Owner.SubClass.TextureSize.cx +
+      Owner.SubClass.GetIndentBetweenElements - acTextIndent;
+    Inc(AClientRect.Left, LIndent);
     inherited AlignControl(AClientRect);
-    Dec(AClientRect.Left, AIndent);
+    Dec(AClientRect.Left, LIndent);
   end
   else
     inherited AlignControl(AClientRect);
@@ -1813,89 +1760,76 @@ end;
 
 { TACLCheckBoxSubClass }
 
-constructor TACLCheckBoxSubClass.Create(AOwner: IACLButtonOwner);
+constructor TACLCheckBoxSubClass.Create;
 begin
-  inherited Create(AOwner);
+  inherited;
   FAlignment := taLeftJustify;
   FShowCheckMark := True;
 end;
 
-procedure TACLCheckBoxSubClass.Calculate(R: TRect);
-begin
-  inherited Calculate(R);
-  CalculateButtonRect(R);
-  CalculateTextRect(R);
-end;
-
-procedure TACLCheckBoxSubClass.CalculateAutoSize(var AWidth, AHeight: Integer);
+procedure TACLCheckBoxSubClass.Calculate(ARect: TRect);
 var
-  ATextRect: TRect;
-  ATextSize: TSize;
+  LGap: Integer;
+  LSize: TSize;
 begin
-  ATextRect := Rect(0, 0, IfThen(AWidth < 0, MaxWord, AWidth), MaxWord);
-  if ShowCheckMark then
-    Inc(ATextRect.Left, TextureSize.cx + GetIndentBetweenElements - acTextIndent);
+  inherited;
 
-  CalculateTextSize(ATextRect, ATextSize);
-
-  if AHeight < 0 then
-    AHeight := Max(TextureSize.cy, ATextSize.cy + 2 * acFocusRectIndent);
-  if AWidth < 0 then
-  begin
-    AWidth := ATextSize.cx;
-    if ShowCheckMark then
-    begin
-      if ATextSize.cx > 0 then
-        Inc(AWidth, 2 * acTextIndent + GetIndentBetweenElements);
-      Inc(AWidth, TextureSize.cx);
-    end;
-  end;
-end;
-
-procedure TACLCheckBoxSubClass.CalculateButtonRect(var R: TRect);
-var
-  ASize: TSize;
-begin
+{$REGION ' CheckMark '}
   if ShowCheckMark then
   begin
-    ASize := TextureSize;
-    FButtonRect := R;
-    FButtonRect.Width := ASize.cx;
     if WordWrap then
     begin
-      FButtonRect.Top := R.Top + acFocusRectIndent;
-      FButtonRect.Height := ASize.cy;
+      FButtonRect.Left := Bounds.Left;
+      FButtonRect.Top := Bounds.Top + acFocusRectIndent;
+      FButtonRect.Size := TextureSize;
     end
     else
-      FButtonRect.Center(ASize);
-
-    R.Left := FButtonRect.Right + GetIndentBetweenElements - acTextIndent;
+    begin
+      LSize := TextureSize;
+      FButtonRect := Bounds;
+      FButtonRect.CenterVert(LSize.cy);
+      FButtonRect.Width := LSize.cx;
+    end;
+    // ref. TACLCheckBoxSubControlOptions.AlignControl
+    // ref. TACLCheckBoxSubClass.CalculateAutoSize
+    LGap := IfThen(Caption <> '', GetIndentBetweenElements - acTextIndent);
+    if (Alignment = taCenter) and (Caption = '') then
+      FButtonRect.Offset((Bounds.Width - FButtonRect.Width) div 2, 0)
+    else
+      if Alignment = taRightJustify then
+      begin
+        FButtonRect.Left := Bounds.Right - FButtonRect.Width;
+        FButtonRect.Right := Bounds.Right;
+        ARect.Right := ButtonRect.Left - LGap;
+      end
+      else
+        ARect.Left := ButtonRect.Right + LGap;
   end
   else
-    FButtonRect := NullRect;
-end;
+  begin
+    FButtonRect := Bounds;
+    FButtonRect.Size := NullSize;
+  end;
+{$ENDREGION}
 
-procedure TACLCheckBoxSubClass.CalculateTextRect(var R: TRect);
-var
-  LTextWidth: Integer;
-begin
-  CalculateTextSize(R, FTextSize);
-
-  FTextRect := R;
-  LTextWidth := Min(FTextSize.cx, R.Width);
+{$REGION ' Text '}
+  FTextRect := ARect;
+  MeasureText(ARect);
+  ARect.Width := Min(ARect.Width, FTextRect.Width);
   case Alignment of
     taCenter:
-      FTextRect.CenterHorz(LTextWidth);
+      FTextRect.CenterHorz(ARect.Width);
     taRightJustify:
-      FTextRect.Left := FTextRect.Right - LTextWidth;
+      FTextRect.Left := FTextRect.Right - ARect.Width;
   else
-    FTextRect.Width := LTextWidth;
+    FTextRect.Width := ARect.Width;
   end;
-
-  FTextRect.CenterVert(FTextSize.cy);
+  FTextRect.CenterVert(ARect.Height);
   FTextRect.Offset(0, -1);
+{$ENDREGION}
 
-  if TextRect.IsEmpty or (Caption = '') then
+{$REGION ' FocusRect '}
+  if FTextRect.IsEmpty or (Caption = '') then
   begin
     FFocusRect := ButtonRect;
     FFocusRect.Inflate(-2);
@@ -1911,22 +1845,39 @@ begin
     end
     else
       FFocusRect := NullRect;
+{$ENDREGION}
 end;
 
-procedure TACLCheckBoxSubClass.CalculateTextSize(var R: TRect; out ATextSize: TSize);
+procedure TACLCheckBoxSubClass.CalculateAutoSize(var AWidth, AHeight: Integer);
 var
-  ATextRect: TRect;
+  LTextRect: TRect;
 begin
-  MeasureCanvas.SetScaledFont(Font);
+  LTextRect := Rect(0, 0, IfThen(AWidth < 0, MaxWord, AWidth), MaxWord);
   if ShowCheckMark then
-    R.Inflate(-acTextIndent, -acFocusRectIndent);
+    // ref. TACLCheckBoxSubClass.Calculate
+    // ref. TACLCheckBoxSubControlOptions.AlignControl
+    Inc(LTextRect.Left, TextureSize.cx + GetIndentBetweenElements - acTextIndent);
+  MeasureText(LTextRect);
 
-  ATextRect := R;
-  acSysDrawText(MeasureCanvas, ATextRect, Caption, DT_CALCRECT or IfThen(WordWrap, DT_WORDBREAK));
-  ATextSize := ATextRect.Size;
+  AHeight := Max(TextureSize.cy, LTextRect.Height + 2 * acFocusRectIndent);
+  AWidth := LTextRect.Width;
+  if ShowCheckMark then
+  begin
+    if AWidth > 0 then
+      Inc(AWidth, GetIndentBetweenElements);
+    Inc(AWidth, TextureSize.cx);
+  end;
+end;
 
-  if WordWrap or (FTextSize.cy = 0) then
-    ATextSize.cy := Max(ATextSize.cy, acFontHeight(MeasureCanvas));
+procedure TACLCheckBoxSubClass.MeasureText(var ARect: TRect);
+begin
+  AssignCanvasParameters(MeasureCanvas);
+  if ShowCheckMark then
+    ARect.Inflate(-acTextIndent, -acFocusRectIndent);
+  acSysDrawText(MeasureCanvas, ARect, Caption,
+    DT_CALCRECT or IfThen(WordWrap, DT_WORDBREAK));
+  if WordWrap or (ARect.Height = 0) then
+    ARect.Height := Max(ARect.Height, acFontHeight(MeasureCanvas));
 end;
 
 function TACLCheckBoxSubClass.GetStyle: TACLStyleCheckBox;
@@ -1956,7 +1907,13 @@ begin
       DT_VCENTER or acTextAlignHorz[Alignment] or IfThen(WordWrap, DT_WORDBREAK));
   end;
   if ShowLine then
-    acDrawLabelLine(ACanvas, Bounds, TextRect, Style.ColorLine1.Value, Style.ColorLine2.Value);
+  begin
+    acDrawLabelLine(ACanvas, Bounds,
+      TRect.Union(ButtonRect, TextRect),
+      Style.ColorLine1.Value,
+      Style.ColorLine2.Value,
+      Alignment);
+  end;
 end;
 
 procedure TACLCheckBoxSubClass.SetCheckState(AValue: TCheckBoxState);
@@ -1973,7 +1930,7 @@ begin
   if ShowCheckMark <> AValue then
   begin
     FShowCheckMark := AValue;
-    FullRefresh;
+    RefreshAutoSize;
   end;
 end;
 
@@ -1984,7 +1941,7 @@ begin
     if AValue then
       FWordWrap := False;
     FShowLine := AValue;
-    FullRefresh;
+    RefreshAutoSize;
   end;
 end;
 
@@ -1995,7 +1952,7 @@ begin
     if AValue then
       FShowLine := False;
     FWordWrap := AValue;
-    FullRefresh;
+    RefreshAutoSize;
   end;
 end;
 
@@ -2092,9 +2049,9 @@ begin
   Result := TACLCheckBoxSubControlOptions.Create(Self);
 end;
 
-function TACLCustomCheckBox.CreateSubClass: TACLCustomButtonSubClass;
+function TACLCustomCheckBox.CreateSubClass: TACLSimpleButtonSubClass;
 begin
-  Result := TACLCheckBoxSubClass.Create(Self);
+  Result := TACLCheckBoxSubClass.Create(Self, Style);
 end;
 
 function TACLCustomCheckBox.GetActionLinkClass: TControlActionLinkClass;
@@ -2262,6 +2219,14 @@ begin
   OnKeyDown := AParams.OnKeyDown;
 end;
 
+procedure TACLInplaceCheckBox.CMHitTest(var Message: TCMHitTest);
+begin
+  if PtInRect(ClientRect, SmallPointToPoint(Message.Pos)) then
+    Message.Result := HTCLIENT
+  else
+    Message.Result := HTTRANSPARENT;
+end;
+
 function TACLInplaceCheckBox.InplaceGetValue: string;
 begin
   Result := BoolToStr(Checked, True)
@@ -2273,27 +2238,19 @@ begin
   Caption := InplaceGetValue;
 end;
 
-procedure TACLInplaceCheckBox.CMHitTest(var Message: TWMNCHitTest);
+{ TACLRadioButton }
+
+function TACLRadioButton.CreateStyle: TACLStyleButton;
 begin
-  if PtInRect(ClientRect, SmallPointToPoint(Message.Pos)) then
-    Message.Result := HTCLIENT
-  else
-    Message.Result := HTTRANSPARENT;
+  Result := TACLStyleRadioButton.Create(Self);
 end;
 
-{ TACLRadioBox }
-
-function TACLRadioBox.CreateStyle: TACLStyleButton;
-begin
-  Result := TACLStyleRadioBox.Create(Self);
-end;
-
-procedure TACLRadioBox.ToggleState;
+procedure TACLRadioButton.ToggleState;
 begin
   Checked := True;
 end;
 
-procedure TACLRadioBox.SetGroupIndex(const Value: Integer);
+procedure TACLRadioButton.SetGroupIndex(const Value: Integer);
 begin
   if FGroupIndex <> Value then
   begin
@@ -2302,9 +2259,9 @@ begin
   end;
 end;
 
-procedure TACLRadioBox.SetState(AValue: TCheckBoxState);
+procedure TACLRadioButton.SetState(AValue: TCheckBoxState);
 var
-  AControl: TControl;
+  LControl: TControl;
   I: Integer;
 begin
   if State <> AValue then
@@ -2314,13 +2271,13 @@ begin
       if Parent <> nil then
         for I := 0 to Parent.ControlCount - 1 do
         begin
-          AControl := Parent.Controls[I];
-          if (AControl is TACLRadioBox) and (AControl <> Self) then
+          LControl := Parent.Controls[I];
+          if (LControl is TACLRadioButton) and (LControl <> Self) then
           begin
-            if TACLRadioBox(AControl).GroupIndex = GroupIndex then
+            if TACLRadioButton(LControl).GroupIndex = GroupIndex then
             begin
-              TACLRadioBox(AControl).SubClass.CheckState := cbUnchecked;
-              TACLRadioBox(AControl).UpdateSubControlEnabled;
+              TACLRadioButton(LControl).SubClass.CheckState := cbUnchecked;
+              TACLRadioButton(LControl).UpdateSubControlEnabled;
             end;
           end;
         end;

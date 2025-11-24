@@ -2,12 +2,12 @@
 //
 //  Project:   Artem's Components Library aka ACL
 //             Extended Graphics Library
-//             v6.0
+//             v7.0
 //
 //  Purpose:   General Classes
 //
 //  Author:    Artem Izmaylov
-//             © 2006-2024
+//             © 2006-2025
 //             www.aimp.ru
 //
 //  FPC:       OK
@@ -40,6 +40,7 @@ uses
   ACL.Classes.Collections,
   ACL.Geometry,
   ACL.Graphics,
+  ACL.Graphics.Ex.Stub,
   ACL.Graphics.Images,
   ACL.Graphics.SkinImage,
   ACL.Math,
@@ -48,38 +49,6 @@ uses
   ACL.Utils.DPIAware;
 
 type
-{$REGION ' Extended Dib '}
-
-  { TACLDibEx }
-
-  TACLDibEx = class(TACLDib)
-  strict private
-    FDirty: Boolean;
-    FMask: PByte;
-    FMaskCapacity: Integer;
-    FMaskFrame: Integer;
-    FMaskInfo: TACLSkinImageFrameState;
-    FMaskInfoValid: Boolean;
-    FOpaqueRange: TPoint;
-  public
-    destructor Destroy; override;
-    procedure AfterConstruction; override;
-  public // caching
-    function CheckNeedRefresh(const R: TRect): Boolean;
-    property Dirty: Boolean read FDirty write FDirty;
-  public // masks
-    procedure ApplyMask(AClipArea: PRect = nil); overload;
-    procedure ApplyMask(AMask: PByte; AColors: PACLPixel32; ACount: Integer); overload; inline;
-    procedure LoadMask(AImage: TACLSkinImage; AFrame: Integer); overload;
-    procedure LoadMask; overload;
-    property MaskFrame: Integer read FMaskFrame write FMaskFrame;
-  end;
-
-  TACLBitmapLayer = TACLDib deprecated 'Use TACLDib instead';
-  TACLCacheLayer = TACLDibEx deprecated 'Use TACLDibEx instead';
-  TACLMaskLayer = TACLDibEx deprecated 'Use TACLDibEx instead';
-
-{$ENDREGION}
 
 {$REGION ' Blur '}
 
@@ -104,17 +73,14 @@ type
     procedure SetRadius(AValue: Integer);
   protected
     class var FCreateCoreProc: TFunc<Integer, IACLBlurFilterCore>;
-  {$IFDEF ACL_BLURFILTER_USE_SHARED_RESOURCES}
     class var FShare: TACLValueCacheManager<Integer, IACLBlurFilterCore>;
-  {$ENDIF}
   public
-  {$IFDEF ACL_BLURFILTER_USE_SHARED_RESOURCES}
     class constructor Create;
     class destructor Destroy;
-  {$ENDIF}
+  public
     constructor Create;
-    procedure Apply(ALayer: TACLDib); overload;
     procedure Apply(AColors: PACLPixel32; AWidth, AHeight: Integer); overload;
+    procedure Apply(ALayer: TACLBaseDib); overload;
     //# Properties
     property Radius: Integer read FRadius write SetRadius;
     property Size: Integer read FSize;
@@ -213,9 +179,11 @@ type
   strict private
     FSerial: Integer;
   protected
+    FLock: TACLCriticalSection;
     FOrigin: TPoint;
   public
     constructor Create; virtual;
+    destructor Destroy; override;
     procedure BeginPaint(DC: HDC); overload; virtual;
     procedure BeginPaint(DC: HDC; const BoxRect: TRect); overload;
     procedure BeginPaint(DC: HDC; const BoxRect, UpdateRect: TRect); overload; virtual; abstract;
@@ -284,7 +252,8 @@ type
       Width: Single = 1; Style: TACL2DRenderStrokeStyle = ssSolid); overload;
     procedure DrawRectangle(X1, Y1, X2, Y2: Single; Color: TAlphaColor;
       Width: Single = 1; Style: TACL2DRenderStrokeStyle = ssSolid); overload; virtual; abstract;
-    procedure FillHatchRectangle(const R: TRect; Color1, Color2: TAlphaColor; Size: Integer); virtual; abstract;
+    procedure FillHatchRectangle(const R: TRect;
+      Color1, Color2: TAlphaColor; Size: Integer); virtual; abstract;
     procedure FillRectangle(const R: TRect; Color: TAlphaColor); overload;
     procedure FillRectangle(X1, Y1, X2, Y2: Single; Color: TAlphaColor); overload; virtual; abstract;
     procedure FillRectangleByGradient(const R: TRect;
@@ -340,9 +309,7 @@ type
 {$ENDREGION}
 
   // BackgroundLayer is a target layer
-  TACLBlendFunction = procedure (Background, Foreground: TACLDib; Alpha: Byte) of object;
-//  TACLBlendDrawFunction = procedure (Canvas: TCanvas; Foreground: TACLDib;
-//    const Origin: TPoint; Mode: TACLBlendMode; Alpha: Byte);
+  TACLBlendFunction = procedure (Background, Foreground: TACLBaseDib; Alpha: Byte) of object;
 
 var
   BlendFunctions: array[TACLBlendMode] of TACLBlendFunction;
@@ -391,6 +358,7 @@ type
     class var FWorkOpacity: Byte;
 
     class procedure InitializeMatrix(var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc);
+    class procedure ProcessAlphaBlend(Chunk: TChunk); static;
     class procedure ProcessByMatrix(Chunk: TChunk); static;
     class procedure ProcessGrayscale(Chunk: TChunk); static;
 
@@ -405,25 +373,25 @@ type
     class function CalculateSubstractMatrix(const ASource, ATarget: Integer): Integer; static;
   protected
     // General
-    class procedure Run(ABackground, AForeground: TACLDib;
+    class procedure Run(ABackground, AForeground: TACLBaseDib;
       AProc: TACLMultithreadedOperation.TFilterProc; AOpacity: Byte); overload;
-    class procedure Run(ABackground, AForeground: TACLDib;
+    class procedure Run(ABackground, AForeground: TACLBaseDib;
       var AMatrix: PACLPixelMap; AProc: TCalculateMatrixProc; AOpacity: Byte); overload;
   public
     class procedure Register;
     class procedure Unregister;
     // Blend Functions
-    class procedure DoAddition(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoDarken(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoDifference(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoDivide(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoGrayScale(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoLighten(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoMultiply(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoNormal(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoOverlay(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoScreen(ABackground, AForeground: TACLDib; AAlpha: Byte);
-    class procedure DoSubstract(ABackground, AForeground: TACLDib; AAlpha: Byte);
+    class procedure DoAddition(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoDarken(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoDifference(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoDivide(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoGrayScale(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoLighten(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoMultiply(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoNormal(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoOverlay(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoScreen(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
+    class procedure DoSubstract(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
   end;
 
   { TACLSoftwareImplGaussianBlur }
@@ -532,63 +500,64 @@ begin
   FreeAndNil(FLock);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoAddition(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoAddition(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FAdditionMatrix, CalculateAdditionMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDarken(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDarken(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FDarkenMatrix, CalculateDarkenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDifference(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDifference(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FDifferenceMatrix, CalculateDifferenceMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoDivide(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoDivide(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FDivideMatrix, CalculateDivideMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoGrayScale(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoGrayScale(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, @ProcessGrayscale, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoLighten(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoLighten(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FLightenMatrix, CalculateLightenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoMultiply(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoMultiply(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FMultiplyMatrix, CalculateMultiplyMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoNormal(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoNormal(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
-  AForeground.DrawBlend(ABackground.Canvas, NullPoint, AAlpha);
+  Run(ABackground, AForeground, @ProcessAlphaBlend, AAlpha);
+//  AForeground.DrawBlend(ABackground.Canvas, NullPoint, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoOverlay(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoOverlay(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FOverlayMatrix, CalculateOverlayMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoScreen(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoScreen(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FScreenMatrix, CalculateScreenMatrix, AAlpha);
 end;
 
-class procedure TACLSoftwareImplBlendMode.DoSubstract(ABackground, AForeground: TACLDib; AAlpha: Byte);
+class procedure TACLSoftwareImplBlendMode.DoSubstract(ABackground, AForeground: TACLBaseDib; AAlpha: Byte);
 begin
   Run(ABackground, AForeground, FSubstractMatrix, CalculateSubstractMatrix, AAlpha);
 end;
 
 class procedure TACLSoftwareImplBlendMode.Run(
-  ABackground, AForeground: TACLDib;
+  ABackground, AForeground: TACLBaseDib;
   AProc: TACLMultithreadedOperation.TFilterProc; AOpacity: Byte);
 var
   I: Integer;
@@ -636,8 +605,8 @@ begin
     else
     begin
       FWorkChunk.Count  := ABackground.ColorCount;
-      FWorkChunk.Source := @AForeground.Colors^[0];
-      FWorkChunk.Target := @ABackground.Colors^[0];
+      FWorkChunk.Source := @AForeground.Colors^;
+      FWorkChunk.Target := @ABackground.Colors^;
       AProc(FWorkChunk);
     end;
   finally
@@ -646,7 +615,7 @@ begin
 end;
 
 class procedure TACLSoftwareImplBlendMode.Run(
-  ABackground, AForeground: TACLDib; var AMatrix: PACLPixelMap;
+  ABackground, AForeground: TACLBaseDib; var AMatrix: PACLPixelMap;
   AProc: TCalculateMatrixProc; AOpacity: Byte);
 begin
   FLock.Enter;
@@ -670,6 +639,17 @@ begin
     for ASource := 0 to MaxByte do
       for ATarget := 0 to MaxByte do
         AMatrix[ASource, ATarget] := EnsureRange(AProc(ASource, ATarget), 0, MaxByte);
+  end;
+end;
+
+class procedure TACLSoftwareImplBlendMode.ProcessAlphaBlend(Chunk: TChunk);
+begin
+  while Chunk.Count > 0 do
+  begin
+    TACLColors.AlphaBlend(Chunk.Target^, Chunk.Source^, FWorkOpacity);
+    Inc(Chunk.Source);
+    Inc(Chunk.Target);
+    Dec(Chunk.Count);
   end;
 end;
 
@@ -1314,191 +1294,10 @@ end;
 
 {$ENDREGION}
 
-{$REGION ' Layers '}
-
-{ TACLDibEx }
-
-destructor TACLDibEx.Destroy;
-begin
-  FreeMem(FMask);
-  inherited;
-end;
-
-procedure TACLDibEx.AfterConstruction;
-begin
-  inherited;
-  FMaskFrame := -1;
-  FDirty := True;
-end;
-
-function TACLDibEx.CheckNeedRefresh(const R: TRect): Boolean;
-begin
-  if (Width <> R.Width) or (Height <> R.Height) then
-  begin
-    Resize(R);
-    Dirty := True;
-  end
-  else
-    if Dirty then
-      Reset;
-
-  Result := Dirty;
-end;
-
-procedure TACLDibEx.ApplyMask(AMask: PByte; AColors: PACLPixel32; ACount: Integer);
-var
-  AAlpha: Byte;
-begin
-  while ACount > 0 do
-  begin
-    AAlpha := AMask^;
-    if AAlpha = 0 then
-      DWORD(AColors^) := 0
-    else
-      if AAlpha < 255 then
-      begin
-        // less quality, but 2x faster
-        //    TACLColors.Unpremultiply(C^);
-        //    C^.A := TACLColors.PremultiplyTable[C^.A, S^];
-        //    TACLColors.Premultiply(C^);
-        AColors^.B := TACLColors.PremultiplyTable[AColors^.B, AAlpha];
-        AColors^.G := TACLColors.PremultiplyTable[AColors^.G, AAlpha];
-        AColors^.A := TACLColors.PremultiplyTable[AColors^.A, AAlpha];
-        AColors^.R := TACLColors.PremultiplyTable[AColors^.R, AAlpha];
-      end;
-
-    Inc(AMask);
-    Inc(AColors);
-    Dec(ACount);
-  end;
-end;
-
-procedure TACLDibEx.ApplyMask(AClipArea: PRect);
-var
-  LIndex: Integer;
-  LMask: PByte;
-  LRange1: TPoint;
-  LRange2: TPoint;
-begin
-  if FMaskInfoValid then
-  begin
-    if FMaskInfo.IsOpaque then
-      Exit;
-    if FMaskInfo.IsTransparent then
-    begin
-      Reset;
-      Exit;
-    end;
-  end;
-
-  LMask := FMask;
-
-  LRange1.X := 0;
-  LRange1.Y := ColorCount;
-  LRange2.X := 0;
-  LRange2.Y := 0;
-
-  if FOpaqueRange <> NullPoint then
-  begin
-    LRange1.Y := Min(LRange1.Y, FOpaqueRange.X - 1);
-    LRange2.X := FOpaqueRange.Y;
-    LRange2.Y := ColorCount;
-  end;
-
-  if AClipArea <> nil then
-  begin
-    LIndex := CoordToFlatIndex(AClipArea^.Left, AClipArea^.Top);
-    if LIndex > 0 then
-    begin
-      LRange1.X := Max(LRange1.X, LIndex);
-      LRange2.X := Max(LRange2.X, LIndex);
-    end;
-
-    LIndex := CoordToFlatIndex(AClipArea^.Right, AClipArea^.Bottom);
-    if LIndex > 0 then
-    begin
-      LRange1.Y := Min(LRange1.Y, LIndex);
-      LRange2.Y := Min(LRange2.Y, LIndex);
-    end;
-  end;
-
-  if LRange1.Y > LRange1.X then
-    ApplyMask(LMask + LRange1.X, @Colors^[LRange1.X], LRange1.Y - LRange1.X);
-  if LRange2.Y > LRange2.X then
-    ApplyMask(LMask + LRange2.X, @Colors^[LRange2.X], LRange2.Y - LRange2.X);
-end;
-
-procedure TACLDibEx.LoadMask;
-var
-  LColor: PACLPixel32;
-  LColorIndex: Integer;
-  LMask: PByte;
-  LOpaqueCounter: Integer;
-begin
-  if (FMask <> nil) and (ColorCount > FMaskCapacity) then
-    FreeMemAndNil(FMask);
-  if (FMask = nil) then
-  begin
-    FMask := AllocMem(ColorCount);
-    FMaskCapacity := ColorCount;
-  end;
-
-  LMask := FMask;
-  LColor := @Colors^[0];
-  LOpaqueCounter := 0;
-  FOpaqueRange := NullPoint;
-  FMaskInfoValid := False;
-  for LColorIndex := 0 to ColorCount - 1 do
-  begin
-    LMask^ := LColor^.A;
-
-    if LMask^ = 255 then
-      Inc(LOpaqueCounter)
-    else
-    begin
-      if LOpaqueCounter > FOpaqueRange.Y - FOpaqueRange.X then
-      begin
-        FOpaqueRange.Y := LColorIndex - 1;
-        FOpaqueRange.X := FOpaqueRange.Y - LOpaqueCounter;
-      end;
-      LOpaqueCounter := 0;
-    end;
-
-    Inc(LMask);
-    Inc(LColor);
-  end;
-
-  if FOpaqueRange.Y - FOpaqueRange.X < ColorCount div 3 then
-    FOpaqueRange := NullPoint;
-end;
-
-procedure TACLDibEx.LoadMask(AImage: TACLSkinImage; AFrame: Integer);
-begin
-  if (FMask = nil) or (FMaskFrame <> AFrame) then
-  begin
-    Reset;
-    FMaskFrame := AFrame;
-    FMaskInfo := AImage.FrameInfo[FMaskFrame];
-    if {FMaskInfo.IsColor or }FMaskInfo.IsOpaque or FMaskInfo.IsTransparent then
-    begin
-      FreeMemAndNil(FMask);
-      FMaskInfoValid := True;
-      FMaskCapacity := 0;
-    end
-    else
-    begin
-      AImage.Draw(Canvas, ClientRect, AFrame);
-      LoadMask;
-    end;
-  end;
-end;
-{$ENDREGION}
-
 {$REGION ' Blur '}
 
 { TACLBlurFilter }
 
-{$IFDEF ACL_BLURFILTER_USE_SHARED_RESOURCES}
 class constructor TACLBlurFilter.Create;
 begin
   FShare := TACLValueCacheManager<Integer, IACLBlurFilterCore>.Create(8);
@@ -1508,20 +1307,16 @@ class destructor TACLBlurFilter.Destroy;
 begin
   FreeAndNil(FShare);
 end;
-{$ENDIF}
 
 constructor TACLBlurFilter.Create;
 begin
-{$IFNDEF ACL_BLURFILTER_USE_SHARED_RESOURCES}
-  FCore := FCreateBlurFilterCore;
-{$ENDIF}
   Radius := 20;
 end;
 
-procedure TACLBlurFilter.Apply(ALayer: TACLDib);
+procedure TACLBlurFilter.Apply(ALayer: TACLBaseDib);
 begin
   if FSize > 0 then
-    FCore.Apply(PACLPixel32(ALayer.Colors), ALayer.Width, ALayer.Height);
+    FCore.Apply(ALayer.Colors, ALayer.Width, ALayer.Height);
 end;
 
 procedure TACLBlurFilter.Apply(AColors: PACLPixel32; AWidth, AHeight: Integer);
@@ -1536,15 +1331,11 @@ begin
   if FRadius <> AValue then
   begin
     FRadius := AValue;
-  {$IFDEF ACL_BLURFILTER_USE_SHARED_RESOURCES}
     if not FShare.Get(FRadius, FCore) then
     begin
       FCore := FCreateCoreProc(AValue);
       FShare.Add(AValue, FCore);
     end;
-  {$ELSE}
-    FCore := FCreateCoreProc(AValue);
-  {$ENDIF}
     FSize := FCore.GetSize;
   end;
 end;
@@ -1610,7 +1401,14 @@ end;
 
 constructor TACL2DRender.Create;
 begin
-  FSerial := Random(MaxInt) + 1;
+  FSerial := acRandom(MaxInt) + 1;
+  FLock := TACLCriticalSection.Create(Self);
+end;
+
+destructor TACL2DRender.Destroy;
+begin
+  FreeAndNil(FLock);
+  inherited Destroy;
 end;
 
 procedure TACL2DRender.BeginPaint(DC: HDC);
@@ -1688,11 +1486,11 @@ begin
     Exit(nil);
   if Usage = suOwned then
   begin
-    Result := CreateImage(@Image.Colors^[0], Image.Width, Image.Height, afPremultiplied, suReference);
+    Result := CreateImage(Image.Colors, Image.Width, Image.Height, afPremultiplied, suReference);
     Result.FOwnedData := Image;
   end
   else
-    Result := CreateImage(@Image.Colors^[0], Image.Width, Image.Height, afPremultiplied, Usage);
+    Result := CreateImage(Image.Colors, Image.Width, Image.Height, afPremultiplied, Usage);
 end;
 
 function TACL2DRender.CreateImageAttributes: TACL2DRenderImageAttributes;

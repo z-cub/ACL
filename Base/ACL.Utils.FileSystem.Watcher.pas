@@ -1,7 +1,7 @@
 ﻿////////////////////////////////////////////////////////////////////////////////
 //
 //  Project:   Artem's Components Library aka ACL
-//             v6.0
+//             v7.0
 //
 //  Purpose:   FileSystem Changes Watcher
 //
@@ -30,6 +30,7 @@ uses
   {System.}Generics.Collections,
   {System.}Math,
   {System.}SysUtils,
+  System.IOUtils,
   // ACL
   ACL.Classes,
   ACL.Classes.Collections,
@@ -38,6 +39,7 @@ uses
   ACL.Threading,
   ACL.Threading.Pool,
   ACL.Utils.Common,
+  ACL.Utils.Date,
   ACL.Utils.FileSystem,
   ACL.Utils.Messaging,
   ACL.Utils.Strings;
@@ -155,11 +157,10 @@ implementation
 
 uses
 {$IFDEF FPC}
-  ACL.Utils.FileSystem.GIO,
+  ACL.Utils.FileSystem.GIO;
 {$ELSE}
-  ACL.FileFormats.INI,
+  ACL.FileFormats.INI;
 {$ENDIF}
-  System.IOUtils;
 
 {$REGION ' FileSystem Watcher '}
 type
@@ -629,7 +630,7 @@ var
   ATime: TDateTime;
 begin
   FetchFileInfo(ASize, ATime);
-  if (ASize <> FFileSize) or not SameDateTime(ATime, FFileLastWriteTime) then
+  if (ASize <> FFileSize) or not TACLDateUtils.Same(ATime, FFileLastWriteTime) then
   begin
     FFileSize := ASize;
     FFileLastWriteTime := ATime;
@@ -747,7 +748,7 @@ begin
   Result := acEmptyStr;
 {$IFDEF MSWINDOWS}
   if GetVolumeInformation(PChar(Path), @LBuff[0], High(LBuff), @FSerial, LTemp, LTemp, nil, 0) then
-  begin
+  try
     Result := LBuff;
     if Result = '' then
       with TACLIniFile.Create(Path + 'autorun.inf', False) do
@@ -756,6 +757,8 @@ begin
       finally
         Free;
       end;
+  except
+    // do nothing
   end;
 {$ENDIF}
 end;
@@ -883,7 +886,7 @@ var
   LDriveInfo: TACLDriveInfo;
 begin
   inherited;
-  FWndHandle := WndCreate(WndProc, ClassName, False);
+  FWndHandle := acWndAlloc(WndProc, ClassName, False);
 
   Initialize;
   for LDrive in TDirectory.GetLogicalDrives do
@@ -899,7 +902,7 @@ end;
 
 destructor TACLDriveMonitor.Destroy;
 begin
-  WndFree(FWndHandle);
+  acWndFree(FWndHandle);
   inherited;
 end;
 
@@ -939,18 +942,21 @@ type
 var
   AVolume: PDeviceBroadcastVolume;
 begin
-  if Message.Msg = WM_DEVICECHANGE then
-  begin
-    case Message.WParam of
-      DBT_EVENT_DEVICEARRIVAL, DBT_EVENT_DEVICEREMOVED:
-        begin
-          AVolume := PDeviceBroadcastVolume(Message.LParam);
-          if (AVolume^.DeviceType = DBT_TYPE_VOLUME) and (AVolume^.Flags and DBT_FORMAT_NET = 0) then
-            TACLDriveManager.Changed(DecodeDrive(AVolume), Message.WParam = DBT_EVENT_DEVICEARRIVAL);
-        end;
-    end;
+  try
+    if Message.Msg = WM_DEVICECHANGE then
+      case Message.WParam of
+        DBT_EVENT_DEVICEARRIVAL, DBT_EVENT_DEVICEREMOVED:
+          begin
+            AVolume := PDeviceBroadcastVolume(Message.LParam);
+            if (AVolume^.DeviceType = DBT_TYPE_VOLUME) and (AVolume^.Flags and DBT_FORMAT_NET = 0) then
+              TACLDriveManager.Changed(DecodeDrive(AVolume), Message.WParam = DBT_EVENT_DEVICEARRIVAL);
+          end;
+      end;
+    acWndDefaultProc(FWndHandle, Message);
+  except
+    if Assigned(ApplicationHandleException) then
+      ApplicationHandleException(Self);
   end;
-  WndDefaultProc(FWndHandle, Message);
 end;
 
 { TACLDriveMonitor.TCheckTask }
@@ -1109,6 +1115,7 @@ class procedure TACLDriveManager.ListenerAdd(AListener: TCallback);
 begin
   FLock.Enter;
   try
+    EnsureInit;
     FListeners.Add(AListener);
   finally
     FLock.Leave;
