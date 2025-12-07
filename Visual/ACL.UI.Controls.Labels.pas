@@ -616,12 +616,17 @@ begin
 end;
 
 function TACLLabel.MeasureSize(AWidth: Integer = 0): TSize;
+var
+  LText: string;
 begin
+  LText := Caption;
   MeasureCanvas.SetScaledFont(Font);
-  if Style.WordWrap then
-    Result := acTextSizeMultiline(MeasureCanvas, Caption, AWidth)
+  if LText = '' then
+    Result := TSize.Create(0, acFontHeight(MeasureCanvas))
+  else if Style.WordWrap then
+    Result := acTextSizeMultiline(MeasureCanvas, LText, AWidth)
   else
-    Result := acTextSize(MeasureCanvas, Caption);
+    Result := acTextSize(MeasureCanvas, LText);
 end;
 
 procedure TACLLabel.MouseEnter;
@@ -744,11 +749,16 @@ end;
 function TACLFormattedLabel.MeasureSize(AWidth: Integer): TSize;
 begin
   MeasureCanvas.SetScaledFont(Font);
-  FText.SetOption(atoEndEllipsis, not AutoSize);
-  FText.SetOption(atoWordWrap, Style.WordWrap);
-  FText.Bounds := Bounds(0, 0, IfThen(AWidth > 0, AWidth, MaxWord), MaxWord);
-  FText.Calculate(MeasureCanvas);
-  Result := FText.MeasureSize;
+  if FText.Text <> '' then
+  begin
+    FText.SetOption(atoEndEllipsis, EndEllipsis and not AutoSize);
+    FText.SetOption(atoWordWrap, Style.WordWrap);
+    FText.Bounds := Bounds(0, 0, IfThen(AWidth > 0, AWidth, MaxWord), MaxWord);
+    FText.Calculate(MeasureCanvas);
+    Result := FText.MeasureSize
+  end
+  else
+    Result := TSize.Create(0, acFontHeight(MeasureCanvas));
 end;
 
 procedure TACLFormattedLabel.PaintText;
