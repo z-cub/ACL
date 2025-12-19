@@ -510,7 +510,6 @@ type
     function CalculateScrollDeltaCore(ACell: TACLCompoundControlBaseContentCell;
       AMode: TACLScrollToMode; const AArea: TRect;
       AColumn: TACLTreeListColumnViewInfo = nil): TPoint; virtual;
-    function FindNearestNode(const P: TPoint; ADirection: Integer): TACLTreeListNode;
     function IsObjectVisible(AObject: TObject; AColumn: TACLTreeListColumn = nil): Boolean;
     procedure ScrollByLines(ALines: Integer; ADirection: TACLMouseWheelDirection);
     procedure LockViewItemsPlacement;
@@ -896,28 +895,21 @@ type
   TACLTreeListSelectionRectDragObject = class(TACLTreeListCustomDragSortingObject)
   strict private
     FCapturePoint: TPoint;
-    FLastHitNode: TACLTreeListNode;
+    FRange1: TACLTreeListNode;
+    FRange2: TACLTreeListNode;
     FSelectionMode: Boolean;
-    FStartNode: TACLTreeListNode;
-    FStartNodeNearest: TACLTreeListNode;
 
-    function GetContentViewInfo: TACLTreeListContentViewInfo; inline;
-    function GetHitNode: TACLTreeListNode;
-    function GetSelection: TACLTreeListNodeList;
+    procedure CalculateRange(const ARect: TRect; out AStart, AFinish: TACLTreeListNode);
+    function GetContent: TACLTreeListContentViewInfo; inline;
   protected
     function CanStartSelectionMode: Boolean; virtual;
-    function GetAbsoluteHitPoint: TPoint;
-    procedure UpdateStartNodeNearest;
   public
     constructor Create(ANode: TACLTreeListNode);
     procedure DragFinished(ACanceled: Boolean); override;
     procedure DragMove(const P: TPoint; var ADeltaX, ADeltaY: Integer); override;
     function DragStart: Boolean; override;
     //# Properties
-    property ContentViewInfo: TACLTreeListContentViewInfo read GetContentViewInfo;
-    property Selection: TACLTreeListNodeList read GetSelection;
-    property StartNode: TACLTreeListNode read FStartNode;
-    property StartNodeNearest: TACLTreeListNode read FStartNodeNearest;
+    property Content: TACLTreeListContentViewInfo read GetContent;
   end;
 
   { TACLTreeListNodeDragObject }
@@ -2752,39 +2744,6 @@ begin
     Result.X := 0;
 end;
 
-function TACLTreeListContentViewInfo.FindNearestNode(const P: TPoint; ADirection: Integer): TACLTreeListNode;
-var
-  ACell: TACLCompoundControlBaseContentCell;
-  ADistance: Integer;
-  AIndex: Integer;
-  AMinDistance: Integer;
-begin
-  Result := nil;
-  AMinDistance := MaxInt;
-  for AIndex := 0 to ViewItems.Count - 1 do
-  begin
-    ACell := ViewItems.List[AIndex];
-    if ADirection < 0 then
-    begin
-      if ACell.Top > P.Y then
-        Continue;
-      ADistance := P.Y - ACell.Top;
-    end
-    else
-    begin
-      if ACell.Top + ACell.Height < P.Y then
-        Continue;
-      ADistance := ACell.Top + ACell.Height - P.Y;
-    end;
-
-    if (ADistance < AMinDistance) and (ACell.Data is TACLTreeListNode) then
-    begin
-      AMinDistance := ADistance;
-      Result := TACLTreeListNode(ACell.Data);
-    end;
-  end;
-end;
-
 function TACLTreeListContentViewInfo.IsObjectVisible(AObject: TObject; AColumn: TACLTreeListColumn = nil): Boolean;
 var
   ADelta: TPoint;
@@ -4428,12 +4387,8 @@ begin
 end;
 
 procedure TACLTreeListColumnDragMoveObject.DragMove(const P: TPoint; var ADeltaX, ADeltaY: Integer);
-var
-  LRect: TRect;
 begin
-  LRect := ColumnBarViewInfo.Bounds;
-  LRect.Intersect(SubClass.Bounds);
-  UpdateAutoScrollDirection(P, LRect.InflateTo(-50, 0));
+  UpdateAutoScrollDirection(P, TRect.Intersect(ColumnBarViewInfo.Bounds, SubClass.Bounds));
   UpdateHighlight;
   if SubClass.HitTest.HitAtColumn then
     UpdateCursor(crDefault)
@@ -4445,10 +4400,7 @@ function TACLTreeListColumnDragMoveObject.DragStart: Boolean;
 begin
   Result := SubClass.OptionsCustomizing.ColumnOrder;
   if Result then
-  begin
     InitializePreview(ColumnViewInfo);
-    CreateAutoScrollTimer(10);
-  end;
 end;
 
 procedure TACLTreeListColumnDragMoveObject.Draw(ACanvas: TCanvas);
@@ -4605,39 +4557,68 @@ end;
 constructor TACLTreeListSelectionRectDragObject.Create(ANode: TACLTreeListNode);
 begin
   inherited Create;
-  FStartNode := ANode;
+  FRange1 := ANode;
+  FRange2 := ANode;
+end;
+
+function TACLTreeListSelectionRectDragObject.CanStartSelectionMode: Boolean;
+begin
+  Result := SubClass.OptionsSelection.MultiSelect;
+end;
+
+procedure TACLTreeListSelectionRectDragObject.CalculateRange(
+  const ARect: TRect; out AStart, AFinish: TACLTreeListNode);
+var
+  LItem: TACLCompoundControlBaseContentCell;
+begin
+  AStart := nil;
+  AFinish := nil;
+  for LItem in Content.ViewItems do
+  begin
+    if LItem.Top + LItem.Height < ARect.Top then
+      Continue;
+    if LItem.Top > ARect.Bottom then
+      Break;
+    if ARect.IntersectsWith(LItem.AbsBounds) and (LItem.Data is TACLTreeListNode) then
+    begin
+      if AStart = nil then
+        AStart := TACLTreeListNode(LItem.Data);
+      AFinish := TACLTreeListNode(LItem.Data);
+    end;
+  end;
 end;
 
 procedure TACLTreeListSelectionRectDragObject.DragFinished(ACanceled: Boolean);
 begin
   inherited DragFinished(ACanceled);
-  ContentViewInfo.SelectionRect := NullRect;
+  Content.SelectionRect := NullRect;
 end;
 
-procedure TACLTreeListSelectionRectDragObject.DragMove(const P: TPoint; var ADeltaX, ADeltaY: Integer);
-
-  procedure UpdateSelectionRect(const P1, P2: TPoint);
-  begin
-    ContentViewInfo.SelectionRect := Rect(Min(P1.X, P2.X), Min(P1.Y, P2.Y), Max(P1.X, P2.X), Max(P1.Y, P2.Y));
-  end;
-
+procedure TACLTreeListSelectionRectDragObject.DragMove(
+  const P: TPoint; var ADeltaX, ADeltaY: Integer);
 var
-  AHitNode: TACLTreeListNode;
+  LNode1: TACLTreeListNode;
+  LNode2: TACLTreeListNode;
+  LPoint: TPoint;
 begin
   if FSelectionMode then
   begin
-    UpdateAutoScrollDirection(HitTest.Point, ContentViewInfo.ViewItemsArea);
-    UpdateSelectionRect(FCapturePoint, GetAbsoluteHitPoint);
-    UpdateStartNodeNearest;
+    LPoint := P - Content.ViewItemsOrigin;
+    UpdateAutoScrollDirection(
+      HitTest.Point, Content.ViewItemsArea);
+    Content.SelectionRect := Rect(
+      Min(FCapturePoint.X, LPoint.X),
+      Min(FCapturePoint.Y, LPoint.Y),
+      Max(FCapturePoint.X, LPoint.X),
+      Max(FCapturePoint.Y, LPoint.Y));
 
-    AHitNode := GetHitNode;
-    if FLastHitNode <> AHitNode then
+    CalculateRange(Content.SelectionRect, LNode1, LNode2);
+    if (LNode1 <> FRange1) or (LNode2 <> FRange2) then
     begin
-      FLastHitNode := AHitNode;
-      if (AHitNode <> nil) and (StartNode <> nil) then
-        SubClass.SelectRange(StartNode, AHitNode, False, True, smSelect)
-      else if (AHitNode <> nil) and (StartNodeNearest <> nil) then
-        SubClass.SelectRange(StartNodeNearest, AHitNode, False, True, smSelect)
+      FRange1 := LNode1;
+      FRange2 := LNode2;
+      if (FRange1 <> nil) and (FRange2 <> nil) then
+        SubClass.SelectRange(FRange1, FRange2, False, True, smSelect)
       else
         SubClass.SelectNone;
     end;
@@ -4648,86 +4629,34 @@ end;
 
 function TACLTreeListSelectionRectDragObject.DragStart: Boolean;
 begin
-  Result := CanStartSelectionMode;
-  if Result then
+  if CanStartSelectionMode then
   begin
-    FCapturePoint := GetAbsoluteHitPoint;
-    FLastHitNode := StartNode;
-    CreateAutoScrollTimer;
+    FCapturePoint := HitTest.Point - Content.ViewItemsOrigin;
     FSelectionMode := True;
+    Result := True;
   end
   else
-    Result := SubClass.HasSelection and inherited DragStart;
+    Result := SubClass.HasSelection and inherited;
 end;
 
-function TACLTreeListSelectionRectDragObject.CanStartSelectionMode: Boolean;
-begin
-  Result := SubClass.OptionsSelection.MultiSelect;
-end;
-
-function TACLTreeListSelectionRectDragObject.GetAbsoluteHitPoint: TPoint;
-begin
-  Result := HitTest.Point - ContentViewInfo.ViewItemsOrigin;
-end;
-
-procedure TACLTreeListSelectionRectDragObject.UpdateStartNodeNearest;
-begin
-  FStartNodeNearest := ContentViewInfo.FindNearestNode(FCapturePoint, GetAbsoluteHitPoint.Y - FCapturePoint.Y);
-end;
-
-function TACLTreeListSelectionRectDragObject.GetContentViewInfo: TACLTreeListContentViewInfo;
+function TACLTreeListSelectionRectDragObject.GetContent: TACLTreeListContentViewInfo;
 begin
   Result := SubClass.ViewInfo.Content;
-end;
-
-function TACLTreeListSelectionRectDragObject.GetHitNode: TACLTreeListNode;
-var
-  ADirection: Integer;
-  APrevHitPoint: TPoint;
-begin
-  if HitTest.HitAtNode then
-    Exit(HitTest.Node);
-
-  APrevHitPoint := HitTest.Point;
-  try
-    HitTest.Point := Point(FCapturePoint.X, APrevHitPoint.Y);
-    if ContentViewInfo.CalculateHitTest(HitTest) and HitTest.HitAtNode then
-      Exit(HitTest.Node);
-  finally
-    HitTest.Point := APrevHitPoint;
-  end;
-
-  ADirection := FCapturePoint.Y - GetAbsoluteHitPoint.Y;
-  Result := ContentViewInfo.FindNearestNode(GetAbsoluteHitPoint, ADirection);
-  if Result <> StartNode then
-    Result := ContentViewInfo.FindNearestNode(GetAbsoluteHitPoint, ADirection);
-
-
-//  if (StartNodeNearest <> nil) and (Result <> nil) and
-//    (StartNodeNearest <> Result) and (Sign(ADirection) = Sign(Result.Index - StartNodeNearest.Index))
-//  then
-//    Result := nil;
-end;
-
-function TACLTreeListSelectionRectDragObject.GetSelection: TACLTreeListNodeList;
-begin
-  Result := SubClass.Selection;
 end;
 
 { TACLTreeListNodeDragObject }
 
 function TACLTreeListNodeDragObject.CanStartSelectionMode: Boolean;
 var
-  AViewInfo: TACLTreeListColumnViewInfo;
+  LColumn: TACLTreeListColumnViewInfo;
 begin
   Result := False;
-  if inherited CanStartSelectionMode and HitTest.HitAtNode then
+  if (SubClass.Columns.Count > 0) and inherited and HitTest.HitAtNode then
   begin
-    AViewInfo := HitTest.ColumnViewInfo;
-    if AViewInfo <> nil then
-      Result := HitTest.Point.X > AViewInfo.Bounds.Left + MulDiv(AViewInfo.Bounds.Width, 3, 4)
-    else
-      Result := SubClass.Columns.Count > 0;
+    if acIsShiftPressed([ssShift], SubClass.DragAndDropController.ShiftState) then
+      Exit(True);
+    LColumn := HitTest.ColumnViewInfo;
+    Result := (LColumn = nil) or (HitTest.Point.X > LColumn.Bounds.Left + MulDiv(LColumn.Bounds.Width, 3, 4));
   end;
 end;
 
