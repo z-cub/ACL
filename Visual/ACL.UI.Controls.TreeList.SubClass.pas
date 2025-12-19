@@ -1849,6 +1849,8 @@ begin
           AViewInfo := TACLTreeListColumnViewInfo(AList[I]);
           APrevWidth := AViewInfo.ActualWidth;
           AViewInfo.ActualWidth := Max(tlColumnMinWidth, AViewInfo.ActualWidth + ADelta);
+          if AViewInfo.Column <> nil then
+            AViewInfo.ActualWidth := Max(AViewInfo.ActualWidth, AViewInfo.Column.MinWidth);
           Dec(AOverlap, AViewInfo.ActualWidth - APrevWidth);
         end;
       until AOverlap = AOverlapPrev;
